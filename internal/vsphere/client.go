@@ -221,13 +221,19 @@ func (c *Client) Route() string { return c.dialer.Describe() }
 
 // Ping issues a cheap authenticated call and returns how long it took. It is
 // how the session manager decides a connection is still usable.
+//
+// It reads SessionManager.currentSession rather than calling SessionIsActive:
+// the latter needs Sessions.ValidateSession, which the built-in ReadOnly role
+// lacks, so a correctly scoped read-only account would fail its own
+// connection test. The property read needs no privilege beyond a session and
+// comes back empty once the session has expired.
 func (c *Client) Ping(ctx context.Context) (time.Duration, error) {
 	start := time.Now()
-	ok, err := c.vim.SessionManager.SessionIsActive(ctx)
+	us, err := c.vim.SessionManager.UserSession(ctx)
 	if err != nil {
 		return 0, err
 	}
-	if !ok {
+	if us == nil {
 		return 0, fmt.Errorf("session for %s is no longer active", c.Context.Name)
 	}
 	return time.Since(start), nil

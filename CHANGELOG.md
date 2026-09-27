@@ -10,6 +10,7 @@
 ### Bug Fixes
 
 * **assessment:** stop reporting a clean orphan scan when datastore browse evidence is missing ([#115](https://github.com/Easonliuuuuu/vsfleet/issues/115))
+* **vsphere:** pass the connection test with the built-in ReadOnly role instead of requiring `Sessions.ValidateSession` ([#189](https://github.com/Easonliuuuuu/vsfleet/issues/189))
 * **decommission:** rename the clean verdict from `ready` to `no-blockers` so it never reads as authorization to delete ([#98](https://github.com/Easonliuuuuu/vsfleet/issues/98))
 
 ## [0.6.0](https://github.com/Easonliuuuuu/vsfleet/compare/v0.5.0...v0.6.0) (2026-09-12)

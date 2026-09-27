@@ -261,8 +261,9 @@ credentials or session cookies.
 
 ## vSphere permissions
 
-Use a read-only vSphere account. Inventory and assessment collection do not
-need write privileges. The optional `vsfleet assessment run
+Use a read-only vSphere account; the built-in ReadOnly role is enough for
+the connection test and all inventory reads. Inventory and assessment
+collection do not need write privileges. The optional `vsfleet assessment run
 --browse-datastores` path additionally needs `Datastore.Browse` on the
 datastores to inspect VM disk-file metadata; it still performs no inventory
 mutation. The interactive datastore file browser in the terminal interface

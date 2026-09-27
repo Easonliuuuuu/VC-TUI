@@ -80,7 +80,6 @@ var readOnlyMethods = map[string]string{
 	"RetrieveServiceContent":         "read: the service's own capability document, on connect",
 	"Login":                          "session: nothing is readable without one",
 	"Logout":                         "session: release it rather than leaving it to time out",
-	"SessionIsActive":                "read: is this session still valid (the doctor/status ping)",
 	"CreateContainerView":            "transient view object this tool creates for its own enumeration",
 	"DestroyView":                    "cleanup of that same view; never touches inventory",
 	"RetrievePropertiesEx":           "read: the property collector, how all inventory is enumerated",
