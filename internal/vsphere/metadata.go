@@ -57,7 +57,13 @@ type categoryInfo struct {
 }
 
 func newTaggingClient(vim *vim25.Client) *taggingClient {
-	return &taggingClient{client: vim.Client.NewServiceClient("/rest", "")}
+	rest := vim.Client.NewServiceClient("/rest", "")
+	// NewServiceClient starts from the transport soap.NewClient built, not the
+	// one newVimClient installed afterwards, so the REST client would otherwise
+	// verify against the system CAs and dial directly. Share the SOAP
+	// transport: same TLS policy (pinned thumbprint included) and same dialer.
+	rest.Client.Transport = vim.Client.Client.Transport
+	return &taggingClient{client: rest}
 }
 
 func (c *taggingClient) session() string {
