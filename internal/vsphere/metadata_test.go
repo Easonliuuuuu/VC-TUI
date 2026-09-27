@@ -2,7 +2,12 @@ package vsphere
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
+	"net/http"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/vmware/govmomi"
 	"github.com/vmware/govmomi/object"
@@ -13,6 +18,7 @@ import (
 	"github.com/vmware/govmomi/vim25/types"
 
 	"github.com/easonliuuuuu/vsfleet/internal/config"
+	"github.com/easonliuuuuu/vsfleet/internal/transport"
 )
 
 func TestCollectMetadataNormalizesCustomFieldsAndReportsTagAvailability(t *testing.T) {
@@ -110,5 +116,53 @@ func TestListVMsCollectsSimulatorTagsAndCustomAttributes(t *testing.T) {
 	}
 	if len(got[0].Metadata.CustomAttributes) != 1 || got[0].Metadata.CustomAttributes[0].Name != "environment" || got[0].Metadata.CustomAttributes[0].Value != "prod" {
 		t.Fatalf("custom attributes=%+v", got[0].Metadata.CustomAttributes)
+	}
+}
+
+func TestTaggingClientUsesThePinnedThumbprint(t *testing.T) {
+	model := simulator.VPX()
+	if err := model.Create(); err != nil {
+		t.Fatalf("create simulator model: %v", err)
+	}
+	t.Cleanup(model.Remove)
+	model.Service.RegisterEndpoints = true
+	model.Service.TLS = new(tls.Config)
+	server := model.Service.NewServer()
+	t.Cleanup(server.Close)
+
+	// The simulator's certificate is not signed by any system CA, like a
+	// vCenter's default VMCA certificate: only the pinned thumbprint trusts it.
+	cc := &config.Context{
+		Name: "sim", Endpoint: server.URL.String(), Username: "user",
+		TLS: config.TLSConfig{Mode: config.TLSThumbprint, Thumbprint: ThumbprintSHA256(server.Certificate())},
+	}
+	cc.Normalize()
+	u, err := cc.URL()
+	if err != nil {
+		t.Fatalf("context URL: %v", err)
+	}
+	ctx := context.Background()
+	vim, err := newVimClient(ctx, cc, u, transport.NewDirect(5*time.Second), "")
+	if err != nil {
+		t.Fatalf("connect with the pinned thumbprint: %v", err)
+	}
+	tagger := newTaggingClient(vim)
+	if err := tagger.Login(ctx, simulator.DefaultLogin); err != nil {
+		t.Fatalf("tagging client login with the pinned thumbprint: %v", err)
+	}
+	t.Cleanup(func() { _ = tagger.Logout(ctx) })
+
+	// A wrong pin must fail the REST endpoint too, not fall back to the CAs.
+	wrong := *cc
+	wrong.TLS.Thumbprint = strings.Repeat("AB:", 31) + "AB"
+	wrongTLS, err := TLSConfig(&wrong)
+	if err != nil {
+		t.Fatalf("TLS config for the wrong pin: %v", err)
+	}
+	vim.Client.Client.Transport.(*http.Transport).TLSClientConfig = wrongTLS
+	vim.Client.Client.Transport.(*http.Transport).CloseIdleConnections()
+	var mismatch *ThumbprintMismatchError
+	if err := newTaggingClient(vim).Login(ctx, simulator.DefaultLogin); !errors.As(err, &mismatch) {
+		t.Fatalf("tagging client login with a wrong pin: %v, want a thumbprint mismatch", err)
 	}
 }
