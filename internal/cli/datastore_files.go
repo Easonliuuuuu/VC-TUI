@@ -426,7 +426,7 @@ func printDatastoreListing(a *App, contextName, path string, result datastoreBro
 		}
 		size := "-"
 		if e.Type != vsphere.DatastoreEntryFolder {
-			size = humanBytes(e.SizeBytes)
+			size = humanFileBytes(e.SizeBytes)
 		}
 		t.row(kind, name, size, datastoreModified(e.Modified), dash(relationshipSummary(e, result)))
 	}
@@ -450,7 +450,7 @@ func printDatastoreFind(a *App, contextName, pattern string, limited bool, entri
 			}
 			size := "-"
 			if e.Type != vsphere.DatastoreEntryFolder {
-				size = humanBytes(e.SizeBytes)
+				size = humanFileBytes(e.SizeBytes)
 			}
 			t.row(kind, e.Path, size, datastoreModified(e.Modified), dash(relationshipSummary(e, result)))
 		}
