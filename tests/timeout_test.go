@@ -26,6 +26,11 @@ func TestTimeoutBoundsInventoryEnumeration(t *testing.T) {
 		m.ClusterHost = 2
 		m.Machine = 3
 	})
+	r := newRunner(t)
+	r.addContext("lab", vc)
+
+	// Installed only once the context is saved: "context add" runs the
+	// connection test, whose liveness probe is itself a property read.
 	vc.Service.AddFaultRule(&simulator.FaultInjectionRule{
 		MethodName:  "RetrievePropertiesEx",
 		ObjectType:  "*",
@@ -35,9 +40,6 @@ func TestTimeoutBoundsInventoryEnumeration(t *testing.T) {
 		Delay:       1500, // milliseconds — far past the --timeout below
 		Enabled:     true,
 	})
-
-	r := newRunner(t)
-	r.addContext("lab", vc)
 
 	start := time.Now()
 	_, stderr, err := r.run(testPassword+"\n", "vm", "list", "--timeout", "300ms")
