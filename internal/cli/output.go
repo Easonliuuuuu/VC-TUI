@@ -81,6 +81,8 @@ func humanMB(mb int64) string { return humanize.MB(mb) }
 
 func humanBytes(b int64) string { return humanize.Bytes(b) }
 
+func humanFileBytes(b int64) string { return humanize.FileBytes(b) }
+
 func humanDuration(d time.Duration) string { return humanize.Duration(d) }
 
 func dash(s string) string { return humanize.Dash(s) }

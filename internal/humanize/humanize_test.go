@@ -44,6 +44,22 @@ func TestBytes(t *testing.T) {
 	}
 }
 
+func TestFileBytes(t *testing.T) {
+	for _, tc := range []struct {
+		in   int64
+		want string
+	}{
+		{0, "0B"},
+		{-1, "-"},
+		{512, "512B"},
+		{1536, "1.5K"},
+	} {
+		if got := FileBytes(tc.in); got != tc.want {
+			t.Errorf("FileBytes(%d) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestMHz(t *testing.T) {
 	for _, tc := range []struct {
 		in   int64

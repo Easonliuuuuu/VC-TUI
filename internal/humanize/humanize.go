@@ -50,6 +50,17 @@ func Bytes(b int64) string {
 	return strconv.FormatFloat(v, 'f', 1, 64) + units[exp]
 }
 
+// FileBytes renders a size the source actually measured, such as a file size
+// the datastore browser was asked to report. Zero is a real empty file there,
+// so it reads 0B; only a negative value, which no source reports, reads as
+// unknown. Bytes stays the renderer for figures where zero means not reported.
+func FileBytes(b int64) string {
+	if b == 0 {
+		return "0B"
+	}
+	return Bytes(b)
+}
+
 // GB renders a size already expressed in gibibytes.
 func GB(gb float64) string {
 	if gb <= 0 {

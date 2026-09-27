@@ -746,7 +746,7 @@ func (m *Model) viewDatastoreEntry() []string {
 	lines = append(lines,
 		truncate("  "+t.label.Render("Path")+t.value.Render("  "+d.entry.Path), m.width),
 		"  "+t.label.Render("Type")+t.value.Render("  "+string(d.entry.Type)),
-		"  "+t.label.Render("Size")+t.value.Render("  "+humanize.Bytes(d.entry.SizeBytes)),
+		"  "+t.label.Render("Size")+t.value.Render("  "+datastoreEntrySize(d.entry)),
 		"  "+t.label.Render("Modified")+t.value.Render("  "+formatDatastoreTime(d.entry.Modified)), "")
 	if d.entry.Type != vsphere.DatastoreEntryFile || !strings.HasSuffix(strings.ToLower(d.entry.Name), ".vmdk") {
 		lines = append(lines, "  "+t.dim.Render("ownership and orphan assessment apply to VMDK files only"))
@@ -901,7 +901,7 @@ func (m *Model) dsTable(entries []vsphere.DatastoreEntry, cursor int, offset *in
 
 func (m *Model) renderDSEntry(entry vsphere.DatastoreEntry, cols []column, widths []int, selected, showPath bool) string {
 	kind, glyph, name := "FILE", " ", entry.Name
-	size := humanize.Bytes(entry.SizeBytes)
+	size := humanize.FileBytes(entry.SizeBytes)
 	if entry.Type == vsphere.DatastoreEntryFolder {
 		kind, glyph, name, size = "DIR", "▸", entry.Name+"/", "—"
 	}
@@ -940,4 +940,13 @@ func (m *Model) dsBreadcrumb() string {
 		return "/"
 	}
 	return "/" + m.ds.path
+}
+
+// datastoreEntrySize renders the detail pane's size: a measured size for a
+// file, where an empty file reads 0B, and the unknown placeholder for a folder.
+func datastoreEntrySize(entry vsphere.DatastoreEntry) string {
+	if entry.Type == vsphere.DatastoreEntryFolder {
+		return "-"
+	}
+	return humanize.FileBytes(entry.SizeBytes)
 }

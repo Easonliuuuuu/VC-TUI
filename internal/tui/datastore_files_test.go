@@ -453,3 +453,12 @@ func TestFindIsCancellable(t *testing.T) {
 		t.Fatal("cancelling did not advance the generation, so a late reply would be accepted")
 	}
 }
+
+func TestDatastoreEntrySizeShowsEmptyFilesAsZeroBytes(t *testing.T) {
+	if got := datastoreEntrySize(file("vm.vmsd", "[nvme-01] vm/vm.vmsd", 0)); got != "0B" {
+		t.Errorf("empty file size = %q, want 0B", got)
+	}
+	if got := datastoreEntrySize(dir("vm", "[nvme-01] vm")); got != "-" {
+		t.Errorf("folder size = %q, want -", got)
+	}
+}
