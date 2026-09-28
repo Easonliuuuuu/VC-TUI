@@ -765,6 +765,13 @@ func (m *Model) viewDatastoreEntry() []string {
 				label += " (template)"
 			}
 			line := fmt.Sprintf("  %s @ %s", label, ref.Context)
+			if ref.DiskLabel != "" {
+				line += " · " + ref.DiskLabel
+			}
+			if ref.BackingPath != "" {
+				line += " · " + ref.BackingPath
+			}
+			line = truncate(line, m.width)
 			if i == d.cursor {
 				line = t.focused.Render(line)
 			} else {
