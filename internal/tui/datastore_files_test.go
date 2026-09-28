@@ -462,3 +462,25 @@ func TestDatastoreEntrySizeShowsEmptyFilesAsZeroBytes(t *testing.T) {
 		t.Errorf("folder size = %q, want -", got)
 	}
 }
+
+func TestDatastoreEntryShowsDiskLabelAndBackingPath(t *testing.T) {
+	m := newTestModel(t, browsing().fakeBackend, Options{Current: "prod"})
+	m.width, m.height = 200, 40
+	m.ds = &dsWorkspace{context: "prod", datastore: "nfs-shared", datastoreID: "ds-1"}
+	m.ds.detail = &dsEntryDetail{
+		entry:     file("shared-disk.vmdk", "[nfs-shared] shared/shared-disk.vmdk", 1),
+		refLoaded: true,
+		refs: vsphere.DatastoreReferenceListing{
+			TotalVMs: 1, CheckedVMs: 1,
+			References: []vsphere.DatastoreVMReference{{
+				Context: "lab-vcenter", VMID: "vm-1", VMName: "vm-shared-a",
+				DiskLabel: "Hard disk 2", BackingPath: "[nfs-shared] shared/shared-disk.vmdk",
+			}},
+		},
+	}
+	out := strings.Join(m.viewDatastoreEntry(), "\n")
+	want := "vm-shared-a @ lab-vcenter · Hard disk 2 · [nfs-shared] shared/shared-disk.vmdk"
+	if !strings.Contains(out, want) {
+		t.Fatalf("missing %q in:\n%s", want, out)
+	}
+}
