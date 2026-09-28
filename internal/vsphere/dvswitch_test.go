@@ -6,6 +6,7 @@ import (
 
 	"github.com/vmware/govmomi"
 	"github.com/vmware/govmomi/simulator"
+	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
 
 	"github.com/easonliuuuuu/vsfleet/internal/config"
@@ -82,6 +83,44 @@ func TestDVSVLAN(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := dvsVLAN(tc.spec); got != tc.want {
 				t.Fatalf("dvsVLAN() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestMapDVPortGroupFailback(t *testing.T) {
+	cases := []struct {
+		name         string
+		rollingOrder *bool
+		want         *bool
+	}{
+		{name: "rolling order enabled disables failback", rollingOrder: boolPtr(true), want: boolPtr(false)},
+		{name: "rolling order disabled enables failback", rollingOrder: boolPtr(false), want: boolPtr(true)},
+		{name: "rolling order unreported keeps failback unreported"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var rollingOrder *types.BoolPolicy
+			if tc.rollingOrder != nil {
+				rollingOrder = &types.BoolPolicy{Value: tc.rollingOrder}
+			}
+			group := &mo.DistributedVirtualPortgroup{
+				Config: types.DVPortgroupConfigInfo{
+					DefaultPortConfig: &types.VMwareDVSPortSetting{
+						UplinkTeamingPolicy: &types.VmwareUplinkPortTeamingPolicy{RollingOrder: rollingOrder},
+					},
+				},
+			}
+
+			got := mapDVPortGroup(group, "switch").Failback
+			if got == nil || tc.want == nil {
+				if got != nil || tc.want != nil {
+					t.Fatalf("Failback = %v, want %v", got, tc.want)
+				}
+				return
+			}
+			if *got != *tc.want {
+				t.Fatalf("Failback = %t, want %t", *got, *tc.want)
 			}
 		})
 	}

@@ -170,7 +170,7 @@ func mapDVPortGroup(m *mo.DistributedVirtualPortgroup, switchName string) DVPort
 			if setting.UplinkTeamingPolicy != nil {
 				p.TeamingPolicy = stringPolicy(setting.UplinkTeamingPolicy.Policy)
 				p.NotifySwitches = boolPolicy(setting.UplinkTeamingPolicy.NotifySwitches)
-				p.Failback = boolPolicy(setting.UplinkTeamingPolicy.RollingOrder)
+				p.Failback = invertedBoolPolicy(setting.UplinkTeamingPolicy.RollingOrder)
 				if order := setting.UplinkTeamingPolicy.UplinkPortOrder; order != nil {
 					p.ActiveUplinks = append([]string(nil), order.ActiveUplinkPort...)
 					p.StandbyUplinks = append([]string(nil), order.StandbyUplinkPort...)
@@ -203,6 +203,14 @@ func boolPolicy(policy *types.BoolPolicy) *bool {
 		return nil
 	}
 	return boolPtr(*policy.Value)
+}
+
+func invertedBoolPolicy(policy *types.BoolPolicy) *bool {
+	value := boolPolicy(policy)
+	if value != nil {
+		*value = !*value
+	}
+	return value
 }
 
 func stringPolicy(policy *types.StringPolicy) string {
