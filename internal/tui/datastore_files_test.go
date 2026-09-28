@@ -517,3 +517,26 @@ func TestBrowseFilesIgnoresAndRestoresTheInventoryFilter(t *testing.T) {
 		t.Fatalf("mode=%v filter=%q, want detail with the inventory filter restored", m.mode, m.filter.Value())
 	}
 }
+
+func TestDatastoreListingShowsLocalTime(t *testing.T) {
+	// The listing and the find results share renderDSEntry; both must show
+	// local time like the inspector and the CLI do, not raw UTC.
+	old := time.Local
+	time.Local = time.FixedZone("TEST", 8*3600)
+	defer func() { time.Local = old }()
+
+	m := newTestModel(t, twoHealthy(), Options{})
+	cols := dsColumns()
+	widths := layoutColumns(cols, m.width-glyphGutter)
+	entry := file("orphan-disk.vmdk", "[nvme-01] orphan-disk.vmdk", 471)
+	line := m.renderDSEntry(entry, cols, widths, false, false)
+
+	want := entry.Modified.Local().Format("2006-01-02 15:04")
+	if !strings.Contains(line, want) {
+		t.Errorf("listing line missing local time %q in %q", want, line)
+	}
+	utc := entry.Modified.Format("2006-01-02 15:04")
+	if want != utc && strings.Contains(line, utc) {
+		t.Errorf("listing line shows UTC time %q instead of local %q in %q", utc, want, line)
+	}
+}
