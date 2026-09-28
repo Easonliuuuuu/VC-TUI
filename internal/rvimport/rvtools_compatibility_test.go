@@ -59,6 +59,9 @@ func TestSyntheticRVTools48HeadersAndMetadata(t *testing.T) {
 	setHeader(t, f, sheetDVPort, []string{"Port group", "Port"}, "Port")
 	setHeader(t, f, sheetDVPort, []string{"DVS", "Switch"}, "Switch")
 	setHeader(t, f, sheetDVPort, []string{"Failback", "Rolling Order"}, "Rolling Order")
+	// RVTools stores the opposite of the internal Failback value. Keep the
+	// source row coherent with its new header and preserve the round-trip value.
+	setColumnValue(t, f, sheetDVPort, "Rolling Order", 2, "false")
 	setHeader(t, f, sheetDVPort, []string{"Active uplinks", "Active Uplink"}, "Active Uplink")
 	setHeader(t, f, sheetDVPort, []string{"Standby uplinks", "Standby Uplink"}, "Standby Uplink")
 	setHeader(t, f, sheetDVPort, []string{"Notify switches", "Notify Switch"}, "Notify Switch")
@@ -160,7 +163,7 @@ func TestSyntheticRVTools48HeadersAndMetadata(t *testing.T) {
 		t.Fatalf("Switch/Port aliases did not join the distributed port group: contexts=%+v report=%+v", result.contexts, result.Report)
 	}
 	port := result.contexts[0].dvswitches[0].PortGroups[0]
-	if port.Failback == nil || *port.Failback {
+	if port.Failback == nil || !*port.Failback {
 		t.Errorf("Rolling Order was not inverted into Failback: %+v", result.contexts[0].dvswitches[0].PortGroups[0])
 	}
 	if port.Promiscuous == nil || !*port.Promiscuous || port.MACChanges == nil || *port.MACChanges || port.ForgedTransmits == nil || !*port.ForgedTransmits || port.TeamingPolicy != "loadbalance_srcid" || port.IngressShaping == nil || *port.IngressShaping || port.EgressShaping == nil || !*port.EgressShaping || port.NotifySwitches == nil || !*port.NotifySwitches || len(port.ActiveUplinks) != 1 || len(port.StandbyUplinks) != 1 {
