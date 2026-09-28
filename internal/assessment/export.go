@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/easonliuuuuu/vsfleet/internal/perf"
 	"github.com/easonliuuuuu/vsfleet/internal/vsphere"
 )
 
@@ -28,6 +29,13 @@ type ExportData struct {
 	Contexts  []ContextRun
 	VMs       []ExportVM
 	Resources []ResourceObservation
+	// Performance holds the newest usable performance window for each
+	// context, matched by vCenter identity. Unlike the rest of ExportData it
+	// is not part of the run: it was collected separately, possibly long
+	// after or before the capture, and carries its own window dates. A context
+	// with no window has no entry, which readers must treat as "not
+	// collected", never as idle.
+	Performance []perf.Window
 }
 
 // LoadExportData reads all evidence for a finished assessment in one read
@@ -74,7 +82,32 @@ func (s *Store) LoadExportDataForContexts(ctx context.Context, runID int64, sele
 	}
 	sortExportData(contexts, vms, resources)
 	data := ExportData{Run: run, Contexts: contexts, VMs: vms, Resources: resources}
-	return ScopeExportDataChecked(data, selectors)
+	data, err = ScopeExportDataChecked(data, selectors)
+	if err != nil {
+		return ExportData{}, err
+	}
+	data.Performance, err = s.loadExportPerformance(ctx, data.Contexts)
+	return data, err
+}
+
+// loadExportPerformance finds each context's newest usable performance window.
+// Windows are matched by vCenter identity where the run recorded one, so a
+// renamed context still finds its history.
+func (s *Store) loadExportPerformance(ctx context.Context, contexts []ContextRun) ([]perf.Window, error) {
+	var out []perf.Window
+	seen := map[int64]bool{}
+	for _, c := range contexts {
+		w, found, err := s.LatestPerfWindow(ctx, c.Name, c.VCenterID)
+		if err != nil {
+			return nil, err
+		}
+		if !found || seen[w.ID] {
+			continue
+		}
+		seen[w.ID] = true
+		out = append(out, w)
+	}
+	return out, nil
 }
 
 // ScopeExportData returns an independent view containing only the requested
@@ -114,6 +147,18 @@ func ScopeExportDataChecked(data ExportData, contexts []string) (ExportData, err
 	for _, item := range data.VMs {
 		if allowed[strings.ToLower(item.Observation.Context)] {
 			scoped.VMs = append(scoped.VMs, item)
+		}
+	}
+	scoped.Performance = make([]perf.Window, 0, len(data.Performance))
+	scopedVCenters := map[string]bool{}
+	for _, c := range scoped.Contexts {
+		if c.VCenterID != "" {
+			scopedVCenters[c.VCenterID] = true
+		}
+	}
+	for _, w := range data.Performance {
+		if allowed[strings.ToLower(w.Context)] || (w.VCenterID != "" && scopedVCenters[w.VCenterID]) {
+			scoped.Performance = append(scoped.Performance, w)
 		}
 	}
 	scoped.Resources = make([]ResourceObservation, 0, len(data.Resources))

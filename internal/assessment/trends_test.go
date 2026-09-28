@@ -351,13 +351,13 @@ func TestMigrateV4RecomputesHostCPUCapacity(t *testing.T) {
 	}
 	defer store.Close()
 
-	// Verify schema version bumped to 4
+	// The migration ladder now runs through to the current schema version.
 	var version int
 	if err := store.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 4 {
-		t.Fatalf("expected user_version=4, got %d", version)
+	if version != currentSchemaVersion {
+		t.Fatalf("expected user_version=%d, got %d", currentSchemaVersion, version)
 	}
 
 	// Verify cpu_capacity was updated from 2400 to 76800

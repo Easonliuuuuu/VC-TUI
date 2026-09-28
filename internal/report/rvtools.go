@@ -108,11 +108,12 @@ func rvtoolsSheets(data assessment.ExportData, healthReport health.Report) ([]sh
 		{name: "vMultiPath", headers: multipathHeaders, rows: multipathRows(data)},
 		{name: "vHealth", headers: healthHeaders, rows: healthRows(data, healthReport)},
 		{name: coverageSheetName, headers: coverageHeaders, rows: coverageRows(data, healthReport), dateCols: []int{2, 3}},
+		{name: performanceSheetName, headers: performanceHeaders, rows: performanceRows(data), dateCols: performanceDateCols},
 	}, nil
 }
 
 // WriteRVTools writes the twenty-three RVTools-compatible sheets plus the
-// vsfleetCoverage extension sheet. vHealth is derived from the supplied
+// vsfleetCoverage and vsfleetPerformance extension sheets. vHealth is derived from the supplied
 // report; callers evaluate it before entering the renderer. The output is normalized as a ZIP archive
 // with fixed entry order and timestamps, making repeated writes byte-identical.
 func WriteRVTools(w io.Writer, data assessment.ExportData, healthReport health.Report) error {

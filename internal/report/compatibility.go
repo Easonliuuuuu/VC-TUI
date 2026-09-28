@@ -72,7 +72,7 @@ func Profile() ([]SheetSpec, error) {
 		meta := sheetMeta[s.name]
 		spec := SheetSpec{
 			Name:        s.name,
-			Compatible:  s.name != coverageSheetName,
+			Compatible:  s.name != coverageSheetName && s.name != performanceSheetName,
 			DerivesFrom: meta.derivesFrom,
 			Note:        meta.note,
 			Columns:     make([]ColumnSpec, 0, len(s.headers)),
@@ -115,9 +115,9 @@ type sheetInfo struct {
 
 var sheetMeta = map[string]sheetInfo{
 	"vInfo": {derivesFrom: "the VM collection", note: "One row per VM and per template."},
-	"vCPU":  {derivesFrom: "the VM collection", note: "One row per VM. Configured vCPU count; this profile does not collect CPU performance counters."},
+	"vCPU":  {derivesFrom: "the VM collection", note: "One row per VM. Configured vCPU count; this profile does not collect CPU performance counters. Measured CPU usage and CPU ready live on the vsfleetPerformance sheet."},
 	"vMemory": {derivesFrom: "the VM collection",
-		note: "One row per VM. Configured memory only; ballooned, shared and swapped figures are runtime performance counters this read-only profile does not request."},
+		note: "One row per VM. Configured memory only; ballooned, shared and swapped figures are runtime performance counters this read-only profile does not request. Measured active, consumed, ballooned and swapped memory live on the vsfleetPerformance sheet."},
 	"vDisk": {derivesFrom: "the VM collection",
 		note: "One row per virtual disk. Capacity is what vSphere provisioned; how much of it the guest has used is on vPartition, which vSphere cannot see without VMware Tools."},
 	"vPartition": {derivesFrom: "the VM collection",
@@ -142,6 +142,8 @@ var sheetMeta = map[string]sheetInfo{
 	"vSnapshot":  {derivesFrom: "the VM collection", note: "One row per snapshot, oldest first within a VM."},
 	"vHealth": {derivesFrom: "the health rule engine",
 		note: "One row per finding. Derived at export time from the stored evidence rather than collected, so re-exporting an unchanged run reproduces it exactly. assessment export always evaluates with the default thresholds; the tuning flags on `vsfleet health` do not apply to an export."},
+	performanceSheetName: {derivesFrom: "the performance ledger",
+		note: "A vsfleet extension, not an RVTools worksheet. One row per VM per counter from the newest bounded performance collection of each vCenter, collected separately from the inventory run by `vsfleet assessment perf collect`; the Window start and Window end columns say which period it covers. Values are averages over the vCenter's roll-up interval, so a Peak is the highest interval average, not an instantaneous maximum. An empty statistic is unknown, never zero: read Status and Reason. A vCenter with no collection has one \"not collected\" row. Sizing signals are simulator-validated only until a real-vSphere validation is recorded (see docs/assessments.md)."},
 	coverageSheetName: {derivesFrom: "the run ledger",
 		note: "A vsfleet extension, not an RVTools worksheet. One row per worksheet per vCenter, naming what collected, what failed, and why. A partial estate is reported as partial rather than handed over as if it were whole."},
 }
@@ -510,5 +512,31 @@ var sheetColumns = map[string]map[string]ColumnSpec{
 	},
 	"vSnapshot": {
 		"Name": {Kind: KindText, Note: "Snapshot name."},
+	},
+	performanceSheetName: {
+		"Context":            {Kind: KindText, Note: "The vsfleet context the collection ran against."},
+		"vCenter ID":         {Kind: KindText, Note: "vCenter instance UUID, falling back to the endpoint string."},
+		"VM":                 {Kind: KindText, Empty: "on a \"not collected\" row", Note: "VM name as vCenter reported it when the collection ran."},
+		"VM ID":              {Kind: KindText, Empty: "on a \"not collected\" row", Note: "vCenter managed object reference of the VM."},
+		"VM UUID":            {Kind: KindText, Empty: "when vSphere reported none"},
+		"Inventory match":    {Kind: KindText, Empty: "on a \"not collected\" row", Note: "matched when this run's inventory holds the same VM ID (and instance UUID where both are known); \"instance UUID differs\" means the ID was reused by another VM; \"not in this run\" means the VM was created or removed between the capture and the collection."},
+		"Counter":            {Kind: KindText, Empty: "when the VM was not sampled or the row is \"not collected\"", Note: "cpu.usage, cpu.ready, mem.active, mem.consumed, mem.balloon or mem.swapped."},
+		"Unit":               {Kind: KindText, Empty: "when the VM was not sampled", Note: "percent or MiB, after normalisation from the raw vSphere counter (usage in hundredths of a percent, memory in KB, CPU ready in milliseconds per interval)."},
+		"Aggregation":        {Kind: KindText, Empty: "when the VM was not sampled", Note: "What one sample is: an average over the roll-up interval, or for cpu.ready the interval sum converted to the per-vCPU percentage of the interval."},
+		"Window start":       {Kind: KindDate, Empty: "on a \"not collected\" row", Note: "Start of the collected period in UTC. Rendered as a date cell in XLSX and as RFC3339 UTC in CSV."},
+		"Window end":         {Kind: KindDate, Empty: "on a \"not collected\" row", Note: "End of the collected period in UTC; also when the collection ran."},
+		"Interval s":         {Kind: KindInteger, Unit: "seconds", Empty: "on a \"not collected\" row", Note: "The vCenter historical roll-up interval each sample covers."},
+		"Expected samples":   {Kind: KindInteger, Empty: "on a \"not collected\" row", Note: "Samples the window should hold at this interval."},
+		"Successful samples": {Kind: KindInteger, Empty: "when the VM was not sampled", Note: "Samples vSphere returned a value for."},
+		"Missing samples":    {Kind: KindInteger, Empty: "when the VM was not sampled", Note: "Expected minus successful. Powered-off periods, rolled-off history and counters not collected at the vCenter's statistics level all count here; missing samples are never averaged in as zero."},
+		"Average":            {Kind: KindDecimal, Empty: "when Status is not ok", Note: "Mean of the successful interval averages, in Unit."},
+		"Peak":               {Kind: KindDecimal, Empty: "when Status is not ok", Note: "Highest interval average, in Unit. A floor on real instantaneous demand."},
+		"P95":                {Kind: KindDecimal, Empty: "when Status is not ok or fewer than 50 samples were successful", Note: "Nearest-rank 95th percentile of the interval averages."},
+		"Status":             {Kind: KindText, Note: "ok, insufficient-data (too few or too sparse samples; at least 12 covering half the window), unavailable (the counter could not be read), not sampled (a budget was reached first), no VMs, or not collected."},
+		"Reason":             {Kind: KindText, Empty: "when Status is ok and nothing was omitted", Note: "Why a statistic is missing, including the error vSphere returned."},
+		"Sizing signal":      {Kind: KindText, Empty: "on a \"not collected\" row", Note: "Per-VM reading, repeated on each of its rows: contention-observed (CPU ready, ballooning or swapping), peaks-observed (low typical usage but high peaks), in-use, sustained-low (peaks stayed under 30% of CPU and configured memory), insufficient-data or unavailable. Evidence about the window, not a resize instruction."},
+		"Signal reason":      {Kind: KindText, Empty: "on a \"not collected\" row", Note: "The measurement or gap behind the signal."},
+		"Collection status":  {Kind: KindText, Empty: "on a \"not collected\" row", Note: "success, partial (a VM, request or runtime bound was reached, or a query failed) or failed for the whole collection."},
+		"Source":             {Kind: KindText, Empty: "on a \"not collected\" row", Note: "The API and server the numbers came from."},
 	},
 }

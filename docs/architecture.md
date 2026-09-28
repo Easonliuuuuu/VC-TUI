@@ -134,6 +134,17 @@ remain intact; the lease also serializes prune, backup, and restore operations.
 The TUI's History hub switches between Changes, Trends, Runs, and Health, while all
 destructive ledger maintenance stays explicit on the CLI.
 
+Performance history follows the same rule from the other side. `assessment perf
+collect` stores bounded summaries and provenance in ledger schema version 6
+(`perf_windows`, `perf_vms`, `perf_summaries`), keyed by context and vCenter
+identity and never by inventory run. Immutable inventory observations are not
+edited or referenced, and pruning removes performance windows by age while
+sparing each context's newest usable window. The pure semantics (counters, unit
+normalisation, sample gating, sizing signal) live in `internal/perf` with no
+vSphere imports; the only new wire operation is `QueryPerf`, sent through a
+hand-rolled SOAP body in `internal/vsphere/perf_query.go` because the govmomi
+`performance` package imports mutation-capable packages.
+
 The `assessment export` command reads a selected finished run through one
 SQLite read transaction and passes it to the `internal/report` writer. It never
 loads configuration or credentials and never creates a session. Inventory
@@ -194,6 +205,7 @@ vsfleet/
 │   ├── demo/              # In-memory synthetic vCenter backend for offline demos
 │   ├── humanize/          # Output humanization (bytes, durations, frequencies)
 │   ├── limiter/           # Concurrency limiters and rate throttles
+│   ├── perf/              # Offline VM performance semantics: counters, units, summaries, sizing signal
 │   ├── search/            # Cross-vCenter estate search engine
 │   ├── session/           # Session management, caching, and connection pooling
 │   ├── transport/         # Network dialers (Direct, SOCKS5, HTTP/HTTPS CONNECT)

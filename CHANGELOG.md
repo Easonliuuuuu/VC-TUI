@@ -4,6 +4,7 @@
 
 ### Features
 
+* **assessment:** collect bounded, opt-in VM performance history (`assessment perf`) with a conservative sizing signal, stored apart from inventory runs and shown in `assessment report` and a `vsfleetPerformance` export sheet ([#214](https://github.com/Easonliuuuuu/vsfleet/issues/214))
 * **assessment:** attribute datastore growth and project free-space thresholds
 * **health:** add an absolute datastore free-space floor
 

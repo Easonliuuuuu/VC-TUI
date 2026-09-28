@@ -36,7 +36,7 @@ const (
 // in the read-only client. The govmomi wrappers for these methods live in
 // packages that also expose mutations, so keeping both bodies in this one file
 // makes the operations and their review surface explicit — see
-// TestOnlyDatastoreBrowserSOAPShimDefinesFault, which holds that line.
+// TestOnlyPerfAndBrowserShimsDefineFault, which holds that line (the other reviewed file is perf_query.go).
 
 // searchDatastoreSubFoldersTaskBody is the recursive search: it descends the
 // whole datastore. Both the assessment's VMDK sweep and the operator-triggered

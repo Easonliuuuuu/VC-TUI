@@ -22,6 +22,10 @@ type PruneResult struct {
 	Execute    bool             `json:"execute"`
 	Candidates []PruneCandidate `json:"candidates"`
 	Deleted    int              `json:"deleted"`
+	// PerfWindows counts performance collections older than the cutoff.
+	// The newest collection of each context is never counted.
+	PerfWindows int `json:"perf_windows"`
+	PerfDeleted int `json:"perf_deleted"`
 }
 
 func (s *Store) Prune(ctx context.Context, olderThan time.Duration, keepLast int, execute bool) (PruneResult, error) {
@@ -53,7 +57,12 @@ func (s *Store) Prune(ctx context.Context, olderThan time.Duration, keepLast int
 		}
 		result.Candidates = append(result.Candidates, PruneCandidate{Run: run, Bytes: s.runBytes(ctx, run.ID)})
 	}
-	if !execute || len(result.Candidates) == 0 {
+	perfIDs, err := s.prunablePerfWindows(ctx, cutoff)
+	if err != nil {
+		return result, err
+	}
+	result.PerfWindows = len(perfIDs)
+	if !execute || (len(result.Candidates) == 0 && len(perfIDs) == 0) {
 		return result, nil
 	}
 	lease, err := s.AcquireOperationLease(ctx, time.Now().UTC(), "prune")
@@ -73,6 +82,16 @@ func (s *Store) Prune(ctx context.Context, olderThan time.Duration, keepLast int
 		}
 		if n, _ := res.RowsAffected(); n > 0 {
 			result.Deleted++
+		}
+	}
+	for _, id := range perfIDs {
+		res, err := tx.ExecContext(ctx, `DELETE FROM perf_windows WHERE id=?`, id)
+		if err != nil {
+			_ = tx.Rollback()
+			return result, err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			result.PerfDeleted++
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -175,7 +194,7 @@ func verifySQLiteFile(path string) error {
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		return err
 	}
-	if version < 1 || version > 4 {
+	if version < 1 || version > currentSchemaVersion {
 		return fmt.Errorf("unsupported history schema version %d", version)
 	}
 	var tables int

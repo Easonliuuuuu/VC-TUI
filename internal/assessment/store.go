@@ -159,13 +159,32 @@ func openDB(path string) (*sql.DB, error) {
 	return db, nil
 }
 
+// currentSchemaVersion is the ledger schema this build writes.
+const currentSchemaVersion = 6
+
 func (s *Store) migrate(ctx context.Context) error {
 	var version int
 	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return fmt.Errorf("read history schema version: %w", err)
 	}
-	if version > 5 {
+	if version > currentSchemaVersion {
 		return fmt.Errorf("history schema version %d is newer than this build understands", version)
+	}
+	if version >= currentSchemaVersion {
+		return nil
+	}
+	if err := s.migrateLegacy(ctx); err != nil {
+		return err
+	}
+	return s.migrateV6(ctx)
+}
+
+// migrateLegacy applies the v1-v5 steps. Note that v5 never recorded its own
+// version, so databases written before v6 report user_version 4.
+func (s *Store) migrateLegacy(ctx context.Context) error {
+	var version int
+	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+		return fmt.Errorf("read history schema version: %w", err)
 	}
 	if version == 5 {
 		return s.migrateV3(ctx)
