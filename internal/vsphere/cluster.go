@@ -51,15 +51,7 @@ func (c *Client) listClusters(ctx context.Context, idx *index) ([]Cluster, error
 			// fills it in; the member list is the fallback.
 			Hosts: len(m.Host),
 		}
-		if s, ok := m.Summary.(*types.ComputeResourceSummary); ok && s != nil {
-			cl.CPUCores = int32(s.NumCpuCores)
-			cl.TotalCPUMHz = int64(s.TotalCpu)
-			cl.TotalMemoryMB = s.TotalMemory / (1 << 20)
-			cl.EffectiveHost = int(s.NumEffectiveHosts)
-			if s.NumHosts > 0 {
-				cl.Hosts = int(s.NumHosts)
-			}
-		}
+		applyComputeSummary(&cl, m.Summary)
 		if st, ok := settings[m.Self]; ok {
 			cl.DRSEnabled = st.drs
 			cl.HAEnabled = st.ha
@@ -69,6 +61,33 @@ func (c *Client) listClusters(ctx context.Context, idx *index) ([]Cluster, error
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
+}
+
+// applyComputeSummary copies capacity from the summary through the base
+// interface: a ClusterComputeResource returns *ClusterComputeResourceSummary,
+// which embeds ComputeResourceSummary, so asserting the concrete base type
+// would match standalone hosts only.
+func applyComputeSummary(cl *Cluster, summary types.BaseComputeResourceSummary) {
+	if summary == nil {
+		return
+	}
+	if p, ok := summary.(*types.ComputeResourceSummary); ok && p == nil {
+		return
+	}
+	if p, ok := summary.(*types.ClusterComputeResourceSummary); ok && p == nil {
+		return
+	}
+	s := summary.GetComputeResourceSummary()
+	if s == nil {
+		return
+	}
+	cl.CPUCores = int32(s.NumCpuCores)
+	cl.TotalCPUMHz = int64(s.TotalCpu)
+	cl.TotalMemoryMB = s.TotalMemory / (1 << 20)
+	cl.EffectiveHost = int(s.NumEffectiveHosts)
+	if s.NumHosts > 0 {
+		cl.Hosts = int(s.NumHosts)
+	}
 }
 
 type clusterSetting struct{ drs, ha bool }
