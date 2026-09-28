@@ -346,7 +346,7 @@ func changedFields(a, b vsphere.VM, runtime bool) []FieldChange {
 	add("memory", strconv.FormatInt(a.MemoryMB, 10), strconv.FormatInt(b.MemoryMB, 10))
 	add("guest_os", a.GuestOS, b.GuestOS)
 	add("annotation", a.Annotation, b.Annotation)
-	add("migration_configuration", migrationFingerprint(a), migrationFingerprint(b))
+	add("migration_configuration", migrationFingerprint(a, b), migrationFingerprint(b, a))
 	if before, err := json.Marshal(a); err == nil {
 		if after, err := json.Marshal(b); err == nil {
 			out = append(out, metadataFieldChanges(before, after)...)
@@ -430,7 +430,12 @@ func tagLabel(tag vsphere.Tag) string {
 	return tag.Category + "/" + tag.Name
 }
 
-func migrationFingerprint(vm vsphere.VM) string {
+// migrationFingerprint fingerprints the migration-relevant configuration of vm.
+// other is the VM from the opposite run: disk fields that the older collector
+// did not record (empty) are unknown rather than changed, so they are left out
+// of both sides instead of turning every VM into a migration-blocking change
+// after a tool upgrade.
+func migrationFingerprint(vm, other vsphere.VM) string {
 	value := struct {
 		ConfigurationAvailable       bool                        `json:"configuration_available"`
 		GuestID                      string                      `json:"guest_id"`
@@ -443,7 +448,7 @@ func migrationFingerprint(vm vsphere.VM) string {
 		MemoryAllocation             *vmResourceAllocationCompat `json:"memory_allocation"`
 		MemoryReservationLockedToMax *bool                       `json:"memory_reservation_locked_to_max"`
 		ManagedBy                    *vsphere.VMManagedBy        `json:"managed_by"`
-		Disks                        []vsphere.VMDisk            `json:"disks"`
+		Disks                        []migrationDisk             `json:"disks"`
 		NICs                         []migrationNIC              `json:"nics"`
 		TPMs                         []vsphere.VMTPM             `json:"tpms"`
 		PCIDevices                   []vsphere.VMPCIDevice       `json:"pci_devices"`
@@ -452,10 +457,56 @@ func migrationFingerprint(vm vsphere.VM) string {
 		ConfigurationAvailable: vm.ConfigurationAvailable, GuestID: vm.GuestID, Firmware: vm.Firmware,
 		SecureBootEnabled: vm.SecureBootEnabled, CoresPerSocket: vm.CoresPerSocket, CPUSockets: vm.CPUSockets,
 		AutoCoresPerSocket: vm.AutoCoresPerSocket, CPUAllocation: allocationCompat(vm.CPUAllocation), MemoryAllocation: allocationCompat(vm.MemoryAllocation),
-		MemoryReservationLockedToMax: vm.MemoryReservationLockedToMax, ManagedBy: vm.ManagedBy, Disks: vm.Disks, NICs: migrationNICs(vm.NICs), TPMs: vm.TPMs, PCIDevices: vm.PCIDevices, Floppies: vm.Floppies,
+		MemoryReservationLockedToMax: vm.MemoryReservationLockedToMax, ManagedBy: vm.ManagedBy, Disks: migrationDisks(vm.Disks, other.Disks), NICs: migrationNICs(vm.NICs), TPMs: vm.TPMs, PCIDevices: vm.PCIDevices, Floppies: vm.Floppies,
 	}
 	raw, _ := json.Marshal(value)
 	return string(raw)
+}
+
+// migrationDisk is an explicit allow-list of migration-relevant disk fields.
+// Display-only fields (label, backing path) and fields added by later
+// collectors are excluded or compared only when both runs recorded them.
+type migrationDisk struct {
+	Key                  int32  `json:"key"`
+	CapacityBytes        int64  `json:"capacity_bytes"`
+	UUID                 string `json:"uuid,omitempty"`
+	BackingType          string `json:"backing_type,omitempty"`
+	Raw                  bool   `json:"raw"`
+	DiskMode             string `json:"disk_mode,omitempty"`
+	Sharing              string `json:"sharing,omitempty"`
+	ThinProvisioned      *bool  `json:"thin_provisioned,omitempty"`
+	EagerlyScrub         *bool  `json:"eagerly_scrub,omitempty"`
+	SharedBus            string `json:"shared_bus,omitempty"`
+	RawLUNID             string `json:"raw_lun_id,omitempty"`
+	RawCompatibilityMode string `json:"raw_compatibility_mode,omitempty"`
+}
+
+func migrationDisks(values, other []vsphere.VMDisk) []migrationDisk {
+	peers := make(map[int32]vsphere.VMDisk, len(other))
+	for _, d := range other {
+		peers[d.Key] = d
+	}
+	out := make([]migrationDisk, 0, len(values))
+	for _, d := range values {
+		m := migrationDisk{Key: d.Key, CapacityBytes: d.CapacityBytes, UUID: d.UUID, BackingType: d.BackingType, Raw: d.Raw,
+			DiskMode: d.DiskMode, Sharing: d.Sharing, ThinProvisioned: d.ThinProvisioned, EagerlyScrub: d.EagerlyScrub,
+			SharedBus: d.SharedBus, RawLUNID: d.RawLUNID, RawCompatibilityMode: d.RawCompatibilityMode}
+		if peer, ok := peers[d.Key]; ok {
+			// Empty on either side means "not recorded" for these late-added fields.
+			if peer.SharedBus == "" || d.SharedBus == "" {
+				m.SharedBus = ""
+			}
+			if peer.RawLUNID == "" || d.RawLUNID == "" {
+				m.RawLUNID = ""
+			}
+			if peer.RawCompatibilityMode == "" || d.RawCompatibilityMode == "" {
+				m.RawCompatibilityMode = ""
+			}
+		}
+		out = append(out, m)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	return out
 }
 
 type migrationNIC struct {

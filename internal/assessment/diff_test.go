@@ -74,3 +74,19 @@ func TestChangedFieldsDoesNotInferUnavailableMetadataChanges(t *testing.T) {
 		t.Fatalf("unavailable metadata should remain unknown, got %+v", fields)
 	}
 }
+
+func TestMigrationFingerprintIgnoresLateDiskFields(t *testing.T) {
+	old := vsphere.VM{Disks: []vsphere.VMDisk{{Key: 2000, CapacityBytes: 10, Label: "Hard disk 1"}}}
+	upgraded := vsphere.VM{Disks: []vsphere.VMDisk{{Key: 2000, CapacityBytes: 10, Label: "Hard disk 1", BackingPath: "[ds] a.vmdk", SharedBus: "noSharing"}}}
+	if migrationFingerprint(old, upgraded) != migrationFingerprint(upgraded, old) {
+		t.Fatal("a field absent in the older run must not read as a migration change")
+	}
+	changed := vsphere.VM{Disks: []vsphere.VMDisk{{Key: 2000, CapacityBytes: 20}}}
+	if migrationFingerprint(old, changed) == migrationFingerprint(changed, old) {
+		t.Fatal("a capacity change must still be detected")
+	}
+	shared := vsphere.VM{Disks: []vsphere.VMDisk{{Key: 2000, CapacityBytes: 10, SharedBus: "physicalSharing"}}}
+	if migrationFingerprint(upgraded, shared) == migrationFingerprint(shared, upgraded) {
+		t.Fatal("a shared bus change recorded by both runs must still be detected")
+	}
+}
