@@ -344,14 +344,19 @@ func TestToolsAndPartitionsAreMappedAndEarnTheirSchemaLevel(t *testing.T) {
 	}
 }
 
-func TestHostNetworkingJoinsByObjectIDNeverByName(t *testing.T) {
+func TestHostNetworkingJoinsByObjectIDOrUniqueSameWorkbookName(t *testing.T) {
 	path := writeFixtureWorkbook(t, func(data *assessment.ExportData) {
 		data.Run.InventorySchemaVersion = assessment.CurrentInventorySchemaVersion
-		editHost(t, data, "host-a1", func(h *vsphere.Host) {
-			yes := true
-			h.VSwitches = []vsphere.HostVSwitch{{Name: "vSwitch0", NumPorts: 128, MTU: 1500, Uplinks: []string{"vmnic0", "vmnic1"}, Promiscuous: &yes}}
-			h.PortGroups = []vsphere.HostPortGroup{{Name: "prod-vlan", Switch: "vSwitch0", VLAN: 120}}
-		})
+		for _, hostID := range []string{"host-a1", "host-b1"} {
+			switchName := "switch-" + hostID
+			portName := "port-" + hostID
+			editHost(t, data, hostID, func(h *vsphere.Host) {
+				h.Name = "esx-shared"
+				yes := true
+				h.VSwitches = []vsphere.HostVSwitch{{Name: switchName, NumPorts: 128, MTU: 1500, Uplinks: []string{"vmnic0", "vmnic1"}, Promiscuous: &yes}}
+				h.PortGroups = []vsphere.HostPortGroup{{Name: portName, Switch: switchName, VLAN: 120}}
+			})
+		}
 	})
 	f := openFixture(t, path)
 	result, err := Parse(f, Options{})
@@ -373,8 +378,8 @@ func TestHostNetworkingJoinsByObjectIDNeverByName(t *testing.T) {
 		t.Errorf("vSwitch = %+v, want the promiscuous flag and both uplinks", sw)
 	}
 
-	// Blank the Object ID: the rows still name the host, but only by display
-	// name, which the importer must refuse to join on.
+	// RVTools host-subsheet rows can omit Object ID. They may join by name only
+	// when that name resolves uniquely inside the same vCenter in this workbook.
 	g := openFixture(t, path)
 	blankHeader(t, g, sheetVSwitch, "Object ID")
 	blankHeader(t, g, sheetVPort, "Object ID")
@@ -384,10 +389,48 @@ func TestHostNetworkingJoinsByObjectIDNeverByName(t *testing.T) {
 	}
 	for _, c := range r2.contexts {
 		for _, h := range c.hosts {
-			if len(h.VSwitches) != 0 || len(h.PortGroups) != 0 {
-				t.Errorf("host %s joined networking rows by display name: %+v", h.Name, h)
+			if len(h.VSwitches) != 1 || len(h.PortGroups) != 1 {
+				t.Errorf("host %s did not join its unique same-context networking rows: %+v", h.ID, h)
+			}
+			wantSwitch := "switch-" + h.ID
+			if len(h.VSwitches) == 1 && h.VSwitches[0].Name != wantSwitch {
+				t.Errorf("host %s received switch %q, want its same-vCenter switch %q", h.ID, h.VSwitches[0].Name, wantSwitch)
 			}
 		}
+	}
+
+	// A duplicate host name within that same vCenter makes the join ambiguous;
+	// neither host receives the rows.
+	ambiguousPath := writeFixtureWorkbook(t, func(data *assessment.ExportData) {
+		data.Run.InventorySchemaVersion = assessment.CurrentInventorySchemaVersion
+		for _, hostID := range []string{"host-a1", "host-b1"} {
+			switchName := "switch-" + hostID
+			editHost(t, data, hostID, func(h *vsphere.Host) {
+				h.Name = "esx-shared"
+				h.VSwitches = []vsphere.HostVSwitch{{Name: switchName}}
+				h.PortGroups = []vsphere.HostPortGroup{{Name: "port-" + hostID, Switch: switchName}}
+			})
+		}
+		data.Resources = append(data.Resources, hostResource(t, "alpha", "vc-alpha-uuid", vsphere.Host{
+			Location: vsphere.Location{Context: "alpha", Datacenter: "dc-a"}, ID: "host-a2", Name: "esx-shared", Cluster: "cluster-a", CPUCores: 8, CPUMHz: 2000, MemoryMB: 65536,
+		}))
+	})
+	ambiguousWorkbook := openFixture(t, ambiguousPath)
+	blankHeader(t, ambiguousWorkbook, sheetVSwitch, "Object ID")
+	blankHeader(t, ambiguousWorkbook, sheetVPort, "Object ID")
+	r3, err := Parse(ambiguousWorkbook, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range r3.contexts {
+		for _, h := range c.hosts {
+			if c.name == "alpha" && (len(h.VSwitches) != 0 || len(h.PortGroups) != 0) {
+				t.Errorf("ambiguous host name attached networking rows to %s: %+v", h.ID, h)
+			}
+		}
+	}
+	if len(r3.Report.Ambiguities) == 0 {
+		t.Errorf("duplicate same-context host name was not reported as an ambiguity: contexts=%+v warnings=%v", r3.contexts, r3.Report.Warnings)
 	}
 }
 

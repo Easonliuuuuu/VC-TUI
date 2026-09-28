@@ -136,12 +136,15 @@ func TestParseRecognizesMappedAndIgnoresUnmappedWorksheets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	for _, want := range []string{sheetVInfo, sheetVCPU, sheetVMemory, sheetVDisk, sheetVPartition, sheetVNetwork, sheetVTools, sheetVHost, sheetVSwitch, sheetVPort, sheetDVSwitch, sheetDVPort, sheetVCluster, sheetVDatastore, sheetVSnapshot} {
+	for _, want := range []string{sheetVInfo, sheetVCPU, sheetVMemory, sheetVDisk, sheetVPartition, sheetVNetwork, sheetVTools, sheetVCD, sheetVUSB, sheetVHost, sheetVHBA, sheetVNIC, sheetVSwitch, sheetVPort, sheetVMultiPath, sheetDVSwitch, sheetDVPort, sheetVCluster, sheetVDatastore, sheetVSnapshot} {
 		if !contains(result.Report.RecognizedSheets, want) {
 			t.Errorf("recognized sheets = %v, want %q among them", result.Report.RecognizedSheets, want)
 		}
 	}
-	for _, want := range []string{"vHBA", "vNIC", "vSC+VMK", "vMultiPath", "vRP", "vCD", "vUSB", "vHealth", "vsfleetCoverage"} {
+	if !contains(result.Report.RecognizedSheets, sheetVSCVMK) && !contains(result.Report.RecognizedSheets, "vSC_VMK") {
+		t.Errorf("recognized sheets = %v, want a supported vSC VMkernel spelling", result.Report.RecognizedSheets)
+	}
+	for _, want := range []string{"vRP", "vHealth", "vsfleetCoverage"} {
 		if !contains(result.Report.IgnoredSheets, want) {
 			t.Errorf("ignored sheets = %v, want %q among them", result.Report.IgnoredSheets, want)
 		}
