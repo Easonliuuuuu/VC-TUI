@@ -143,7 +143,7 @@ the VMware Tools version and version status to VM payloads, backing the
 backing the `vCD` and `vUSB` export tabs; version 8 adds persisted
 resource-pool observations for the
 `vRP` export tab; version 9 adds host storage and network sub-objects for the
-`vHBA`, `vNIC`, `vSwitch`, `vPort`, `vSC+VMK`, and `vMultiPath` tabs. Older rows still populate the `vTools` running-status column,
+`vHBA`, `vNIC`, `vSwitch`, `vPort`, `vSC_VMK` (renamed from `vSC+VMK`), and `vMultiPath` tabs. Older rows still populate the `vTools` running-status column,
 with the version columns left blank and the gap noted on `vsfleetCoverage`; runs
 before version 6 mark `vCD` and `vUSB` as not recorded, runs
 before version 8 mark `vRP` as not recorded, and runs before version 9 mark the
@@ -157,8 +157,8 @@ unknown value for conservative health evaluation. A shared
 `rvtoolsSheets` compatibility-sheet builder canonicalizes and validates the run
 once and returns every supported worksheet (`vInfo`, `vCPU`, `vMemory`,
 per-VM `vDisk`/`vPartition`/`vNetwork`/`vCD`/`vUSB`,
-`vTools`, `vHost`, `vHBA`, `vNIC`, `vSwitch`, `vPort`, `vSC+VMK`, `vMultiPath`,
-`dvSwitch`, `dvPort`, `vRP`, `vDatastore`, `vSnapshot`, `vHealth`,
+`vSnapshot`, `vTools`, `vRP`, `vCluster`, `vHost`, `vHBA`, `vNIC`, `vSwitch`,
+`vPort`, `dvSwitch`, `dvPort`, `vSC_VMK`, `vDatastore`, `vMultiPath`, `vHealth`,
 `vsfleetCoverage`) in
 tab order; the XLSX writer normalizes ZIP entry order and timestamps on top of
 it, and the CSV writer renders the same tabs as one file per sheet, so both
