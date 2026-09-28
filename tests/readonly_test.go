@@ -92,6 +92,7 @@ var readOnlyMethods = map[string]string{
 	"DestroyPropertyCollector":       "cleanup of that same cursor and its filter; never touches inventory",
 	"SearchDatastoreSubFolders_Task": "read: creates a task only as a handle for directory listing and returns file metadata; cannot modify inventory",
 	"SearchDatastore_Task":           "read: the same bargain for one directory rather than a whole tree — the interactive datastore file browser; returns file metadata and cannot modify inventory",
+	"QueryPerf":                      "read: returns performance statistics for the entities it is given; changes nothing on the server. Counters and intervals come from the property collector, not a second operation",
 }
 
 // soapRecorder collects the operation name of every SOAP request that
@@ -241,6 +242,9 @@ func TestEveryCommandIsReadOnly(t *testing.T) {
 		{"search", "DC0"},
 		{"search", "LocalDS", "--kind", "datastore"},
 		{"assessment", "run", "--browse-datastores"},
+		{"assessment", "perf", "collect", "--window", "24h"},
+		{"assessment", "perf", "list"},
+		{"assessment", "perf", "show", "latest"},
 	} {
 		stdout, stderr, err := r.run(testPassword+"\n", args...)
 		if err != nil {
@@ -264,11 +268,12 @@ func TestEveryCommandIsReadOnly(t *testing.T) {
 	}
 }
 
-// TestOnlyDatastoreBrowserSOAPShimDefinesFault keeps the one deliberate
-// exception to the package-level mutation guard narrow and reviewable. A
-// hand-rolled SOAP body must not quietly become a second escape hatch for
-// arbitrary vSphere operations.
-func TestOnlyDatastoreBrowserSOAPShimDefinesFault(t *testing.T) {
+// TestOnlyPerfAndBrowserShimsDefineFault keeps the deliberate exceptions to
+// the package-level mutation guard narrow and reviewable. A hand-rolled SOAP
+// body must not quietly become a second escape hatch for arbitrary vSphere
+// operations, so each one lives in a file a reviewer reads before approving a
+// new call to a vCenter.
+func TestOnlyPerfAndBrowserShimsDefineFault(t *testing.T) {
 	root := ".."
 	var faultMethods []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -306,15 +311,22 @@ func TestOnlyDatastoreBrowserSOAPShimDefinesFault(t *testing.T) {
 	}
 	// The count is not pinned; the location is. Each hand-rolled operation
 	// needs its own body type and so its own Fault method, and what this test
-	// protects is that all of them stay in the one file a reviewer reads
-	// before approving a new call to a vCenter — not that there is exactly
-	// one of them.
+	// protects is that all of them stay in the reviewed files below — not that
+	// there is exactly one of them.
 	if len(faultMethods) == 0 {
 		t.Fatal("no hand-rolled SOAP Fault implementation found; this test has stopped watching anything")
 	}
+	reviewedShims := []string{
+		filepath.Join("internal", "vsphere", "datastore_browse.go"),
+		filepath.Join("internal", "vsphere", "perf_query.go"),
+	}
 	for _, path := range faultMethods {
-		if !strings.HasSuffix(path, filepath.Join("internal", "vsphere", "datastore_browse.go")) {
-			t.Fatalf("hand-rolled SOAP Fault implementations=%v, want all of them in internal/vsphere/datastore_browse.go", faultMethods)
+		reviewed := false
+		for _, shim := range reviewedShims {
+			reviewed = reviewed || strings.HasSuffix(path, shim)
+		}
+		if !reviewed {
+			t.Fatalf("hand-rolled SOAP Fault implementations=%v, want all of them in %v", faultMethods, reviewedShims)
 		}
 	}
 

@@ -63,9 +63,10 @@ Capture a point-in-time snapshot of the estate into the local history
 database, then read it back: compare two captures, render a report, export an
 RVTools workbook, or ask what changed.
 
-Every subcommand below "run" reads stored evidence only. They never contact a
-vCenter, so they stay usable when a site is offline and always describe the
-estate as it was when the capture was taken.`),
+Every subcommand below "run" reads stored evidence only, except "perf
+collect", which reads a bounded window of performance history. They never
+contact a vCenter otherwise, so they stay usable when a site is offline and
+always describe the estate as it was when the capture was taken.`),
 		Example: `  # Capture every context and label the capture
   vsfleet assessment run --all-contexts --label nightly
 
@@ -83,7 +84,7 @@ estate as it was when the capture was taken.`),
   vsfleet assessment findings
   vsfleet assessment export --file estate.xlsx`,
 	})
-	cmd.AddCommand(newAssessmentRunCommand(a), newAssessmentListCommand(a), newAssessmentDiffCommand(a), newAssessmentSnapshotsCommand(a), newAssessmentDeleteCommand(a), newAssessmentUpdateCommand(a), newAssessmentTrendsCommand(a), newAssessmentCapacityCommand(a), newAssessmentReportCommand(a), newAssessmentExportCommand(a), newAssessmentFindingsCommand(a), newAssessmentInventoryCommand(a), newAssessmentOrphansCommand(a), newAssessmentReadinessCommand(a), newAssessmentNetworkReadinessCommand(a), newAssessmentPruneCommand(a), newAssessmentBackupCommand(a), newAssessmentRestoreCommand(a), newAssessmentDoctorCommand(a))
+	cmd.AddCommand(newAssessmentRunCommand(a), newAssessmentListCommand(a), newAssessmentDiffCommand(a), newAssessmentSnapshotsCommand(a), newAssessmentDeleteCommand(a), newAssessmentUpdateCommand(a), newAssessmentTrendsCommand(a), newAssessmentCapacityCommand(a), newAssessmentReportCommand(a), newAssessmentExportCommand(a), newAssessmentFindingsCommand(a), newAssessmentInventoryCommand(a), newAssessmentOrphansCommand(a), newAssessmentReadinessCommand(a), newAssessmentNetworkReadinessCommand(a), newAssessmentPruneCommand(a), newAssessmentBackupCommand(a), newAssessmentRestoreCommand(a), newAssessmentDoctorCommand(a), newAssessmentPerfCommand(a))
 	return cmd
 }
 
@@ -774,8 +775,15 @@ func newAssessmentReportCommand(a *App) *cobra.Command {
 		if err != nil {
 			return err
 		}
+		performance, err := s.PerformanceSummary(cmd.Context(), runID, a.StoredContextNames())
+		if err != nil {
+			return err
+		}
 		if a.json() {
-			return writeJSON(a.out(), report)
+			return writeJSON(a.out(), struct {
+				assessment.AssessmentReport
+				Performance []assessment.PerfSummary `json:"performance"`
+			}{report, performance})
 		}
 		fmt.Fprintf(a.out(), "Assessment %d  %s  %s\n", report.Run.ID, report.Run.Status, report.Run.StartedAt.Local().Format("2006-01-02 15:04:05"))
 		fmt.Fprintf(a.out(), "VMs: %d  Hosts: %d  Clusters: %d  Datastores: %d  Snapshots: %d (%d stale)\n", report.VMCount, report.HostCount, report.ClusterCount, report.DatastoreCount, report.SnapshotTotal, report.SnapshotStale)
@@ -784,6 +792,7 @@ func newAssessmentReportCommand(a *App) *cobra.Command {
 			t.row(c.Context, c.Kind, c.Status, itoa(c.ItemCount), c.Error)
 		}
 		t.flush()
+		printPerformanceSummary(a, performance)
 		for _, w := range report.Warnings {
 			fmt.Fprintf(a.errOut(), "%s %s\n", glyphFail, w)
 		}
@@ -835,8 +844,14 @@ preview of what would go. Pinned captures are never pruned.`), Example: `  # Pre
 		for _, c := range result.Candidates {
 			fmt.Fprintf(a.out(), "  #%d %s %s (%s)\n", c.Run.ID, c.Run.Status, c.Run.StartedAt.Local().Format("2006-01-02 15:04:05"), humanBytes(c.Bytes))
 		}
+		if result.PerfWindows > 0 {
+			fmt.Fprintf(a.out(), "performance windows older than the cutoff: %d (the newest per context is kept)\n", result.PerfWindows)
+		}
 		if execute {
 			fmt.Fprintf(a.out(), "deleted: %d\n", result.Deleted)
+			if result.PerfWindows > 0 {
+				fmt.Fprintf(a.out(), "performance windows deleted: %d\n", result.PerfDeleted)
+			}
 		}
 		return nil
 	}}
@@ -985,8 +1000,8 @@ func newAssessmentRunCommand(a *App) *cobra.Command {
 Read inventory from the selected contexts and store it as one immutable
 capture in the local history database.
 
-This is the only assessment subcommand that contacts a vCenter; everything
-else reads back what it stored. A capture that reaches some contexts but not
+Apart from "perf collect", this is the only assessment subcommand that contacts
+a vCenter; everything else reads back what it stored. A capture that reaches some contexts but not
 all is stored as partial and says so.`), Example: `  # Capture the current context
   vsfleet assessment run
 

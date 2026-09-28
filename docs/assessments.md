@@ -107,6 +107,107 @@ Shared backing identities merge the same datastore across vCenters; local
 datastores remain context-scoped. Blindness is retained in JSON and stderr
 notes rather than being treated as zero growth.
 
+## VM performance history
+
+An inventory capture holds configured sizes, not behaviour. A single sample can
+miss a periodic peak, so vsfleet keeps a separate, opt-in record of VM CPU and
+memory history for sizing work. It is stored apart from inventory runs: it
+never rewrites or references a capture, and pruning one does not touch the other.
+
+```sh
+vsfleet assessment perf collect --window 7d            # contacts vCenter, read-only
+vsfleet assessment perf list
+vsfleet assessment perf show latest                    # offline
+vsfleet assessment report                              # lists collected/not collected per context
+vsfleet assessment export --format rvtools --file e.xlsx   # adds the vsfleetPerformance sheet
+```
+
+`perf collect` reads vCenter's historical statistics through
+`PerformanceManager.QueryPerf`. Counters and roll-up intervals come from the
+PerformanceManager's `perfCounter` and `historicalInterval` properties. The
+finest historical interval that still retains the whole `--window` is used
+unless `--interval` names one.
+
+| Metric | vSphere counter | Stored unit | What one sample is |
+| --- | --- | --- | --- |
+| `cpu.usage` | `cpu.usage.average` | percent | interval average of VM CPU usage |
+| `cpu.ready` | `cpu.ready.summation` | percent | interval sum of ready milliseconds, divided by interval length and vCPU count: the average share of the interval one vCPU waited to be scheduled |
+| `mem.active` | `mem.active.average` | MiB | interval average of recently touched guest memory |
+| `mem.consumed` | `mem.consumed.average` | MiB | interval average of host memory backing the VM |
+| `mem.balloon` | `mem.vmmemctl.average` | MiB | interval average reclaimed by the balloon driver |
+| `mem.swapped` | `mem.swapped.average` | MiB | interval average swapped to the host swap file |
+
+Every value is aggregated over the roll-up interval (typically 5 minutes to 2
+hours), so a reported **peak is the highest interval average** and can understate
+an instantaneous spike. Storage I/O is not collected until its counters and cost
+have been validated.
+
+### Bounds and impact
+
+Collection is bounded by `--window`, `--max-samples` (refuses windows holding too
+many samples per counter), `--max-vms`, `--max-requests` and `--max-runtime`. A
+bound that is reached records the window as `partial`, lists the VMs that were
+not sampled, and never truncates silently. A permission denial stops further
+queries rather than retrying against every VM. Each collection records its
+requests used, runtime, VMs sampled against requested, and the source API and
+server version, and `perf collect` prints them. Storage is bounded by VMs
+times six counters per window; only summaries are kept, never raw samples.
+
+### Unknown is never zero
+
+A sample of `-1` (no value: powered off, history rolled off, counter not
+collected) is missing, not a measurement of zero, and never enters an average.
+Statistics are omitted rather than approximated:
+
+* **unavailable**: the counter was denied, not offered by the server, or vCenter
+  returned no samples for it (for example because its statistics level does not
+  collect it).
+* **insufficient-data**: fewer than 12 samples, or samples covering under half of
+  the window. Powered-off periods count as missing, so a VM that ran for a small
+  part of the window is not summarised as if it had run throughout.
+* The 95th percentile (nearest rank over interval averages) appears only with at
+  least 50 successful samples.
+
+### Sizing signal
+
+Each VM gets a conservative signal, evidence about the window and not a resize
+instruction:
+
+| Signal | Meaning |
+| --- | --- |
+| `contention-observed` | CPU ready peaked at 5% per vCPU or more, or ballooned or swapped memory reached 1 MiB. Outranks utilisation: a starved VM looks idle. |
+| `peaks-observed` | Typical CPU or active memory is under 30%, but a peak reached 60% or more. A current sample would understate demand. |
+| `in-use` | Usage is not low. |
+| `sustained-low` | Peaks stayed under 30% of CPU and of configured memory across the window, with supporting samples. |
+| `insufficient-data` | Samples were returned but do not support a reading, including VMs that were not sampled. |
+| `unavailable` | A required counter (`cpu.usage`, `mem.active`) could not be read. |
+
+A `sustained-low` signal is only produced when both required counters have enough
+samples; any missing, denied or sparse input yields `unavailable` or
+`insufficient-data`.
+
+### In reports
+
+`assessment report` lists, per context, the newest usable collection with its own
+window dates, or `not collected`. The RVTools workbook gains a vsfleet-only
+`vsfleetPerformance` sheet with one row per VM per counter: window, interval,
+sample counts, average, peak, P95, status, reason, sizing signal and source. Empty
+statistics are empty cells. A vCenter with no collection has one `not collected`
+row. Collection is matched to a run by vCenter identity, so it may predate or
+postdate the capture; `Inventory match` says whether the VM is in that run. The
+`vCPU`, `vMemory` and `vInfo` columns are unchanged and stay RVTools-compatible.
+`assessment prune` deletes performance windows older than its cutoff but always
+keeps the newest usable window of each context.
+
+### Validation status
+
+The collection, units and signals are exercised against the govmomi simulator,
+whose statistics are synthetic, and against synthetic fixtures. They have **not**
+yet been validated against a real vSphere. Which counters a real vCenter returns
+depends on its statistics level, and QueryPerf limits vary by version, so treat
+sizing signals as unvalidated until a real-vSphere run is recorded on
+[issue #214](https://github.com/Easonliuuuuu/vsfleet/issues/214).
+
 ## Deterministic exports
 
 Exports read one persisted run and do not contact vCenter or open a live
@@ -114,7 +215,7 @@ session. The `rvtools` format is an XLSX workbook containing `vInfo`, `vCPU`,
 `vMemory`, per-VM `vDisk`, `vPartition` and `vNetwork`, `vCD`, `vUSB`,
 `vSnapshot`, `vTools`, `vRP`, `vCluster`, `vHost`, `vHBA`, `vNIC`, `vSwitch`,
 `vPort`, `dvSwitch`, `dvPort`, `vSC_VMK`, `vDatastore`, `vMultiPath`, `vHealth`,
-and `vsfleetCoverage` sheets.
+`vsfleetCoverage` and `vsfleetPerformance` sheets.
 
 ```sh
 vsfleet assessment export latest --format rvtools --file ./estate.xlsx

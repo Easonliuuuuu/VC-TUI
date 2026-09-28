@@ -21,7 +21,7 @@ import (
 
 // rvtoolsTabOrder is the tab order both WriteRVTools and RVToolsCSV must
 // produce.
-var rvtoolsTabOrder = []string{"vInfo", "vCPU", "vMemory", "vDisk", "vPartition", "vNetwork", "vCD", "vUSB", "vSnapshot", "vTools", "vRP", "vCluster", "vHost", "vHBA", "vNIC", "vSwitch", "vPort", "dvSwitch", "dvPort", "vSC_VMK", "vDatastore", "vMultiPath", "vHealth", "vsfleetCoverage"}
+var rvtoolsTabOrder = []string{"vInfo", "vCPU", "vMemory", "vDisk", "vPartition", "vNetwork", "vCD", "vUSB", "vSnapshot", "vTools", "vRP", "vCluster", "vHost", "vHBA", "vNIC", "vSwitch", "vPort", "dvSwitch", "dvPort", "vSC_VMK", "vDatastore", "vMultiPath", "vHealth", "vsfleetCoverage", "vsfleetPerformance"}
 
 func healthReport(data assessment.ExportData) health.Report {
 	return health.Evaluate(data, health.Options{Thresholds: health.DefaultThresholds()})
@@ -188,7 +188,7 @@ func TestWriteRVToolsIsDeterministicAndComplete(t *testing.T) {
 	if got, _ := f.GetCellValue("vsfleetCoverage", "J2"); got != "vInfo" {
 		t.Fatalf("coverage sheet=%q", got)
 	}
-	for i, name := range rvtoolsTabOrder[:len(rvtoolsTabOrder)-1] {
+	for i, name := range rvtoolsTabOrder[:len(rvtoolsTabOrder)-2] {
 		cell := fmt.Sprintf("J%d", i+2)
 		if got, _ := f.GetCellValue("vsfleetCoverage", cell); got != name {
 			t.Errorf("coverage sheet %s=%q, want %q", cell, got, name)
