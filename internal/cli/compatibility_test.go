@@ -65,7 +65,7 @@ func TestCompatibilityReportCoversEveryWorksheet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compatibility report: %v", err)
 	}
-	for _, sheet := range []string{"vInfo", "vCPU", "vMemory", "vDisk", "vPartition", "vNetwork", "vCD", "vUSB", "vTools", "vHost", "vHBA", "vNIC", "vSwitch", "vPort", "dvSwitch", "dvPort", "vSC+VMK", "vMultiPath", "vCluster", "vRP", "vDatastore", "vSnapshot", "vHealth", "vsfleetCoverage"} {
+	for _, sheet := range []string{"vInfo", "vCPU", "vMemory", "vDisk", "vPartition", "vNetwork", "vCD", "vUSB", "vSnapshot", "vTools", "vRP", "vCluster", "vHost", "vHBA", "vNIC", "vSwitch", "vPort", "dvSwitch", "dvPort", "vSC_VMK", "vDatastore", "vMultiPath", "vHealth", "vsfleetCoverage"} {
 		if !strings.Contains(out, sheet) {
 			t.Errorf("report does not mention the %s worksheet", sheet)
 		}

@@ -49,7 +49,7 @@ func TestWalkDevicesExtractsDisksAndGuestNetworks(t *testing.T) {
 		t.Fatalf("devices = %d disks, %d nics; want one disk and two nics", len(disks), len(nics))
 	}
 	gotDisk := disks[0]
-	if gotDisk.Label != "Hard disk 1" || gotDisk.Controller != "LSI Logic" || gotDisk.ControllerLabel != "SCSI controller 0" || gotDisk.BackingPath == "" || gotDisk.UUID != "disk-uuid" {
+	if gotDisk.Label != "Hard disk 1" || gotDisk.Controller != "LSI Logic" || gotDisk.ControllerLabel != "SCSI controller 0" || gotDisk.SharedBus != "noSharing" || gotDisk.BackingPath == "" || gotDisk.UUID != "disk-uuid" {
 		t.Errorf("disk normalization = %+v", gotDisk)
 	}
 	if gotDisk.ThinProvisioned == nil || !*gotDisk.ThinProvisioned || gotDisk.EagerlyScrub == nil || *gotDisk.EagerlyScrub {

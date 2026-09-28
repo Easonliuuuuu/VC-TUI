@@ -217,7 +217,7 @@ vsfleet assessment export --format csv --file ./audit-csv/
 
 vsfleet renders the following 23 worksheet layouts:
 
-`vInfo` &bull; `vCPU` &bull; `vMemory` &bull; `vDisk` &bull; `vPartition` &bull; `vNetwork` &bull; `vCD` &bull; `vUSB` &bull; `vTools` &bull; `vHost` &bull; `vHBA` &bull; `vNIC` &bull; `vSwitch` &bull; `vPort` &bull; `dvSwitch` &bull; `dvPort` &bull; `vSC+VMK` &bull; `vMultiPath` &bull; `vCluster` &bull; `vRP` &bull; `vDatastore` &bull; `vSnapshot` &bull; `vHealth`
+`vInfo` &bull; `vCPU` &bull; `vMemory` &bull; `vDisk` &bull; `vPartition` &bull; `vNetwork` &bull; `vCD` &bull; `vUSB` &bull; `vSnapshot` &bull; `vTools` &bull; `vRP` &bull; `vCluster` &bull; `vHost` &bull; `vHBA` &bull; `vNIC` &bull; `vSwitch` &bull; `vPort` &bull; `dvSwitch` &bull; `dvPort` &bull; `vSC_VMK` &bull; `vDatastore` &bull; `vMultiPath` &bull; `vHealth`
 
 - **Guest Filesystem Usage (`vPartition`)**: Measures guest usage via VMware Tools. VMs with no running Tools contribute no rows, and `vsfleetCoverage` reports answering status.
 - **Host Configuration Sheets**: HBAs, multipath LUN aggregates, physical NICs, standard virtual switches, standard port groups, and VMkernel adapters are pulled directly from host properties without querying separate manager endpoints.

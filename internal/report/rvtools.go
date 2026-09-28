@@ -27,6 +27,7 @@ const (
 	miB        = float64(1 << 20)
 	// coverageSheetName is vsfleet's own worksheet, not an RVTools layout.
 	coverageSheetName = "vsfleetCoverage"
+	vmkSheetName      = "vSC_VMK"
 )
 
 var (
@@ -38,24 +39,24 @@ var (
 	vmHeaders           = []string{"VM", "Powerstate", "Template", "Guest state", "CPUs", "Memory", "Primary IP Address", "Folder", "In Use MiB", "Annotation", "Datacenter", "Cluster", "Host", "OS according to the configuration file", "VM ID", "VM SMBIOS UUID", "VM UUID", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
 	cpuHeaders          = append([]string{"VM", "Powerstate", "Template", "CPUs"}, vmTailHeaders...)
 	memoryHeaders       = append([]string{"VM", "Powerstate", "Template", "Size MiB"}, vmTailHeaders...)
-	diskHeaders         = []string{"VM", "Powerstate", "Template", "Disk", "Disk Key", "Disk UUID", "Capacity MiB", "Raw", "Disk Mode", "Sharing mode", "Thin", "Eagerly Scrub", "Split", "Write Through", "Level", "Shares", "Reservation", "Limit", "Controller", "SCSI label", "Unit number", "SharedBus", "Path", "Raw LUN ID", "Raw Compatibility Mode", "Annotation", "Datacenter", "Cluster", "Host", "Folder", "OS according to the configuration file", "VM ID", "VM UUID", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
+	diskHeaders         = []string{"VM", "Powerstate", "Template", "Disk", "Disk Key", "Disk UUID", "Capacity MiB", "Raw", "Disk Mode", "Sharing mode", "Thin", "Eagerly Scrub", "Split", "Write Through", "Level", "Shares", "Reservation", "Limit", "Controller", "SCSI label", "Unit number", "Shared Bus", "Path", "Raw LUN ID", "Raw Compatibility Mode", "Annotation", "Datacenter", "Cluster", "Host", "Folder", "OS according to the configuration file", "VM ID", "VM UUID", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
 	networkHeaders      = []string{"VM", "Powerstate", "Template", "NIC label", "Adapter", "Network", "Connected", "Starts Connected", "Mac Address", "Mac Address type", "IPv4 Address", "IPv6 Address", "Direct Path IO", "Annotation", "Datacenter", "Cluster", "Host", "Folder", "OS according to the configuration file", "VM ID", "VM UUID", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
 	toolsHeaders        = append([]string{"VM", "Powerstate", "Template", "Tools", "Tools Version", "Tools Version Status"}, vmTailHeaders...)
 	cdHeaders           = append([]string{"VM", "Powerstate", "Template", "Device", "Device Key", "Connected", "Starts Connected", "Backing type", "Backing path", "Backing device", "Backing host", "Backing datastore ID", "Backing object ID", "Use auto detect", "Controller", "Controller label", "Unit number"}, vmTailHeaders...)
 	usbHeaders          = append([]string{"VM", "Powerstate", "Template", "Device", "Device Key", "Connected", "Vendor ID", "Product ID", "Family", "Speed", "Backing type", "Backing path", "Backing device", "Backing host", "Backing datastore ID", "Backing object ID", "Use auto detect", "Controller", "Controller label", "Unit number"}, vmTailHeaders...)
 	partitionHeaders    = append([]string{"VM", "Powerstate", "Template", "Disk Key", "Disk", "Capacity MiB", "Consumed MiB", "Free MiB", "Free %", "Filesystem"}, vmTailHeaders...)
 	hostHeaders         = []string{"Host", "Datacenter", "Cluster", "in Maintenance Mode", "Speed", "# Cores", "CPU usage %", "# Memory", "Memory usage %", "# VMs total", "ESX Version", "Vendor", "Model", "Object ID", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
-	hbaHeaders          = append([]string{"Device", "Bus", "Status", "Model", "Driver", "PCI", "Storage protocol", "WWNN", "WWPN", "iSCSI name", "iSCSI alias", "Type"}, hostTailHeaders...)
+	hbaHeaders          = append([]string{"Device", "Bus", "Status", "Model", "Driver", "Pci", "Storage protocol", "WWNN", "WWPN", "iSCSI name", "iSCSI alias", "Type"}, hostTailHeaders...)
 	nicHeaders          = append([]string{"Device", "PCI", "Driver", "Mac Address", "Link speed Mb", "Duplex", "Wake on LAN", "Switch"}, hostTailHeaders...)
-	switchHeaders       = append([]string{"Switch", "# Ports", "Free ports", "MTU", "Uplinks", "Promiscuous mode", "MAC changes", "Forged transmits", "Traffic shaping"}, hostTailHeaders...)
-	portHeaders         = append([]string{"Port group", "Switch", "VLAN", "Promiscuous mode", "MAC changes", "Forged transmits"}, hostTailHeaders...)
+	switchHeaders       = append([]string{"Switch", "# Ports", "Free Ports", "MTU", "Uplinks", "Promiscuous Mode", "Mac Changes", "Forged Transmits", "Traffic Shaping"}, hostTailHeaders...)
+	portHeaders         = append([]string{"Port Group", "Switch", "VLAN", "Promiscuous Mode", "Mac Changes", "Forged Transmits"}, hostTailHeaders...)
 	dvsTailHeaders      = []string{"Datacenter", "Object ID", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
-	dvSwitchHeaders     = append([]string{"DVS", "# Ports", "# Max ports", "MTU", "Vendor", "Version", "UUID", "Description", "Contact", "Contact detail", "Hosts", "Uplink ports", "Link discovery protocol", "Link discovery operation", "LACP version"}, dvsTailHeaders...)
-	dvPortHeaders       = append([]string{"Port group", "DVS", "Key", "Type", "Backing type", "# Ports", "VLAN", "Uplink", "Promiscuous mode", "MAC changes", "Forged transmits", "Teaming policy", "Notify switches", "Failback", "Ingress shaping", "Egress shaping", "Blocked", "Auto expand", "Active uplinks", "Standby uplinks", "Logical switch UUID", "Segment ID"}, dvsTailHeaders...)
+	dvSwitchHeaders     = append([]string{"Switch", "# Ports", "Max Ports", "MTU", "Vendor", "Version", "UUID", "Description", "Contact", "Contact detail", "Hosts", "Uplink ports", "Link discovery protocol", "Link discovery operation", "LACP version"}, dvsTailHeaders...)
+	dvPortHeaders       = append([]string{"Port", "Switch", "Key", "Type", "Backing type", "# Ports", "VLAN", "Uplink", "Allow Promiscuous", "Mac Changes", "Forged Transmits", "Policy", "Notify Switch", "Rolling Order", "In Traffic Shaping", "Out Traffic Shaping", "Blocked", "Auto expand", "Active Uplink", "Standby Uplink", "Logical switch UUID", "Segment ID"}, dvsTailHeaders...)
 	vmkHeaders          = append([]string{"Device", "Port group", "Mac Address", "MTU", "TSO", "Netstack", "DHCP", "IP Address", "Subnet mask", "Service console"}, hostTailHeaders...)
 	multipathHeaders    = append([]string{"LUN", "Device path", "Policy", "Local disk", "Path count", "Active paths", "Standby paths", "Dead paths", "Disabled paths", "Working paths"}, hostTailHeaders...)
-	clusterHeaders      = []string{"Name", "NumHosts", "NumEffectiveHosts", "TotalCpu", "NumCpuCores", "TotalMemory", "HA enabled", "DRS enabled", "Object ID", "Datacenter", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
-	resourcePoolHeaders = []string{"Resource pool", "Name", "Status", "VMs", "vCPUs", "CPU limit", "CPU overhead limit", "CPU reservation", "CPU level", "CPU shares", "CPU expandable reservation", "Mem configured", "Mem limit", "Mem overhead limit", "Mem reservation", "Mem level", "Mem shares", "Mem expandable reservation", "Config status", "Object ID", "Datacenter", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
+	clusterHeaders      = []string{"Name", "NumHosts", "numEffectiveHosts", "TotalCpu", "NumCpuCores", "TotalMemory", "HA enabled", "DRS enabled", "Object ID", "Datacenter", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
+	resourcePoolHeaders = []string{"Resource pool", "Name", "Status", "VMs", "vCPUs", "CPU limit", "CPU overheadLimit", "CPU reservation", "CPU level", "CPU shares", "CPU expandableReservation", "Mem Configured", "Mem limit", "Mem overheadLimit", "Mem reservation", "Mem level", "Mem shares", "Mem expandableReservation", "Config status", "Object ID", "Datacenter", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
 	datastoreHeaders    = []string{"Name", "Datacenter", "Type", "Capacity MiB", "In Use MiB", "Free MiB", "Free %", "Accessible", "Maintenance mode", "Object ID", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
 	snapshotHeaders     = []string{"VM", "Powerstate", "Name", "Description", "Date / time", "Quiesced", "State", "Annotation", "Datacenter", "Cluster", "Host", "Folder", "OS according to the configuration file", "VM ID", "VM UUID", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
 	healthHeaders       = []string{"Name", "Message", "Message type", "Category", "vsfleet Rule", "Recommendation", "Evidence", "Object type", "Datacenter", "Object ID", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
@@ -91,7 +92,10 @@ func rvtoolsSheets(data assessment.ExportData, healthReport health.Report) ([]sh
 		{name: "vNetwork", headers: networkHeaders, rows: networkRows(data)},
 		{name: "vCD", headers: cdHeaders, rows: cdRows(data)},
 		{name: "vUSB", headers: usbHeaders, rows: usbRows(data)},
+		{name: "vSnapshot", headers: snapshotHeaders, rows: snapshotRows(data), dateCols: []int{4}},
 		{name: "vTools", headers: toolsHeaders, rows: toolsRows(data)},
+		{name: "vRP", headers: resourcePoolHeaders, rows: resourcePoolRows(data)},
+		{name: "vCluster", headers: clusterHeaders, rows: clusterRows(data)},
 		{name: "vHost", headers: hostHeaders, rows: hostRows(data)},
 		{name: "vHBA", headers: hbaHeaders, rows: hbaRows(data)},
 		{name: "vNIC", headers: nicHeaders, rows: nicRows(data)},
@@ -99,12 +103,9 @@ func rvtoolsSheets(data assessment.ExportData, healthReport health.Report) ([]sh
 		{name: "vPort", headers: portHeaders, rows: portRows(data)},
 		{name: "dvSwitch", headers: dvSwitchHeaders, rows: dvSwitchRows(data)},
 		{name: "dvPort", headers: dvPortHeaders, rows: dvPortRows(data)},
-		{name: "vSC+VMK", headers: vmkHeaders, rows: vmkRows(data)},
-		{name: "vMultiPath", headers: multipathHeaders, rows: multipathRows(data)},
-		{name: "vCluster", headers: clusterHeaders, rows: clusterRows(data)},
-		{name: "vRP", headers: resourcePoolHeaders, rows: resourcePoolRows(data)},
+		{name: vmkSheetName, headers: vmkHeaders, rows: vmkRows(data)},
 		{name: "vDatastore", headers: datastoreHeaders, rows: datastoreRows(data)},
-		{name: "vSnapshot", headers: snapshotHeaders, rows: snapshotRows(data), dateCols: []int{4}},
+		{name: "vMultiPath", headers: multipathHeaders, rows: multipathRows(data)},
 		{name: "vHealth", headers: healthHeaders, rows: healthRows(data, healthReport)},
 		{name: coverageSheetName, headers: coverageHeaders, rows: coverageRows(data, healthReport), dateCols: []int{2, 3}},
 	}, nil
@@ -309,7 +310,7 @@ func writeSheet(f *excelize.File, name string, headers []string, rows [][]any, d
 			return err
 		}
 	}
-	return nil
+	return f.SetSheetDimension(name, fmt.Sprintf("A1:%s%d", lastCol, lastRow))
 }
 
 func vmRows(data assessment.ExportData) [][]any {
@@ -500,6 +501,15 @@ func optionalBool(value *bool) any {
 	return *value
 }
 
+// invertedOptionalBool renders the raw value for a vSphere boolean whose
+// stored report value represents the opposite user-facing setting.
+func invertedOptionalBool(value *bool) any {
+	if value == nil {
+		return nil
+	}
+	return !*value
+}
+
 func optionalInt32(value *int32) any {
 	if value == nil {
 		return nil
@@ -659,7 +669,7 @@ func dvPortRows(data assessment.ExportData) [][]any {
 				port.Name, nonempty(sw.Name, resource.Name), port.Key, port.Type, port.BackingType, port.NumPorts,
 				optionalString(port.VLAN), port.Uplink, optionalBool(port.Promiscuous), optionalBool(port.MACChanges),
 				optionalBool(port.ForgedTransmits), optionalString(port.TeamingPolicy), optionalBool(port.NotifySwitches),
-				optionalBool(port.Failback), optionalBool(port.IngressShaping), optionalBool(port.EgressShaping),
+				invertedOptionalBool(port.Failback), optionalBool(port.IngressShaping), optionalBool(port.EgressShaping),
 				optionalBool(port.Blocked), optionalBool(port.AutoExpand), strings.Join(port.ActiveUplinks, ", "),
 				strings.Join(port.StandbyUplinks, ", "), optionalString(port.LogicalSwitchUUID), optionalString(port.SegmentID),
 			}
@@ -845,7 +855,7 @@ func coverageRows(data assessment.ExportData, healthReport health.Report) [][]an
 				counts["vNIC"] += len(host.NICs)
 				counts["vSwitch"] += len(host.VSwitches)
 				counts["vPort"] += len(host.PortGroups)
-				counts["vSC+VMK"] += len(host.VMKs)
+				counts[vmkSheetName] += len(host.VMKs)
 				counts["vMultiPath"] += len(host.Multipaths)
 			}
 		}
@@ -903,7 +913,10 @@ func coverageRows(data assessment.ExportData, healthReport health.Report) [][]an
 			{kind: "vnetwork", sheet: "vNetwork", count: networkCounts[c.Name]},
 			{kind: "vcd", sheet: "vCD", count: cdCounts[c.Name]},
 			{kind: "vusb", sheet: "vUSB", count: usbCounts[c.Name]},
+			{kind: "snapshot", sheet: "vSnapshot", count: snapshotCounts[c.Name]},
 			{kind: "vtools", sheet: "vTools", count: counts[c.Name]},
+			{kind: "resourcepool", sheet: "vRP", count: resources[c.Name]["resourcepool"]},
+			{kind: "cluster", sheet: "vCluster", count: resources[c.Name]["cluster"]},
 			{kind: "host", sheet: "vHost", count: resources[c.Name]["host"]},
 			{kind: "host", sheet: "vHBA", count: hostConfigCounts[c.Name]["vHBA"], hostConfig: true},
 			{kind: "host", sheet: "vNIC", count: hostConfigCounts[c.Name]["vNIC"], hostConfig: true},
@@ -911,12 +924,9 @@ func coverageRows(data assessment.ExportData, healthReport health.Report) [][]an
 			{kind: "host", sheet: "vPort", count: hostConfigCounts[c.Name]["vPort"], hostConfig: true},
 			{kind: "dvswitch", sheet: "dvSwitch", count: dvsCounts[c.Name]["dvSwitch"]},
 			{kind: "dvswitch", sheet: "dvPort", count: dvsCounts[c.Name]["dvPort"]},
-			{kind: "host", sheet: "vSC+VMK", count: hostConfigCounts[c.Name]["vSC+VMK"], hostConfig: true},
-			{kind: "host", sheet: "vMultiPath", count: hostConfigCounts[c.Name]["vMultiPath"], hostConfig: true},
-			{kind: "cluster", sheet: "vCluster", count: resources[c.Name]["cluster"]},
-			{kind: "resourcepool", sheet: "vRP", count: resources[c.Name]["resourcepool"]},
+			{kind: "host", sheet: vmkSheetName, count: hostConfigCounts[c.Name][vmkSheetName], hostConfig: true},
 			{kind: "datastore", sheet: "vDatastore", count: resources[c.Name]["datastore"]},
-			{kind: "snapshot", sheet: "vSnapshot", count: snapshotCounts[c.Name]},
+			{kind: "host", sheet: "vMultiPath", count: hostConfigCounts[c.Name]["vMultiPath"], hostConfig: true},
 			{kind: "vhealth", sheet: "vHealth", count: healthFindingsForContext(healthReport, c.Name)},
 		} {
 			status, message := "not recorded", ""

@@ -111,10 +111,10 @@ notes rather than being treated as zero growth.
 
 Exports read one persisted run and do not contact vCenter or open a live
 session. The `rvtools` format is an XLSX workbook containing `vInfo`, `vCPU`,
-`vMemory`, per-VM `vDisk`, `vPartition` and `vNetwork`, `vTools`, `vHost`,
-`vHBA`, `vNIC`, `vSwitch`, `vPort`, `dvSwitch`, `dvPort`, `vSC+VMK`,
-`vMultiPath`, `vCluster`, `vRP`, `vDatastore`, `vSnapshot`, `vHealth`, and
-`vsfleetCoverage` sheets.
+`vMemory`, per-VM `vDisk`, `vPartition` and `vNetwork`, `vCD`, `vUSB`,
+`vSnapshot`, `vTools`, `vRP`, `vCluster`, `vHost`, `vHBA`, `vNIC`, `vSwitch`,
+`vPort`, `dvSwitch`, `dvPort`, `vSC_VMK`, `vDatastore`, `vMultiPath`, `vHealth`,
+and `vsfleetCoverage` sheets.
 
 ```sh
 vsfleet assessment export latest --format rvtools --file ./estate.xlsx
@@ -278,9 +278,9 @@ The `rvtools` export profile renders twenty-three worksheet layouts used by RVTo
 exports, so a downstream tool that reads those worksheet names and columns can
 consume the corresponding parts of a vsfleet export:
 
-`vInfo` · `vCPU` · `vMemory` · `vDisk` · `vPartition` · `vNetwork` · `vCD` · `vUSB` · `vTools` ·
-`vHost` · `vHBA` · `vNIC` · `vSwitch` · `vPort` · `dvSwitch` · `dvPort` ·
-`vSC+VMK` · `vMultiPath` · `vCluster` · `vRP` · `vDatastore` · `vSnapshot` ·
+`vInfo` · `vCPU` · `vMemory` · `vDisk` · `vPartition` · `vNetwork` · `vCD` · `vUSB` ·
+`vSnapshot` · `vTools` · `vRP` · `vCluster` · `vHost` · `vHBA` · `vNIC` · `vSwitch` ·
+`vPort` · `dvSwitch` · `dvPort` · `vSC_VMK` · `vDatastore` · `vMultiPath` ·
 `vHealth`
 
 Compatibility is limited to the listed worksheet names and columns. Other
@@ -364,7 +364,7 @@ runtime fields, so it leaves them out rather than guessing values.
 The host-scoped sheets add storage adapters (`vHBA`), one aggregate row per
 host/LUN with path-state counts (`vMultiPath`), physical NICs (`vNIC`),
 standard virtual switches (`vSwitch`), standard port groups (`vPort`), and
-VMkernel or legacy service-console adapters (`vSC+VMK`). They are collected
+VMkernel or legacy service-console adapters (`vSC_VMK`). They are collected
 from `HostSystem.config.storageDevice` and `HostSystem.config.network` during
 assessment capture. Search, host listing, and the TUI keep their summary fetch;
 the host configuration properties are deliberately not added to those paths.

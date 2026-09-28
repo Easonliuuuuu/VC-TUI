@@ -436,11 +436,11 @@ func deviceControllerFor(device types.BaseVirtualDevice) (deviceController, bool
 	case *types.VirtualSCSIController:
 		return deviceController{"SCSI", label, string(c.SharedBus), cloneInt32(c.ScsiCtlrUnitNumber)}, true
 	case *types.VirtualBusLogicController:
-		return deviceController{"BusLogic", label, "", cloneInt32(c.ScsiCtlrUnitNumber)}, true
+		return deviceController{"BusLogic", label, string(c.SharedBus), cloneInt32(c.ScsiCtlrUnitNumber)}, true
 	case *types.VirtualLsiLogicController:
-		return deviceController{"LSI Logic", label, "", cloneInt32(c.ScsiCtlrUnitNumber)}, true
+		return deviceController{"LSI Logic", label, string(c.SharedBus), cloneInt32(c.ScsiCtlrUnitNumber)}, true
 	case *types.VirtualLsiLogicSASController:
-		return deviceController{"LSI Logic SAS", label, "", cloneInt32(c.ScsiCtlrUnitNumber)}, true
+		return deviceController{"LSI Logic SAS", label, string(c.SharedBus), cloneInt32(c.ScsiCtlrUnitNumber)}, true
 	case *types.VirtualIDEController:
 		return deviceController{"IDE", label, "", nil}, true
 	case *types.VirtualSATAController:
