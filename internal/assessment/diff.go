@@ -346,7 +346,7 @@ func changedFields(a, b vsphere.VM, runtime bool) []FieldChange {
 	add("memory", strconv.FormatInt(a.MemoryMB, 10), strconv.FormatInt(b.MemoryMB, 10))
 	add("guest_os", a.GuestOS, b.GuestOS)
 	add("annotation", a.Annotation, b.Annotation)
-	add("migration_configuration", migrationFingerprint(a, b), migrationFingerprint(b, a))
+	out = append(out, migrationFieldChanges(a, b)...)
 	if before, err := json.Marshal(a); err == nil {
 		if after, err := json.Marshal(b); err == nil {
 			out = append(out, metadataFieldChanges(before, after)...)
@@ -436,6 +436,71 @@ func tagLabel(tag vsphere.Tag) string {
 // of both sides instead of turning every VM into a migration-blocking change
 // after a tool upgrade.
 func migrationFingerprint(vm, other vsphere.VM) string {
+	raw, _ := json.Marshal(migrationConfig(vm, other))
+	return string(raw)
+}
+
+// migrationFieldPrefix namespaces per-field migration configuration changes,
+// e.g. "migration_configuration.disks[2000].shared_bus".
+const migrationFieldPrefix = "migration_configuration"
+
+// migrationFieldChanges reports each differing migration-relevant sub-field
+// so the inspector can show what changed instead of two truncated blobs.
+func migrationFieldChanges(a, b vsphere.VM) []FieldChange {
+	before, after := flattenJSON(migrationConfig(a, b)), flattenJSON(migrationConfig(b, a))
+	var out []FieldChange
+	for path, old := range before {
+		if now := after[path]; now != old {
+			out = append(out, FieldChange{Field: migrationFieldPrefix + "." + path, Before: old, After: now})
+		}
+	}
+	for path, now := range after {
+		if _, ok := before[path]; !ok && now != "" {
+			out = append(out, FieldChange{Field: migrationFieldPrefix + "." + path, After: now})
+		}
+	}
+	return out
+}
+
+// flattenJSON renders v as leaf path -> compact JSON value. Array elements
+// that carry a "key" are addressed by it, so device order does not matter.
+func flattenJSON(v any) map[string]string {
+	raw, _ := json.Marshal(v)
+	var tree any
+	_ = json.Unmarshal(raw, &tree)
+	out := map[string]string{}
+	var walk func(path string, node any)
+	walk = func(path string, node any) {
+		switch n := node.(type) {
+		case map[string]any:
+			for k, child := range n {
+				next := k
+				if path != "" {
+					next = path + "." + k
+				}
+				walk(next, child)
+			}
+		case []any:
+			for i, child := range n {
+				id := strconv.Itoa(i)
+				if m, ok := child.(map[string]any); ok {
+					if key, ok := m["key"].(float64); ok {
+						id = strconv.FormatInt(int64(key), 10)
+					}
+				}
+				walk(fmt.Sprintf("%s[%s]", path, id), child)
+			}
+		case nil:
+		default:
+			b, _ := json.Marshal(n)
+			out[path] = string(b)
+		}
+	}
+	walk("", tree)
+	return out
+}
+
+func migrationConfig(vm, other vsphere.VM) any {
 	value := struct {
 		ConfigurationAvailable       bool                        `json:"configuration_available"`
 		GuestID                      string                      `json:"guest_id"`
@@ -459,8 +524,7 @@ func migrationFingerprint(vm, other vsphere.VM) string {
 		AutoCoresPerSocket: vm.AutoCoresPerSocket, CPUAllocation: allocationCompat(vm.CPUAllocation), MemoryAllocation: allocationCompat(vm.MemoryAllocation),
 		MemoryReservationLockedToMax: vm.MemoryReservationLockedToMax, ManagedBy: vm.ManagedBy, Disks: migrationDisks(vm.Disks, other.Disks), NICs: migrationNICs(vm.NICs), TPMs: vm.TPMs, PCIDevices: vm.PCIDevices, Floppies: vm.Floppies,
 	}
-	raw, _ := json.Marshal(value)
-	return string(raw)
+	return value
 }
 
 // migrationDisk is an explicit allow-list of migration-relevant disk fields.

@@ -166,7 +166,7 @@ func vmImpact(v assessment.VMChange) impact {
 		return impactBlocks
 	}
 	for _, f := range v.Fields {
-		if f.Field == "migration_configuration" {
+		if strings.HasPrefix(f.Field, "migration_configuration.") {
 			return impactBlocks
 		}
 	}
