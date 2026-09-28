@@ -41,7 +41,7 @@ func TestCompareVMsDetectsMigrationConfigurationChange(t *testing.T) {
 	target := base
 	target.observation.VM.Firmware = "bios"
 	changes, _ := compareVMs([]storedVM{base}, []storedVM{target}, false)
-	if len(changes) != 1 || len(changes[0].Fields) != 1 || changes[0].Fields[0].Field != "migration_configuration" {
+	if len(changes) != 1 || len(changes[0].Fields) != 1 || changes[0].Fields[0].Field != "migration_configuration.firmware" {
 		t.Fatalf("migration configuration change=%+v", changes)
 	}
 }
@@ -88,5 +88,17 @@ func TestMigrationFingerprintIgnoresLateDiskFields(t *testing.T) {
 	shared := vsphere.VM{Disks: []vsphere.VMDisk{{Key: 2000, CapacityBytes: 10, SharedBus: "physicalSharing"}}}
 	if migrationFingerprint(upgraded, shared) == migrationFingerprint(shared, upgraded) {
 		t.Fatal("a shared bus change recorded by both runs must still be detected")
+	}
+}
+
+func TestMigrationFieldChangesNameTheDiffSubField(t *testing.T) {
+	old := vsphere.VM{Disks: []vsphere.VMDisk{{Key: 2000, CapacityBytes: 10, SharedBus: "noSharing"}}}
+	now := vsphere.VM{Disks: []vsphere.VMDisk{{Key: 2000, CapacityBytes: 10, SharedBus: "physicalSharing"}}}
+	got := migrationFieldChanges(old, now)
+	if len(got) != 1 || got[0].Field != "migration_configuration.disks[2000].shared_bus" || got[0].Before != `"noSharing"` || got[0].After != `"physicalSharing"` {
+		t.Fatalf("changes=%+v", got)
+	}
+	if got := migrationFieldChanges(vsphere.VM{Disks: []vsphere.VMDisk{{Key: 2000}}}, vsphere.VM{Disks: []vsphere.VMDisk{{Key: 2000, SharedBus: "noSharing"}}}); len(got) != 0 {
+		t.Fatalf("late field read as change: %+v", got)
 	}
 }
