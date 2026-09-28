@@ -92,6 +92,30 @@ func TestDuration(t *testing.T) {
 	}
 }
 
+func TestAge(t *testing.T) {
+	for _, tc := range []struct {
+		in   time.Duration
+		want string
+	}{
+		{0, "-"},
+		{-time.Second, "-"},
+		{time.Nanosecond, "1s"},
+		{59*time.Second + 999*time.Millisecond, "59s"},
+		{time.Minute, "1m"},
+		{59*time.Minute + 59*time.Second, "59m"},
+		{time.Hour, "1h"},
+		{23*time.Hour + 59*time.Minute, "23h"},
+		{24 * time.Hour, "1d"},
+		{7*24*time.Hour - time.Second, "6d"},
+		{7 * 24 * time.Hour, "1w"},
+		{90 * 24 * time.Hour, "12w"},
+	} {
+		if got := Age(tc.in); got != tc.want {
+			t.Errorf("Age(%v) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestDash(t *testing.T) {
 	if got := Dash("   "); got != "-" {
 		t.Errorf("Dash(spaces) = %q, want %q", got, "-")
