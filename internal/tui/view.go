@@ -193,7 +193,8 @@ func (m *Model) scopeName() string {
 
 func (m *Model) viewMessage() string {
 	t := m.theme
-	if m.filtering || m.filter.Value() != "" {
+	browserPane := m.mode == modeDatastoreEntry || m.mode == modeDatastoreFind
+	if !browserPane && (m.filtering || m.filter.Value() != "") {
 		return truncate(t.accent.Render(m.filter.View())+t.dim.Render(m.filterHint()), m.width)
 	}
 	if m.jump != nil && m.jump.kind == m.kind && m.mode == modeBrowse {
@@ -219,6 +220,13 @@ func (m *Model) viewMessage() string {
 func (m *Model) filterHint() string {
 	if m.mode == modeSearch || m.filter.Value() == "" {
 		return ""
+	}
+	if m.mode == modeDatastoreFiles {
+		hint := fmt.Sprintf("  %d here", len(m.visibleDSEntries()))
+		if !m.filtering {
+			hint += " · esc clears"
+		}
+		return hint
 	}
 	here := len(m.rows())
 	hint := fmt.Sprintf("  %d here", here)

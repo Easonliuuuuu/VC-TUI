@@ -32,6 +32,12 @@ type dsWorkspace struct {
 	datastore   string
 	datastoreID string
 
+	// inventoryFilter is the Datastores-tab filter the browser was opened
+	// under. The browser filters its own directory, so the inventory query is
+	// set aside on entry and put back on leaving the root — Esc then lands on
+	// the datastore the browser came from.
+	inventoryFilter string
+
 	// path is the directory being shown, relative to the datastore root.
 	// Empty is the root.
 	path      string
@@ -176,7 +182,12 @@ func (m *Model) openDatastoreFiles(r row, findFirst bool) tea.Cmd {
 		datastore:   r.name,
 		datastoreID: r.target.moref,
 		find:        find,
+
+		inventoryFilter: m.filter.Value(),
 	}
+	m.filter.SetValue("")
+	m.filter.Placeholder = filterPlaceholder
+	m.filtering = false
 	m.actions = nil
 	m.setMessage("", false)
 	if findFirst {
@@ -380,6 +391,7 @@ func (m *Model) leaveDatastoreDir() tea.Cmd {
 	m.filter.SetValue("")
 	m.filter.Placeholder = filterPlaceholder
 	if m.ds.path == "" {
+		m.filter.SetValue(m.ds.inventoryFilter)
 		m.clearDSWorkspace()
 		m.mode = modeDetail
 		return nil
@@ -698,7 +710,11 @@ func (m *Model) viewDatastoreFiles() []string {
 
 	entries := m.visibleDSEntries()
 	m.ds.cursor = clamp(m.ds.cursor, 0, max(0, len(entries)-1))
-	lines = append(lines, m.dsTable(entries, m.ds.cursor, &m.ds.offset, "empty directory", false)...)
+	empty := "empty directory"
+	if len(m.ds.entries) > 0 {
+		empty = "no entries match " + strings.TrimSpace(m.filter.Value())
+	}
+	lines = append(lines, m.dsTable(entries, m.ds.cursor, &m.ds.offset, empty, false)...)
 	if m.ds.truncated {
 		lines = append(lines, "  "+t.warn.Render(fmt.Sprintf("showing the first %d entries — this directory is larger than that", len(m.ds.entries))))
 	}
