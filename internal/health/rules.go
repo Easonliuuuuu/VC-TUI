@@ -37,7 +37,7 @@ var rules = []Rule{
 	{
 		ID: "custom-cpu-topology", Category: CategoryMigration, Severity: SeverityInfo, MinSchema: 13,
 		Recommendation: "Confirm the destination preserves the VM's virtual socket and core topology.", NeedsCollections: []string{"vm"},
-		Summary: "VM uses an explicit or automatic CPU topology", Needs: "VM CPU topology configuration",
+		Summary: "VM uses a custom topology with multiple cores per socket", Needs: "VM CPU topology configuration",
 		Eval: evaluateCustomCPUTopology, Resolve: resolveCPUTopology,
 	},
 	{
@@ -472,7 +472,7 @@ func evaluateSecureBoot(in Input, emit func(Finding)) {
 func evaluateCustomCPUTopology(in Input, emit func(Finding)) {
 	for _, item := range in.Data.VMs {
 		vm := item.Observation.VM
-		if vm.IsTemplate || (vm.CoresPerSocket <= 1 && (vm.AutoCoresPerSocket == nil || !*vm.AutoCoresPerSocket)) {
+		if vm.IsTemplate || vm.CoresPerSocket <= 1 || (vm.AutoCoresPerSocket != nil && *vm.AutoCoresPerSocket) {
 			continue
 		}
 		auto := "false"

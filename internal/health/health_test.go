@@ -194,13 +194,13 @@ func TestEvaluateHostPathRedundancySchemaGate(t *testing.T) {
 }
 
 func TestEvaluateExpandedMigrationReadiness(t *testing.T) {
-	secure, auto, locked := true, true, true
+	secure, locked, manualTopology := true, true, false
 	reservation, limit := int64(128), int64(500)
 	unlimited := int64(-1)
 	problem := vsphere.VM{
 		Location: vsphere.Location{Context: "prod", Datacenter: "dc-a"},
 		ID:       "vm-problem", Name: "problem", ConfigurationAvailable: true, CPU: 4, Firmware: "bios", CoresPerSocket: 2,
-		AutoCoresPerSocket: &auto, SecureBootEnabled: &secure,
+		AutoCoresPerSocket: &manualTopology, SecureBootEnabled: &secure,
 		CPUAllocation:                &vsphere.VMResourceAllocation{Reservation: &reservation, Limit: &limit},
 		MemoryAllocation:             &vsphere.VMResourceAllocation{Reservation: &reservation, Limit: &unlimited},
 		MemoryReservationLockedToMax: &locked,
@@ -245,6 +245,36 @@ func TestEvaluateExpandedMigrationReadiness(t *testing.T) {
 				t.Errorf("advisory %s result=%q", status.Rule, status.Result)
 			}
 		}
+	}
+}
+
+func TestEvaluateCustomCPUTopology(t *testing.T) {
+	auto, manual := true, false
+	tests := []struct {
+		name           string
+		coresPerSocket int32
+		autoCores      *bool
+		isTemplate     bool
+		wantFinding    bool
+	}{
+		{name: "automatic topology with multiple cores", coresPerSocket: 4, autoCores: &auto},
+		{name: "manual topology with multiple cores", coresPerSocket: 4, autoCores: &manual, wantFinding: true},
+		{name: "unset automatic flag with multiple cores", coresPerSocket: 4, wantFinding: true},
+		{name: "manual topology with one core", coresPerSocket: 1, autoCores: &manual},
+		{name: "unset flag with one core", coresPerSocket: 1},
+		{name: "template with manual topology", coresPerSocket: 4, autoCores: &manual, isTemplate: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vm := vsphere.VM{ID: "vm-test", Name: tt.name, CPU: 4, CoresPerSocket: tt.coresPerSocket, AutoCoresPerSocket: tt.autoCores, IsTemplate: tt.isTemplate}
+			var findings []Finding
+			evaluateCustomCPUTopology(Input{Data: assessment.ExportData{VMs: []assessment.ExportVM{{Observation: assessment.Observation{VM: vm}}}}}, func(f Finding) {
+				findings = append(findings, f)
+			})
+			if got := len(findings) > 0; got != tt.wantFinding {
+				t.Fatalf("finding=%t, want %t (findings=%+v)", got, tt.wantFinding, findings)
+			}
+		})
 	}
 }
 
