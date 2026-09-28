@@ -196,10 +196,10 @@ func columnsFor(kind vsphere.Kind, withContext bool) []column {
 	case vsphere.KindHost:
 		cols = append(cols,
 			column{title: "NAME"},
-			column{title: "STATE", width: 14},
-			column{title: "CLUSTER", width: 18},
-			column{title: "CPU", width: 10, right: true},
-			column{title: "MEMORY", width: 10, right: true},
+			column{title: "STATE", width: 12},
+			column{title: "CLUSTER", width: 14},
+			column{title: "CPU", width: 16, right: true},
+			column{title: "MEMORY", width: 12, right: true},
 			column{title: "VMS", width: 5, right: true},
 			column{title: "VERSION", width: 10},
 		)
