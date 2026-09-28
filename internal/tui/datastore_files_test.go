@@ -484,3 +484,36 @@ func TestDatastoreEntryShowsDiskLabelAndBackingPath(t *testing.T) {
 		t.Fatalf("missing %q in:\n%s", want, out)
 	}
 }
+
+func TestBrowseFilesIgnoresAndRestoresTheInventoryFilter(t *testing.T) {
+	b := browsing()
+	m := newTestModel(t, b.fakeBackend, Options{Current: "prod"})
+	m.backend = b
+	findRow(t, m, vsphere.KindDatastore, "nvme-01")
+	m.filter.SetValue("nvme")
+	openBrowser(t, m)
+
+	if m.filter.Value() != "" {
+		t.Fatalf("browser inherited the inventory filter %q", m.filter.Value())
+	}
+	out := m.View()
+	if strings.Contains(out, "empty directory") || !strings.Contains(out, "README.txt") {
+		t.Fatalf("root did not list its entries:\n%s", out)
+	}
+
+	press(t, m, "/")
+	typeText(t, m, "iso")
+	if out := m.View(); !strings.Contains(out, "1 here") {
+		t.Fatalf("filter count should match the one visible row:\n%s", out)
+	}
+	typeText(t, m, "zzz")
+	if out := m.View(); !strings.Contains(out, "no entries match") || strings.Contains(out, "empty directory") {
+		t.Fatalf("a filtered-out listing must not read as empty:\n%s", out)
+	}
+
+	press(t, m, "esc")
+	press(t, m, "esc")
+	if m.mode != modeDetail || m.filter.Value() != "nvme" {
+		t.Fatalf("mode=%v filter=%q, want detail with the inventory filter restored", m.mode, m.filter.Value())
+	}
+}
