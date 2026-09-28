@@ -299,9 +299,27 @@ vsfleet compatibility report --sheet vPartition
 vsfleet compatibility report -o json | jq
 ```
 
-It describes what vsfleet emits and what those values mean. It makes no claim
-about any other tool's schema; compare it against what your pipeline
-requires.
+It describes what vsfleet emits and what those values mean. The following
+differences were observed against an RVTools 4.8.1.4 export of the same
+vCenter, captured about a minute apart ([comparison](https://github.com/Easonliuuuuu/vsfleet/issues/207)).
+Other RVTools versions and collector settings may differ. Pipelines that
+compare values under a shared header should account for these differences:
+
+| Sheet / column | vsfleet value | RVTools 4.8.1.4 value |
+| --- | --- | --- |
+| VM sheets, `Folder` | Path relative to the datacenter's `vm` folder: `/` or `/Discovered virtual machine` | Includes the datacenter: `/DC-Lab` or `/DC-Lab/Discovered virtual machine` |
+| RVTools-named sheets, `VI SDK Server` | Configured endpoint URL, for example `https://192.168.150.10` | Host without URL scheme, for example `192.168.150.10` |
+| `vHost`, `ESX Version` | Version only, for example `8.0.3` | Product name, version and build, for example `VMware ESXi 8.0.3 build-24784735` |
+| `vHost`, `# VMs total` | Counts host VM references, including templates | Excludes templates; the comparison found 4 versus vsfleet's 5 |
+| `vTools`, `Tools` | VMware Tools **running status** (`GuestInfo.toolsRunningStatus`), for example `guestToolsNotRunning` | Tools **installation status**, for example `toolsNotInstalled` |
+| `vHBA`, `Type` | vSphere adapter type, for example `HostBlockHba` | Human-readable label, for example `Block SCSI` |
+| `vSnapshot`, `Date / time` | UTC; XLSX displays a date without a zone and CSV uses RFC3339 with `Z` | Collector-local time without a zone |
+| `vInfo` `In Use MiB`; `vPartition` capacity, consumed, free MiB and `Free %`; `vDatastore` capacity, in-use, free MiB and `Free %`; `vHost` CPU and memory usage `%` | Decimal values are retained (vPartition `Free %` is rounded to two decimals) | Integer values |
+
+The `vTools` values describe different states: a Tools installation can exist
+while its service is not running. Treat `Tools` as a different field when
+mapping an RVTools pipeline. For `vSnapshot`, convert the UTC value to the
+collector's local zone before comparing wall-clock times.
 
 vsfleet is a personal open-source project, not an official Dell Technologies
 product, and is not sponsored, endorsed, or supported by Dell Technologies. Its
