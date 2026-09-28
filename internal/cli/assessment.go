@@ -19,6 +19,7 @@ import (
 
 	"github.com/easonliuuuuu/vsfleet/internal/assessment"
 	"github.com/easonliuuuuu/vsfleet/internal/health"
+	"github.com/easonliuuuuu/vsfleet/internal/humanize"
 	"github.com/easonliuuuuu/vsfleet/internal/query"
 	"github.com/easonliuuuuu/vsfleet/internal/report"
 	"github.com/easonliuuuuu/vsfleet/internal/version"
@@ -682,7 +683,7 @@ func newAssessmentSnapshotTrendCommand(a *App) *cobra.Command {
 		values := make([]float64, len(trend.Points))
 		for i, p := range trend.Points {
 			values[i] = float64(p.Total)
-			t.row(strconv.FormatInt(p.Run.ID, 10), p.Run.StartedAt.Local().Format("2006-01-02"), itoa(p.Total), itoa(p.Stale), humanDuration(p.OldestAge), "")
+			t.row(strconv.FormatInt(p.Run.ID, 10), p.Run.StartedAt.Local().Format("2006-01-02"), itoa(p.Total), itoa(p.Stale), humanize.Age(p.OldestAge), "")
 		}
 		t.flush()
 		if len(values) > 0 {
@@ -1209,7 +1210,7 @@ func newAssessmentSnapshotsCommand(a *App) *cobra.Command {
 		}
 		t := newTable(a.out(), "VM", "CONTEXT", "SNAPSHOT", "CREATED", "AGE", "FIRST SEEN", "LAST SEEN")
 		for _, v := range ages {
-			t.row(v.VMName, v.Context, v.Name, v.CreateTime.Local().Format("2006-01-02"), humanDuration(v.Age), v.FirstSeen.Local().Format("2006-01-02"), v.LastSeen.Local().Format("2006-01-02"))
+			t.row(v.VMName, v.Context, v.Name, v.CreateTime.Local().Format("2006-01-02"), humanize.Age(v.Age), v.FirstSeen.Local().Format("2006-01-02"), v.LastSeen.Local().Format("2006-01-02"))
 		}
 		t.flush()
 		return nil

@@ -100,6 +100,29 @@ func Duration(d time.Duration) string {
 	}
 }
 
+// Age renders an elapsed age using the largest whole unit that fits. It is
+// intended for object ages such as snapshots, not short operation latencies.
+func Age(d time.Duration) string {
+	switch {
+	case d <= 0:
+		return "-"
+	case d >= 7*24*time.Hour:
+		return strconv.FormatInt(int64(d/(7*24*time.Hour)), 10) + "w"
+	case d >= 24*time.Hour:
+		return strconv.FormatInt(int64(d/(24*time.Hour)), 10) + "d"
+	case d >= time.Hour:
+		return strconv.FormatInt(int64(d/time.Hour), 10) + "h"
+	case d >= time.Minute:
+		return strconv.FormatInt(int64(d/time.Minute), 10) + "m"
+	default:
+		seconds := int64(d / time.Second)
+		if seconds == 0 {
+			seconds = 1
+		}
+		return strconv.FormatInt(seconds, 10) + "s"
+	}
+}
+
 // Dash replaces an empty value with a dash, so that a column of mostly-present
 // values does not develop holes.
 func Dash(s string) string {
