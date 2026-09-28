@@ -49,6 +49,10 @@ func TestSyntheticRVTools48HeadersAndMetadata(t *testing.T) {
 		}))
 	})
 	f := openFixture(t, path)
+	scVMKSheet := firstExistingSheet(f, sheetVSCVMK, "vSC_VMK")
+	if scVMKSheet == "" {
+		t.Fatal("synthetic workbook has neither vSC+VMK nor vSC_VMK")
+	}
 	setHeader(t, f, sheetVDisk, []string{"SharedBus", "Shared Bus"}, "Shared Bus")
 	setHeader(t, f, sheetDVSwitch, []string{"DVS", "Switch"}, "Switch")
 	setHeader(t, f, sheetDVSwitch, []string{"# Max ports", "Max Ports"}, "Max Ports")
@@ -72,10 +76,10 @@ func TestSyntheticRVTools48HeadersAndMetadata(t *testing.T) {
 	setHeader(t, f, sheetVPort, []string{"Port group", "Port Group"}, "Port Group")
 	setHeader(t, f, sheetVCluster, []string{"NumEffectiveHosts", "numeffectivehosts"}, "numeffectivehosts")
 	setColumnValue(t, f, sheetVSnapshot, "Date / time", 2, "9/28/2026 9:29:35 AM")
-	for _, sheet := range []string{sheetVHBA, sheetVNIC, sheetVSwitch, sheetVPort, sheetVSCVMK, sheetVMultiPath} {
+	for _, sheet := range []string{sheetVHBA, sheetVNIC, sheetVSwitch, sheetVPort, scVMKSheet, sheetVMultiPath} {
 		clearColumn(t, f, sheet, "Object ID") // observed RVTools host sheets identify the host by name
 	}
-	if current := firstExistingSheet(f, sheetVSCVMK, "vSC_VMK"); current == sheetVSCVMK {
+	if scVMKSheet == sheetVSCVMK {
 		if err := f.SetSheetName(sheetVSCVMK, "vSC_VMK"); err != nil {
 			t.Fatal(err)
 		}
@@ -251,7 +255,8 @@ func clearColumn(t *testing.T, f *excelize.File, sheet, header string) {
 		}
 		return
 	}
-	t.Fatalf("%s has no %q column", sheet, header)
+	// RVTools can omit Object ID entirely. That already represents the
+	// host-name-only case this synthetic fixture is intended to exercise.
 }
 
 func firstExistingSheet(f *excelize.File, candidates ...string) string {

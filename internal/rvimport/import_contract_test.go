@@ -17,9 +17,8 @@ import (
 	"github.com/easonliuuuuu/vsfleet/internal/vsphere"
 )
 
-// Regression tests for issue #162: an RVTools import must never let the lack
-// of a workbook field improve a verdict. Each test names the acceptance
-// criterion or checklist item it guards.
+// Import contract regressions: an RVTools import must never let the lack of a
+// workbook field improve a verdict. Each test names the criterion it guards.
 
 // --- helpers ---
 
