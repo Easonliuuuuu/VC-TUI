@@ -18,9 +18,9 @@ import (
 	"github.com/easonliuuuuu/vsfleet/internal/vsphere"
 )
 
-// Regression tests for issue #162: `vsfleet import rvtools` must work offline,
-// write nothing on --dry-run, warn on a repeated import, and leave the
-// imported runs usable by the stored-evidence commands.
+// Import workflow regressions: `vsfleet import rvtools` must work offline,
+// write nothing on --dry-run, warn on a repeated import, and leave imported
+// runs usable by the stored-evidence commands.
 
 // writeImportWorkbook renders a small two-vCenter estate through vsfleet's own
 // RVTools writer, so the file has exactly the headers a real export has.
