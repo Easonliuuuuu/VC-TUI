@@ -517,3 +517,31 @@ func TestBrowseFilesIgnoresAndRestoresTheInventoryFilter(t *testing.T) {
 		t.Fatalf("mode=%v filter=%q, want detail with the inventory filter restored", m.mode, m.filter.Value())
 	}
 }
+
+// The listing and the file inspector must agree on a file's modification time:
+// both show local time, not the UTC the entry is stored in.
+func TestDatastoreListingShowsModifiedTimeInLocalTime(t *testing.T) {
+	prev := time.Local
+	time.Local = time.FixedZone("UTC+8", 8*60*60)
+	t.Cleanup(func() { time.Local = prev })
+
+	b := browsing()
+	m := newTestModel(t, b.fakeBackend, Options{Current: "prod"})
+	m.backend = b
+	findRow(t, m, vsphere.KindDatastore, "nvme-01")
+	openBrowser(t, m)
+
+	entry := file("orphan-disk.vmdk", "[nvme-01] orphan-disk.vmdk", 471)
+	entry.Modified = time.Date(2026, 9, 27, 16, 32, 0, 0, time.UTC)
+	widths := make([]int, len(dsColumns()))
+	for i := range widths {
+		widths[i] = 40
+	}
+	got := m.renderDSEntry(entry, dsColumns(), widths, false, false)
+	if !strings.Contains(got, "2026-09-28 00:32") {
+		t.Errorf("listing row = %q, want local time 2026-09-28 00:32", got)
+	}
+	if strings.Contains(got, "2026-09-27 16:32") {
+		t.Errorf("listing row still shows UTC: %q", got)
+	}
+}
