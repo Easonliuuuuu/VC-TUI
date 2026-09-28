@@ -349,8 +349,11 @@ be used to decide whether an export fits a downstream pipeline before setting
 vsfleet up at all. It is generated from the same definitions the exporter
 writes from, so it cannot drift from the workbook.
 
-It describes what vsfleet emits. It makes no claim about any other tool's
-schema — compare it against what your pipeline requires.
+It describes what vsfleet emits and flags observed differences from RVTools
+4.8.1.4 in shared columns. It does not describe the complete RVTools schema;
+compare the values against what your pipeline requires. See [RVTools file
+interoperability](assessments.md#rvtools-file-interoperability) for the
+comparison.
 
 ## Assessments
 

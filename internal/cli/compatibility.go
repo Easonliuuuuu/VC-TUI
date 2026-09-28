@@ -41,10 +41,10 @@ func newCompatibilityReportCommand(a *App) *cobra.Command {
 Report every worksheet the rvtools export profile writes, with each column's
 type, unit, and when it is left empty.
 
-It describes what vsfleet emits and what those values mean. It makes no claim
-about any other tool's schema, so a pipeline owner can compare it against their
-own requirements without installing anything else. Reads no configuration,
-opens no keyring, and contacts no vCenter.`),
+It describes what vsfleet emits and what those values mean, including observed
+differences from RVTools 4.8.1.4 in shared columns. It does not describe the
+complete RVTools schema. Reads no configuration, opens no keyring, and contacts
+no vCenter.`),
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			profile, err := report.Profile()
