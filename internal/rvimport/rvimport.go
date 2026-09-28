@@ -44,7 +44,7 @@ import (
 // ProfileVersion identifies this adapter's worksheet/column mapping. It is
 // recorded on every imported run's note so a richer profile can be told apart
 // from runs an earlier version of this importer produced.
-const ProfileVersion = "rvtools-v2"
+const ProfileVersion = "rvtools-v3"
 
 // importSource marks an imported run's Run.Source, the one field every other
 // command already reads, so "vsfleet assessment list" tells an imported run
@@ -65,8 +65,8 @@ const baseSchemaVersion = "2"
 // detection searches for it, so it is part of the note format.
 const noteSHAPrefix = "Source SHA-256: "
 
-// Recognized worksheets. Worksheet names are matched exactly, the way RVTools
-// itself names its tabs; anything else is reported as ignored.
+// Recognized worksheets. Names are matched exactly except for explicitly
+// supported historical vsfleet aliases; anything else is reported as ignored.
 const (
 	sheetVInfo      = "vInfo"
 	sheetVCPU       = "vCPU"
@@ -76,14 +76,52 @@ const (
 	sheetVNetwork   = "vNetwork"
 	sheetVTools     = "vTools"
 	sheetVHost      = "vHost"
+	sheetVHBA       = "vHBA"
+	sheetVNIC       = "vNIC"
 	sheetVSwitch    = "vSwitch"
 	sheetVPort      = "vPort"
+	sheetVSCVMK     = "vSC+VMK"
+	sheetVMultiPath = "vMultiPath"
 	sheetDVSwitch   = "dvSwitch"
 	sheetDVPort     = "dvPort"
 	sheetVCluster   = "vCluster"
 	sheetVDatastore = "vDatastore"
 	sheetVSnapshot  = "vSnapshot"
+	sheetVCD        = "vCD"
+	sheetVUSB       = "vUSB"
+	sheetVMetaData  = "vMetaData"
 )
+
+// headerAliases maps known RVTools spellings to the canonical headers used by
+// this importer. Matching remains case-insensitive and accepts the original
+// vsfleet-compatible spelling as well as these aliases.
+var headerAliases = map[string]map[string]string{
+	sheetVDisk: {
+		"shared bus": "SharedBus",
+	},
+	sheetDVSwitch: {
+		"switch":    "DVS",
+		"max ports": "# Max ports",
+	},
+	sheetDVPort: {
+		"port":                "Port group",
+		"switch":              "DVS",
+		"allow promiscuous":   "Promiscuous mode",
+		"policy":              "Teaming policy",
+		"active uplink":       "Active uplinks",
+		"standby uplink":      "Standby uplinks",
+		"notify switch":       "Notify switches",
+		"rolling order":       "Failback",
+		"in traffic shaping":  "Ingress shaping",
+		"out traffic shaping": "Egress shaping",
+	},
+}
+
+// sheetAliases accepts both the old vsfleet worksheet spelling and the name
+// emitted by newer RVTools-compatible exports.
+var sheetAliases = map[string]string{
+	"vSC_VMK": sheetVSCVMK,
+}
 
 // Persisted collection kinds this profile records for every imported context.
 const (
@@ -200,6 +238,10 @@ type Options struct {
 	// CapturedAt is the explicit --captured-at time, or the zero value to
 	// fall back to the workbook's own metadata and then import time.
 	CapturedAt time.Time
+	// Timezone interprets local wall-clock values in RVTools worksheets such
+	// as vMetaData and vSnapshot. Values with an explicit offset keep that
+	// offset. A nil location means local vMetaData timestamps are unusable.
+	Timezone *time.Location
 	// ContextMap renames a reconstructed context key (see Report.Contexts)
 	// to the desired final context name. A key not present here keeps its
 	// reconstructed name.
@@ -289,6 +331,7 @@ type importedContext struct {
 	name      string
 	endpoint  string
 	vcenterID string
+	hostScope string
 
 	vms        []*vsphere.VM
 	hosts      []*vsphere.Host
@@ -372,27 +415,37 @@ type colTrack struct {
 // header name rather than position, so a workbook with columns reordered, or
 // with extra columns this adapter does not know about, still imports.
 type sheetTable struct {
-	name    string
-	headers []string
-	index   map[string]int
-	rows    [][]string
-	track   *colTrack
+	name       string
+	sourceName string
+	headers    []string
+	index      map[string]int
+	rawIndex   map[string]int
+	rows       [][]string
+	track      *colTrack
 }
 
-func newSheetTable(name string, rows [][]string) sheetTable {
-	t := sheetTable{name: name, track: &colTrack{used: map[string]bool{}, missing: map[string]string{}}}
+func newSheetTable(name, sourceName string, rows [][]string) sheetTable {
+	t := sheetTable{name: name, sourceName: sourceName, track: &colTrack{used: map[string]bool{}, missing: map[string]string{}}}
 	if len(rows) == 0 {
 		return t
 	}
 	t.index = make(map[string]int, len(rows[0]))
+	t.rawIndex = make(map[string]int, len(rows[0]))
 	for i, h := range rows[0] {
-		key := normalizeHeader(h)
+		rawKey := normalizeHeader(h)
+		key := canonicalHeader(name, h)
 		if key == "" {
 			continue
 		}
-		if _, exists := t.index[key]; !exists {
-			t.index[key] = i
+		if _, exists := t.rawIndex[rawKey]; !exists {
+			t.rawIndex[rawKey] = i
 			t.headers = append(t.headers, strings.TrimSpace(h))
+		}
+		// If both spellings occur, prefer the canonical header independent of
+		// column order. That keeps a legacy field authoritative in mixed files.
+		prior, exists := t.index[key]
+		if !exists || normalizeHeader(rows[0][prior]) != key || rawKey == key {
+			t.index[key] = i
 		}
 	}
 	t.rows = rows[1:]
@@ -401,15 +454,28 @@ func newSheetTable(name string, rows [][]string) sheetTable {
 
 func normalizeHeader(h string) string { return strings.ToLower(strings.TrimSpace(h)) }
 
+func canonicalHeader(sheet, header string) string {
+	key := normalizeHeader(header)
+	if alias, ok := headerAliases[sheet][key]; ok {
+		return normalizeHeader(alias)
+	}
+	return key
+}
+
 // has reports whether the worksheet carries header, without counting it as
 // read.
 func (t sheetTable) has(header string) bool {
-	_, ok := t.index[normalizeHeader(header)]
+	_, ok := t.index[canonicalHeader(t.name, header)]
+	return ok
+}
+
+func (t sheetTable) hasSourceHeader(header string) bool {
+	_, ok := t.rawIndex[normalizeHeader(header)]
 	return ok
 }
 
 func (t sheetTable) cell(row []string, header string) string {
-	key := normalizeHeader(header)
+	key := canonicalHeader(t.name, header)
 	i, ok := t.index[key]
 	if !ok {
 		if t.track != nil {
@@ -447,14 +513,17 @@ var optionalColumns = map[string]bool{"vsfleet context": true, "vm smbios uuid":
 // happened to be exercised by the rows present. A worksheet with no data rows
 // would otherwise report every column as ignored.
 func (t sheetTable) probe() {
-	rowContext(t, nil)
+	if t.name != sheetVMetaData {
+		rowContext(t, nil)
+	}
 	switch t.name {
-	case sheetVInfo, sheetVCPU, sheetVMemory, sheetVDisk, sheetVNetwork, sheetVTools, sheetVPartition, sheetVSnapshot:
+	case sheetVInfo, sheetVCPU, sheetVMemory, sheetVDisk, sheetVNetwork, sheetVTools, sheetVPartition, sheetVSnapshot, sheetVCD, sheetVUSB:
 		// Only per-VM worksheets identify a VM; host and infrastructure
 		// worksheets identify their own objects by Object ID.
 		vmKeys(t, nil)
-	case sheetVSwitch, sheetVPort:
+	case sheetVSwitch, sheetVPort, sheetVHBA, sheetVNIC, sheetVSCVMK, sheetVMultiPath:
 		t.cell(nil, "Object ID") // the host join column
+		t.cell(nil, "Host")
 	}
 	scratchVM, scratchHost := &vsphere.VM{}, &vsphere.Host{}
 	switch t.name {
@@ -473,30 +542,50 @@ func (t sheetTable) probe() {
 	case sheetVPartition:
 		applyPartitionRow(t, nil, scratchVM)
 	case sheetVSnapshot:
-		applySnapshotRow(t, nil, scratchVM)
+		applySnapshotRow(t, nil, scratchVM, nil)
 		t.cell(nil, "Date / time")
+	case sheetDVPort:
+		t.cell(nil, "DVS")
+		t.cell(nil, "Datacenter")
+		dvPortFromRow(t, nil, "")
+	case sheetVMetaData:
+		for _, header := range t.headers {
+			if isMetadataTimeHeader(header) {
+				t.cell(nil, header)
+			}
+		}
+	case sheetVCD:
+		applyCDRow(t, nil, scratchVM)
+	case sheetVUSB:
+		applyUSBRow(t, nil, scratchVM)
 	case sheetVHost:
 		hostFromRow(t, nil, "")
 	case sheetVSwitch:
 		applyVSwitchRow(t, nil, scratchHost)
 	case sheetVPort:
 		applyVPortRow(t, nil, scratchHost)
+	case sheetVHBA:
+		applyHbaRow(t, nil, scratchHost)
+	case sheetVNIC:
+		applyHostNICRow(t, nil, scratchHost)
+	case sheetVSCVMK:
+		applyVMKRow(t, nil, scratchHost)
+	case sheetVMultiPath:
+		applyMultipathRow(t, nil, scratchHost)
 	case sheetVCluster:
 		clusterFromRow(t, nil, "")
 	case sheetVDatastore:
 		datastoreFromRow(t, nil, "")
 	case sheetDVSwitch:
 		dvSwitchFromRow(t, nil, "")
-	case sheetDVPort:
-		dvPortFromRow(t, nil, "")
 	}
 }
 
 func (t sheetTable) report() SheetReport {
 	t.probe()
-	r := SheetReport{Name: t.name, Rows: len(t.rows), RecognizedColumns: []string{}}
+	r := SheetReport{Name: t.sourceName, Rows: len(t.rows), RecognizedColumns: []string{}}
 	for _, h := range t.headers {
-		if t.track.used[normalizeHeader(h)] {
+		if t.track.used[canonicalHeader(t.name, h)] {
 			r.RecognizedColumns = append(r.RecognizedColumns, h)
 		} else {
 			r.IgnoredColumns = append(r.IgnoredColumns, h)
@@ -511,30 +600,60 @@ func (t sheetTable) report() SheetReport {
 	return r
 }
 
-func isSupportedSheet(name string) bool {
+func canonicalSheetName(name string) (string, bool) {
+	if alias, ok := sheetAliases[name]; ok {
+		name = alias
+	}
 	switch name {
 	case sheetVInfo, sheetVCPU, sheetVMemory, sheetVDisk, sheetVPartition, sheetVNetwork, sheetVTools,
-		sheetVHost, sheetVSwitch, sheetVPort, sheetDVSwitch, sheetDVPort, sheetVCluster, sheetVDatastore, sheetVSnapshot:
-		return true
+		sheetVHost, sheetVHBA, sheetVNIC, sheetVSwitch, sheetVPort, sheetVSCVMK, sheetVMultiPath,
+		sheetDVSwitch, sheetDVPort, sheetVCluster, sheetVDatastore, sheetVSnapshot, sheetVCD, sheetVUSB, sheetVMetaData:
+		return name, true
 	default:
-		return false
+		return "", false
 	}
 }
 
 // parseSnapshotTime tries every layout this profile recognizes and reports
 // whether one matched, so a caller can tell "no usable timestamp" apart from
 // "this is genuinely the epoch".
-func parseSnapshotTime(s string) (time.Time, bool) {
+func parseSnapshotTime(s string, timezone *time.Location) (time.Time, bool) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return time.Time{}, false
 	}
 	for _, layout := range snapshotTimeLayouts {
-		if t, err := time.Parse(layout, s); err == nil {
+		var t time.Time
+		var err error
+		if layout == time.RFC3339 {
+			t, err = time.Parse(layout, s)
+		} else if timezone != nil {
+			t, err = time.ParseInLocation(layout, s, timezone)
+		} else {
+			t, err = time.Parse(layout, s)
+		}
+		if err == nil {
 			return t.UTC(), true
 		}
 	}
 	return time.Time{}, false
+}
+
+func hostScopeKey(contextKey, vcenterID string) string {
+	if strings.TrimSpace(vcenterID) != "" {
+		return "vcenter:" + strings.TrimSpace(vcenterID)
+	}
+	return "context:" + contextKey
+}
+
+func filterHosts(hosts []*vsphere.Host, keep func(*vsphere.Host) bool) []*vsphere.Host {
+	out := make([]*vsphere.Host, 0, len(hosts))
+	for _, host := range hosts {
+		if keep(host) {
+			out = append(out, host)
+		}
+	}
+	return out
 }
 
 func isBlankRow(row []string) bool {
@@ -623,15 +742,19 @@ func Parse(f *excelize.File, opts Options) (*Result, error) {
 	tables := make(map[string]sheetTable, len(sheetNames))
 	var recognized, ignored []string
 	for _, name := range sheetNames {
-		if !isSupportedSheet(name) {
+		canonical, ok := canonicalSheetName(name)
+		if !ok {
 			ignored = append(ignored, name)
 			continue
+		}
+		if _, exists := tables[canonical]; exists {
+			return nil, fmt.Errorf("workbook contains more than one supported spelling of worksheet %q", canonical)
 		}
 		rows, err := readRows(f, name)
 		if err != nil {
 			return nil, err
 		}
-		tables[name] = newSheetTable(name, rows)
+		tables[canonical] = newSheetTable(canonical, name, rows)
 		recognized = append(recognized, name)
 	}
 	sort.Strings(ignored)
@@ -659,6 +782,7 @@ func Parse(f *excelize.File, opts Options) (*Result, error) {
 		if mapped, remapped := opts.ContextMap[key]; remapped && strings.TrimSpace(mapped) != "" {
 			final = strings.TrimSpace(mapped)
 		}
+		hostScope := hostScopeKey(key, vcenterID)
 		// Live capture falls back to the endpoint when vCenter reports no
 		// instance UUID, and diff/history ignore a context with no vCenter ID
 		// at all, so an import does the same rather than be invisible to them.
@@ -669,7 +793,7 @@ func Parse(f *excelize.File, opts Options) (*Result, error) {
 			}
 			gaps = append(gaps, Gap{Evidence: "vcenter.id", Context: final, Reason: "the workbook carries no VI SDK UUID; the endpoint or context name stands in as the vCenter identity, which is not stable if that vCenter is re-addressed"})
 		}
-		c := &importedContext{key: key, name: final, endpoint: endpoint, vcenterID: vcenterID}
+		c := &importedContext{key: key, name: final, endpoint: endpoint, vcenterID: vcenterID, hostScope: hostScope}
 		byKey[key] = c
 		order = append(order, key)
 		return c
@@ -748,8 +872,10 @@ func Parse(f *excelize.File, opts Options) (*Result, error) {
 	attachVMRows(sheetVNetwork, applyNetworkRow)
 	attachVMRows(sheetVTools, applyToolsRow)
 	attachVMRows(sheetVPartition, applyPartitionRow)
+	attachVMRows(sheetVCD, applyCDRow)
+	attachVMRows(sheetVUSB, applyUSBRow)
 	attachVMRows(sheetVSnapshot, func(t sheetTable, row []string, vm *vsphere.VM) {
-		if !applySnapshotRow(t, row, vm) {
+		if !applySnapshotRow(t, row, vm, opts.Timezone) {
 			warn("%s: row for VM %q has an unparseable or missing Date / time; snapshot skipped", sheetVSnapshot, vm.Name)
 		}
 	})
@@ -822,10 +948,18 @@ func Parse(f *excelize.File, opts Options) (*Result, error) {
 	// Hosts, clusters and datastores are one-row-per-object sheets that both
 	// identify their context and are self-contained.
 	hostIndex := make(map[string]*vsphere.Host)
+	hostNameIndex := make(map[string][]*vsphere.Host)
 	attachResourceRows(tables, sheetVHost, kindHost, &warnings, &ambiguities, contextFor, func(c *importedContext, t sheetTable, row []string) string {
 		h := hostFromRow(t, row, c.name)
 		c.hosts = append(c.hosts, &h)
-		hostIndex[c.key+"|"+h.ID] = &h
+		scope := c.hostScope
+		if h.ID != "" {
+			hostIndex[scope+"|"+h.ID] = &h
+		}
+		if h.Name != "" {
+			key := scope + "|" + h.Name
+			hostNameIndex[key] = append(hostNameIndex[key], &h)
+		}
 		return h.ID
 	})
 	attachResourceRows(tables, sheetVCluster, kindCluster, &warnings, &ambiguities, contextFor, func(c *importedContext, t sheetTable, row []string) string {
@@ -839,9 +973,10 @@ func Parse(f *excelize.File, opts Options) (*Result, error) {
 		return v.ID
 	})
 
-	// Host networking joins to its host by managed-object ID only. A row that
-	// names a host the workbook does not carry is skipped, never joined by the
-	// host's display name.
+	// Host sub-sheets prefer the host managed-object ID. RVTools omits that ID
+	// from some sheets, so a row without it may join by host name only when one
+	// vHost row in this workbook matches within the same vCenter UUID (and any
+	// supplied datacenter/cluster further narrows the match).
 	hostSub := func(sheet string, apply func(sheetTable, []string, *vsphere.Host)) {
 		t, ok := tables[sheet]
 		if !ok {
@@ -852,19 +987,55 @@ func Parse(f *excelize.File, opts Options) (*Result, error) {
 			if isBlankRow(row) {
 				continue
 			}
-			ctxKey, _, _, _, ok := rowContext(t, row)
+			ctxKey, _, _, vcenterID, ok := rowContext(t, row)
 			id := t.cell(row, "Object ID")
-			if !ok || id == "" {
-				warn("%s: row has no host Object ID or context; skipped (hosts are never joined by name)", sheet)
+			if !ok {
+				warn("%s: row has no vCenter context; skipped", sheet)
 				continue
 			}
-			host, found := hostIndex[ctxKey+"|"+id]
+			scope := hostScopeKey(ctxKey, vcenterID)
+			host, found := hostIndex[scope+"|"+id]
+			if id == "" {
+				name := t.cell(row, "Host")
+				matches := hostNameIndex[scope+"|"+name]
+				if datacenter := t.cell(row, "Datacenter"); datacenter != "" {
+					matches = filterHosts(matches, func(h *vsphere.Host) bool { return h.Datacenter == datacenter })
+				}
+				if cluster := t.cell(row, "Cluster"); cluster != "" {
+					matches = filterHosts(matches, func(h *vsphere.Host) bool { return h.Cluster == cluster })
+				}
+				switch len(matches) {
+				case 1:
+					host, found = matches[0], true
+				case 0:
+					warn("%s: row names host %q, but no matching host is in this workbook context; skipped", sheet, name)
+					continue
+				default:
+					ambiguities.add(Ambiguity{Sheet: sheet, Context: ctxKey, Identity: name, Detail: "more than one vHost row matches this host name and location; row was not attached"})
+					warn("%s: row names host %q, which is ambiguous in this workbook context; skipped", sheet, name)
+					continue
+				}
+			}
 			if !found {
-				warn("%s: row references host %q, which is not in %s; skipped", sheet, id, sheetVHost)
+				warn("%s: row references host Object ID %q, which is not in %s for this vCenter; skipped", sheet, id, sheetVHost)
 				continue
 			}
 			apply(t, row, host)
 		}
+	}
+	for _, sheet := range []string{sheetVHBA, sheetVNIC, sheetVSCVMK, sheetVMultiPath} {
+		var apply func(sheetTable, []string, *vsphere.Host)
+		switch sheet {
+		case sheetVHBA:
+			apply = applyHbaRow
+		case sheetVNIC:
+			apply = applyHostNICRow
+		case sheetVSCVMK:
+			apply = applyVMKRow
+		case sheetVMultiPath:
+			apply = applyMultipathRow
+		}
+		hostSub(sheet, apply)
 	}
 	hostSub(sheetVSwitch, applyVSwitchRow)
 	hostSub(sheetVPort, applyVPortRow)
@@ -920,7 +1091,15 @@ func Parse(f *excelize.File, opts Options) (*Result, error) {
 	}
 	sort.Strings(order)
 
-	capturedAt, capturedAtSource := resolveCapturedAt(f, opts.CapturedAt)
+	metadata, hasMetadata := tables[sheetVMetaData]
+	var metadataPtr *sheetTable
+	if hasMetadata {
+		metadataPtr = &metadata
+	}
+	capturedAt, capturedAtSource, capturedAtWarning := resolveCapturedAt(f, opts.CapturedAt, opts.Timezone, metadataPtr)
+	if capturedAtWarning != "" {
+		warn("%s", capturedAtWarning)
+	}
 	schema := schemaVersionFor(tables)
 
 	contexts := make([]*importedContext, 0, len(order))
@@ -975,7 +1154,8 @@ func Parse(f *excelize.File, opts Options) (*Result, error) {
 
 	sheetReports := make([]SheetReport, 0, len(recognized))
 	for _, name := range recognized {
-		sheetReports = append(sheetReports, tables[name].report())
+		canonical, _ := canonicalSheetName(name)
+		sheetReports = append(sheetReports, tables[canonical].report())
 	}
 
 	res.Report = Report{
@@ -1082,9 +1262,18 @@ func attachResourceRows(tables map[string]sheetTable, sheetName string, kind str
 	}
 }
 
-func resolveCapturedAt(f *excelize.File, explicit time.Time) (time.Time, string) {
+func resolveCapturedAt(f *excelize.File, explicit time.Time, timezone *time.Location, metadata *sheetTable) (time.Time, string, string) {
 	if !explicit.IsZero() {
-		return explicit.UTC(), "explicit --captured-at"
+		return explicit.UTC(), "explicit --captured-at", ""
+	}
+	if metadata != nil {
+		if meta, ok := workbookMetadataCaptureTime(*metadata, timezone); ok {
+			return meta.UTC(), "vMetaData worksheet", ""
+		}
+	}
+	warning := ""
+	if metadata != nil && metadataHasCaptureTime(*metadata) && timezone == nil {
+		warning = "vMetaData contains a timezone-free capture time; pass --timezone with the collector's IANA zone to use it"
 	}
 	if props, err := f.GetDocProps(); err == nil && props != nil {
 		for _, value := range []string{props.Created, props.Modified} {
@@ -1092,11 +1281,107 @@ func resolveCapturedAt(f *excelize.File, explicit time.Time) (time.Time, string)
 				continue
 			}
 			if t, err := time.Parse(time.RFC3339, value); err == nil {
-				return t.UTC(), "workbook document properties"
+				return t.UTC(), "workbook document properties", warning
 			}
 		}
 	}
-	return time.Now().UTC(), "import time (the workbook carried no usable captured-at metadata)"
+	return time.Now().UTC(), "import time (the workbook carried no usable captured-at metadata)", warning
+}
+
+var metadataTimeHeaders = map[string]bool{
+	"creation date/time":     true,
+	"creation date time":     true,
+	"creation date":          true,
+	"creation time":          true,
+	"creation datetime":      true,
+	"xlsx creation datetime": true,
+	"created":                true,
+	"created at":             true,
+	"date created":           true,
+	"date / time":            true,
+	"date/time":              true,
+	"date time":              true,
+	"export date/time":       true,
+	"export time":            true,
+	"timestamp":              true,
+	"time stamp":             true,
+}
+
+func isMetadataTimeHeader(value string) bool {
+	header := normalizeHeader(value)
+	if metadataTimeHeaders[header] {
+		return true
+	}
+	hasTime := strings.Contains(header, "time") || strings.Contains(header, "timestamp") || strings.Contains(header, "date")
+	return hasTime && (strings.Contains(header, "creat") || strings.Contains(header, "export") || strings.Contains(header, "date time"))
+}
+
+func metadataHasCaptureTime(t sheetTable) bool {
+	for _, header := range t.headers {
+		if isMetadataTimeHeader(header) {
+			return true
+		}
+	}
+	for _, row := range t.rows {
+		if len(row) == 0 {
+			continue
+		}
+		if isMetadataTimeHeader(row[0]) {
+			return true
+		}
+	}
+	return false
+}
+
+func workbookMetadataCaptureTime(t sheetTable, timezone *time.Location) (time.Time, bool) {
+	// RVTools metadata has appeared both as a normal header/data table and as
+	// key/value rows, so accept either shape while keeping the timestamp label
+	// explicit rather than guessing from an arbitrary cell.
+	for _, row := range t.rows {
+		for _, header := range t.headers {
+			if !isMetadataTimeHeader(header) {
+				continue
+			}
+			if stamp, ok := parseMetadataTime(t.cell(row, header), timezone); ok {
+				return stamp, true
+			}
+		}
+		if len(row) > 1 && isMetadataTimeHeader(row[0]) {
+			if len(t.headers) > 0 {
+				t.cell(row, t.headers[0])
+			}
+			if len(t.headers) > 1 {
+				t.cell(row, t.headers[1])
+			}
+			if stamp, ok := parseMetadataTime(row[1], timezone); ok {
+				return stamp, true
+			}
+		}
+	}
+	return time.Time{}, false
+}
+
+func parseMetadataTime(value string, timezone *time.Location) (time.Time, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, false
+	}
+	if stamp, err := time.Parse(time.RFC3339, value); err == nil {
+		return stamp, true
+	}
+	if timezone == nil {
+		return time.Time{}, false
+	}
+	if stamp, ok := parseSnapshotTime(value, timezone); ok {
+		return stamp, true
+	}
+	if serial, err := strconv.ParseFloat(value, 64); err == nil && serial >= 1 {
+		stamp, err := excelize.ExcelDateToTime(serial, false)
+		if err == nil {
+			return time.Date(stamp.Year(), stamp.Month(), stamp.Day(), stamp.Hour(), stamp.Minute(), stamp.Second(), stamp.Nanosecond(), timezone), true
+		}
+	}
+	return time.Time{}, false
 }
 
 func vmFromInfoRow(t sheetTable, row []string, contextName string) *vsphere.VM {
@@ -1166,10 +1451,51 @@ func applyNetworkRow(t sheetTable, row []string, vm *vsphere.VM) {
 	})
 }
 
+func applyCDRow(t sheetTable, row []string, vm *vsphere.VM) {
+	vm.CDROMs = append(vm.CDROMs, vsphere.VMCDROM{
+		Label:            t.cell(row, "Device"),
+		Key:              int32(parseInt(t.cell(row, "Device Key"))),
+		Connected:        parseOptBool(t.cell(row, "Connected")),
+		StartsConnected:  parseOptBool(t.cell(row, "Starts Connected")),
+		BackingType:      t.cell(row, "Backing type"),
+		BackingPath:      t.cell(row, "Backing path"),
+		BackingDevice:    t.cell(row, "Backing device"),
+		BackingHost:      t.cell(row, "Backing host"),
+		BackingDatastore: t.cell(row, "Backing datastore ID"),
+		BackingObjectID:  t.cell(row, "Backing object ID"),
+		UseAutoDetect:    parseOptBool(t.cell(row, "Use auto detect")),
+		Controller:       t.cell(row, "Controller"),
+		ControllerLabel:  t.cell(row, "Controller label"),
+		UnitNumber:       parseOptInt32(t.cell(row, "Unit number")),
+	})
+}
+
+func applyUSBRow(t sheetTable, row []string, vm *vsphere.VM) {
+	vm.USBs = append(vm.USBs, vsphere.VMUSB{
+		Label:            t.cell(row, "Device"),
+		Key:              int32(parseInt(t.cell(row, "Device Key"))),
+		Connected:        parseOptBool(t.cell(row, "Connected")),
+		Vendor:           int32(parseInt(t.cell(row, "Vendor ID"))),
+		Product:          int32(parseInt(t.cell(row, "Product ID"))),
+		Family:           splitList(t.cell(row, "Family")),
+		Speed:            splitList(t.cell(row, "Speed")),
+		BackingType:      t.cell(row, "Backing type"),
+		BackingPath:      t.cell(row, "Backing path"),
+		BackingDevice:    t.cell(row, "Backing device"),
+		BackingHost:      t.cell(row, "Backing host"),
+		BackingDatastore: t.cell(row, "Backing datastore ID"),
+		BackingObjectID:  t.cell(row, "Backing object ID"),
+		UseAutoDetect:    parseOptBool(t.cell(row, "Use auto detect")),
+		Controller:       t.cell(row, "Controller"),
+		ControllerLabel:  t.cell(row, "Controller label"),
+		UnitNumber:       parseOptInt32(t.cell(row, "Unit number")),
+	})
+}
+
 // applySnapshotRow appends the row's snapshot to vm, reporting false when its
 // date is unusable — a snapshot with a guessed age is worse than none.
-func applySnapshotRow(t sheetTable, row []string, vm *vsphere.VM) bool {
-	createTime, ok := parseSnapshotTime(t.cell(row, "Date / time"))
+func applySnapshotRow(t sheetTable, row []string, vm *vsphere.VM, timezone *time.Location) bool {
+	createTime, ok := parseSnapshotTime(t.cell(row, "Date / time"), timezone)
 	name := t.cell(row, "Name")
 	description, state, quiesced := t.cell(row, "Description"), t.cell(row, "State"), parseBool(t.cell(row, "Quiesced"))
 	if !ok {
@@ -1255,6 +1581,84 @@ func applyVPortRow(t sheetTable, row []string, host *vsphere.Host) {
 	})
 }
 
+func applyHbaRow(t sheetTable, row []string, host *vsphere.Host) {
+	host.HBAs = append(host.HBAs, vsphere.HostHBA{
+		Device:          t.cell(row, "Device"),
+		Bus:             int32(parseInt(t.cell(row, "Bus"))),
+		Status:          t.cell(row, "Status"),
+		Model:           t.cell(row, "Model"),
+		Driver:          t.cell(row, "Driver"),
+		PCI:             t.cell(row, "PCI"),
+		StorageProtocol: t.cell(row, "Storage protocol"),
+		WWNN:            parseWWN(t.cell(row, "WWNN")),
+		WWPN:            parseWWN(t.cell(row, "WWPN")),
+		IScsiName:       t.cell(row, "iSCSI name"),
+		IScsiAlias:      t.cell(row, "iSCSI alias"),
+		Type:            t.cell(row, "Type"),
+	})
+}
+
+func applyHostNICRow(t sheetTable, row []string, host *vsphere.Host) {
+	host.NICs = append(host.NICs, vsphere.HostNIC{
+		Device:      t.cell(row, "Device"),
+		PCI:         t.cell(row, "PCI"),
+		Driver:      t.cell(row, "Driver"),
+		MAC:         t.cell(row, "Mac Address"),
+		LinkSpeedMB: parseOptInt32(t.cell(row, "Link speed Mb")),
+		Duplex:      parseOptBool(t.cell(row, "Duplex")),
+		WakeOnLAN:   parseBool(t.cell(row, "Wake on LAN")),
+		Switch:      t.cell(row, "Switch"),
+	})
+}
+
+func applyVMKRow(t sheetTable, row []string, host *vsphere.Host) {
+	host.VMKs = append(host.VMKs, vsphere.HostVMKernel{
+		Device:         t.cell(row, "Device"),
+		PortGroup:      t.cell(row, "Port group"),
+		MAC:            t.cell(row, "Mac Address"),
+		MTU:            int32(parseInt(t.cell(row, "MTU"))),
+		TSO:            parseOptBool(t.cell(row, "TSO")),
+		Netstack:       t.cell(row, "Netstack"),
+		DHCP:           parseOptBool(t.cell(row, "DHCP")),
+		IP:             t.cell(row, "IP Address"),
+		SubnetMask:     t.cell(row, "Subnet mask"),
+		ServiceConsole: parseBool(t.cell(row, "Service console")),
+	})
+}
+
+func applyMultipathRow(t sheetTable, row []string, host *vsphere.Host) {
+	host.Multipaths = append(host.Multipaths, vsphere.HostMultipath{
+		LUN:          t.cell(row, "LUN"),
+		DevicePath:   t.cell(row, "Device path"),
+		Policy:       t.cell(row, "Policy"),
+		LocalDisk:    parseOptBool(t.cell(row, "Local disk")),
+		PathCount:    int(parseInt(t.cell(row, "Path count"))),
+		Active:       int(parseInt(t.cell(row, "Active paths"))),
+		Standby:      int(parseInt(t.cell(row, "Standby paths"))),
+		Dead:         int(parseInt(t.cell(row, "Dead paths"))),
+		Disabled:     int(parseInt(t.cell(row, "Disabled paths"))),
+		WorkingPaths: int(parseInt(t.cell(row, "Working paths"))),
+	})
+}
+
+func parseWWN(value string) *int64 {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	if n, err := strconv.ParseInt(value, 0, 64); err == nil {
+		return &n
+	}
+	if n, err := strconv.ParseInt(value, 10, 64); err == nil {
+		return &n
+	}
+	if n, err := strconv.ParseUint(value, 16, 64); err == nil && n <= uint64(^uint64(0)>>1) {
+		converted := int64(n)
+		return &converted
+	}
+	return nil
+}
+
 func clusterFromRow(t sheetTable, row []string, contextName string) vsphere.Cluster {
 	return vsphere.Cluster{
 		Location:      vsphere.Location{Context: contextName, Datacenter: t.cell(row, "Datacenter")},
@@ -1306,6 +1710,11 @@ func dvSwitchFromRow(t sheetTable, row []string, contextName string) vsphere.DVS
 }
 
 func dvPortFromRow(t sheetTable, row []string, switchName string) vsphere.DVPortGroup {
+	failback := parseOptBool(t.cell(row, "Failback"))
+	if t.hasSourceHeader("Rolling Order") && failback != nil {
+		inverted := !*failback
+		failback = &inverted
+	}
 	return vsphere.DVPortGroup{
 		ID:                t.cell(row, "Object ID"),
 		Key:               t.cell(row, "Key"),
@@ -1321,7 +1730,7 @@ func dvPortFromRow(t sheetTable, row []string, switchName string) vsphere.DVPort
 		ForgedTransmits:   parseOptBool(t.cell(row, "Forged transmits")),
 		TeamingPolicy:     t.cell(row, "Teaming policy"),
 		NotifySwitches:    parseOptBool(t.cell(row, "Notify switches")),
-		Failback:          parseOptBool(t.cell(row, "Failback")),
+		Failback:          failback,
 		IngressShaping:    parseOptBool(t.cell(row, "Ingress shaping")),
 		EgressShaping:     parseOptBool(t.cell(row, "Egress shaping")),
 		Blocked:           parseOptBool(t.cell(row, "Blocked")),

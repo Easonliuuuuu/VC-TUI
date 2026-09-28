@@ -36,9 +36,9 @@ connection is used or required.`),
 
 func newImportRVToolsCommand(a *App) *cobra.Command {
 	var (
-		label, note, capturedAt string
-		contextMap              []string
-		dryRun, allowDuplicate  bool
+		label, note, capturedAt, timezoneName string
+		contextMap                            []string
+		dryRun, allowDuplicate                bool
 	)
 	cmd := &cobra.Command{
 		Use:   "rvtools FILE",
@@ -47,10 +47,10 @@ func newImportRVToolsCommand(a *App) *cobra.Command {
 Adapt an RVTools-compatible XLSX export into a new stored assessment run.
 
 The workbook's own layout never reaches vsfleet's domain model directly: this
-reads vInfo, vCPU, vMemory, vDisk, vPartition, vNetwork, vTools, vSnapshot,
-vHost, vSwitch, vPort, vCluster, vDatastore, dvSwitch and dvPort by column
-name and normalizes what they carry. A worksheet or column this importer does
-not recognize is reported, not silently dropped.
+reads supported VM, host, and switch worksheets by column name, accepts known
+RVTools and vsfleet header spellings, and normalizes what they carry. A
+worksheet or column this importer does not recognize is reported, not silently
+dropped.
 
 Imported evidence may reduce confidence, but a field the workbook does not
 carry never improves a verdict. A worksheet that is absent, or present without
@@ -59,14 +59,16 @@ unavailable collection — the same explicit gap a live capture records for a
 denied query — never as an empty one. A workbook with no vHost worksheet is not
 an estate with no hosts. Resource pools and networks are always recorded
 unavailable: vRP carries no pool membership and RVTools has no network
-identity to import; vHBA, vNIC, vSC+VMK and vMultiPath are not yet mapped.
+identity to import. vCD/vUSB attach to VMs; vHBA, vNIC, vSwitch, vPort,
+vSC+VMK and vMultiPath attach to a host only when a same-workbook host object
+ID or a unique name within the same vCenter resolves the row.
 
 vCenter identity is reconstructed from the workbook's own "vsfleet Context" or
-"VI SDK Server" column, never by matching display names alone: two contexts
-with an identically named VM stay two VMs, and an identity two rows share is
-reported as an ambiguity rather than resolved by guessing. --context-map
-renames a reconstructed context without touching today's configuration — an
-imported run's contexts are independent of config.toml.
+"VI SDK Server" column: two contexts with an identically named VM stay two
+VMs, and an identity two rows share is reported as an ambiguity rather than
+resolved by guessing. --context-map renames a reconstructed context without
+touching today's configuration — an imported run's contexts are independent
+of config.toml.
 
 Importing the same file again creates another run, and warns that it did;
 --allow-duplicate silences the warning.
@@ -81,7 +83,7 @@ it half-written.`),
   vsfleet import rvtools estate.xlsx --dry-run
 
   # Label it, pin the capture time, and rename a reconstructed context
-  vsfleet import rvtools estate.xlsx --label pre-migration --captured-at 2026-01-01T00:00:00Z --context-map vc01.example.com=prod`,
+  vsfleet import rvtools estate.xlsx --label pre-migration --captured-at 2026-01-01T00:00:00Z --timezone America/Los_Angeles --context-map vc01.example.com=prod`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sha, err := rvimport.FileSHA256(args[0])
@@ -95,6 +97,13 @@ it half-written.`),
 					return fmt.Errorf("--captured-at must be RFC3339 (e.g. 2026-01-02T15:04:05Z): %w", err)
 				}
 				opts.CapturedAt = t
+			}
+			if strings.TrimSpace(timezoneName) != "" {
+				location, err := time.LoadLocation(strings.TrimSpace(timezoneName))
+				if err != nil {
+					return fmt.Errorf("--timezone must be an IANA time zone (e.g. America/Los_Angeles): %w", err)
+				}
+				opts.Timezone = location
 			}
 			if len(contextMap) > 0 {
 				m := make(map[string]string, len(contextMap))
@@ -143,7 +152,8 @@ it half-written.`),
 	}
 	cmd.Flags().StringVar(&label, "label", "", "label for the stored run")
 	cmd.Flags().StringVar(&note, "note", "", "free-text note stored with the run, alongside this import's own provenance")
-	cmd.Flags().StringVar(&capturedAt, "captured-at", "", "RFC3339 time the workbook's data was captured (default: the workbook's own metadata, else import time)")
+	cmd.Flags().StringVar(&capturedAt, "captured-at", "", "RFC3339 capture time override (default: vMetaData, workbook properties, then import time)")
+	cmd.Flags().StringVar(&timezoneName, "timezone", "", "IANA time zone for timezone-free RVTools timestamps (e.g. America/Los_Angeles)")
 	cmd.Flags().StringSliceVar(&contextMap, "context-map", nil, "rename a reconstructed context, KEY=NAME (repeatable); KEY is the vsfleet Context or VI SDK Server value the report names")
 	cmd.Flags().BoolVar(&allowDuplicate, "allow-duplicate", false, "do not warn when this exact workbook was already imported")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "report what would be imported without writing to history")

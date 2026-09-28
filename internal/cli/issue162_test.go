@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xuri/excelize/v2"
+
 	"github.com/easonliuuuuu/vsfleet/internal/assessment"
 	"github.com/easonliuuuuu/vsfleet/internal/health"
 	"github.com/easonliuuuuu/vsfleet/internal/report"
@@ -74,6 +76,43 @@ func TestImportDryRunWritesNothingAndReportsColumnsAndGaps(t *testing.T) {
 	// A dry run must not even open the history database.
 	if _, err := os.Stat(dbPath); err == nil {
 		t.Fatal("a dry run created the history database")
+	}
+}
+
+func TestImportTimezoneFlagInterpretsMetadataCaptureTime(t *testing.T) {
+	path := writeImportWorkbook(t, nil)
+	f, err := excelize.OpenFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.NewSheet("vMetaData"); err != nil {
+		t.Fatal(err)
+	}
+	for cell, value := range map[string]string{"A1": "Creation Date/Time", "A2": "9/28/2026 11:12:23 AM"} {
+		if err := f.SetCellValue("vMetaData", cell, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	zone, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCapture := time.Date(2026, 9, 28, 11, 12, 23, 0, zone).Local().Format("2006-01-02 15:04:05")
+	out, _, err := runImport(t, filepath.Join(t.TempDir(), "history.db"), path, "--dry-run", "--timezone", "America/Los_Angeles")
+	if err != nil {
+		t.Fatalf("dry-run with --timezone: %v", err)
+	}
+	for _, want := range []string{wantCapture, "vMetaData worksheet"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("dry-run output is missing %q:\n%s", want, out)
+		}
 	}
 }
 

@@ -156,6 +156,9 @@ vsfleet import rvtools estate.xlsx --dry-run
 # Import it, labelled, with an explicit capture time
 vsfleet import rvtools estate.xlsx --label pre-migration --captured-at 2026-01-01T00:00:00Z
 
+# Interpret timezone-free capture and snapshot timestamps from a Pacific collector
+vsfleet import rvtools estate.xlsx --timezone America/Los_Angeles
+
 # Once imported, every stored-evidence command works on it like a live capture
 vsfleet assessment list
 vsfleet vm history web-01
@@ -165,7 +168,7 @@ vsfleet assessment diff pre-migration wave-1
 An imported run's `assessment list` row shows `rvtools-import` as its source,
 and its note records the source filename, a SHA-256 fingerprint of the file,
 the capture time and where it came from, the parser profile
-(`rvtools-v2`) and the worksheets recognized and ignored. It is never mistaken
+(`rvtools-v3`) and the worksheets recognized and ignored. It is never mistaken
 for a live capture.
 
 ### What is read
@@ -179,11 +182,19 @@ workbook with extra or reordered columns still imports:
 | `vCPU`, `vMemory` | VM CPU and memory, when `vInfo` lacks the column; a disagreement with `vInfo` is warned about and `vInfo` wins |
 | `vDisk`, `vNetwork`, `vTools`, `vPartition`, `vSnapshot` | per-VM disks, NICs, Tools state, guest filesystems and snapshots |
 | `vHost`, `vCluster`, `vDatastore` | the host, cluster and datastore collections |
-| `vSwitch`, `vPort` | host virtual switches and port groups, joined to the host by `Object ID` |
+| `vSwitch`, `vPort`, `vHBA`, `vNIC`, `vSC+VMK` / `vSC_VMK`, `vMultiPath` | host configuration, joined by `Object ID` or a unique host name scoped to the same vCenter in the workbook |
 | `dvSwitch`, `dvPort` | distributed switches and their port groups |
+| `vCD`, `vUSB` | per-VM CD-ROM and USB devices |
+| `vMetaData` | capture time, when its timestamp can be interpreted |
 
-Everything else is listed as an ignored worksheet, and the dry run lists the
-recognized, ignored and missing columns of each worksheet that was read.
+Worksheets outside this list are reported as ignored, and the dry run lists the
+recognized, ignored and missing columns of each worksheet that was read. Both
+vsfleet and RVTools 4.8 header spellings are accepted for mapped columns. For
+example, `vDisk` accepts `Shared Bus`/`SharedBus`; `dvSwitch` accepts
+`Switch`/`DVS` and `Max Ports`/`# Max ports`; and `dvPort` accepts
+`Port`/`Port group`, `Switch`/`DVS`, `Allow Promiscuous`/`Promiscuous mode`,
+`Policy`/`Teaming policy`, and `Rolling Order`/`Failback`. Rolling Order is
+converted to the corresponding failback value.
 
 ### Missing evidence is never good news
 
@@ -208,8 +219,9 @@ confidence, but the lack of a workbook field must never improve a verdict.
   carries pool configuration but only a VM *count*, never which VMs belong to a
   pool, so importing it would make every pool look empty; RVTools carries no
   managed-object ID for a network, so importing one would rest on a display
-  name alone. `vHBA`, `vNIC`, `vSC+VMK` and `vMultiPath` (host storage and
-  physical networking detail) are not yet mapped.
+  name alone. Host device rows attach to a host only through its ID or a unique
+  same-workbook name within the same vCenter UUID; an ambiguous match is
+  skipped and reported.
 - With no `VI SDK UUID` column the endpoint stands in as the vCenter identity,
   as it does for a live capture, and the import says so.
 
@@ -222,9 +234,10 @@ rename. An identity that two rows share is reported as an ambiguity and is
 never resolved by guessing: both rows are kept, rows that reference the
 ambiguous identity are not attached to either, and a repeated host, cluster,
 datastore or distributed-switch `Object ID` makes that collection unavailable
-for the context. Host networking rows join to their host by `Object ID` only,
-and distributed port groups join to their switch by context, datacenter and
-name — refused when that is not unique.
+for the context. Host networking rows join by `Object ID` or, when RVTools
+omits it, by a unique host name in the same workbook and vCenter UUID.
+Distributed port groups join to their switch by context, datacenter and name —
+refused when that is not unique.
 
 `--context-map KEY=NAME` renames a reconstructed context without touching
 `config.toml`; an imported run's contexts are independent of it.
@@ -243,10 +256,14 @@ vsfleet assessment trends capacity --include-partial
 
 ### Capture time
 
-In order: `--captured-at`, the workbook's own document properties, then import
-time. The run says which was used, and the run — and so history, diff and
-trends — is stamped with the capture time, not the day of import (which is
-recorded in the run's note). A filename is never parsed for a date.
+In order: `--captured-at`, a usable `vMetaData` timestamp, workbook document
+properties, then import time. `--timezone` is an IANA time zone such as
+`America/Los_Angeles`; it interprets timezone-free values in `vMetaData` and
+`vSnapshot`. A timezone-free `vMetaData` timestamp is skipped unless that
+option is supplied. The run says which source was used, and the run — and so
+history, diff and trends — is stamped with the capture time, not the day of
+import (which is recorded in the run's note). A filename is never parsed for a
+date.
 
 ### Repeating an import
 
