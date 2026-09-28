@@ -936,11 +936,7 @@ func (m *Model) renderDSEntry(entry vsphere.DatastoreEntry, cols []column, width
 			}
 		}
 	}
-	modified := "—"
-	if !entry.Modified.IsZero() {
-		modified = entry.Modified.Format("2006-01-02 15:04")
-	}
-	cells := []string{kind, name, size, modified}
+	cells := []string{kind, name, size, formatDatastoreTime(entry.Modified)}
 	drawn := make([]string, 0, len(cols))
 	for i, c := range cols {
 		if widths[i] == 0 {
