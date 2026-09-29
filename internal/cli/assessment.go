@@ -314,7 +314,7 @@ type exportReceipt struct {
 func newAssessmentExportCommand(a *App) *cobra.Command {
 	var format, file string
 	var force bool
-	cmd := &cobra.Command{Use: "export [RUN]", Short: "Export a stored assessment as RVTools XLSX or CSV", Example: `  # 23-sheet RVTools workbook from the most recent capture
+	cmd := &cobra.Command{Use: "export [RUN]", Short: "Export a stored assessment as RVTools XLSX or CSV", Example: `  # 24-sheet RVTools workbook from the most recent capture
   vsfleet assessment export --file estate.xlsx
 
   # One CSV per RVTools tab, into a directory

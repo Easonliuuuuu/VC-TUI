@@ -71,6 +71,14 @@ type About struct {
 	OSType     string
 	Vendor     string
 	InstanceID string
+	// FullName, PatchLevel, ProductLineID and the License* fields complete
+	// the ServiceInstance About record that assessment captures as source
+	// provenance. They are empty when the server does not report them.
+	FullName              string
+	PatchLevel            string
+	ProductLineID         string
+	LicenseProductName    string
+	LicenseProductVersion string
 }
 
 // FullVersion renders "VMware vCenter 8.0.3 build-12345".
@@ -209,6 +217,12 @@ func aboutFrom(vim *vim25.Client) About {
 		OSType:     a.OsType,
 		Vendor:     a.Vendor,
 		InstanceID: a.InstanceUuid,
+
+		FullName:              a.FullName,
+		PatchLevel:            a.PatchLevel,
+		ProductLineID:         a.ProductLineId,
+		LicenseProductName:    a.LicenseProductName,
+		LicenseProductVersion: a.LicenseProductVersion,
 	}
 }
 

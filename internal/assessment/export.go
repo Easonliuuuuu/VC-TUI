@@ -231,6 +231,29 @@ func loadExportContexts(ctx context.Context, tx *sql.Tx, runID int64) ([]Context
 	if err := collectionRows.Err(); err != nil {
 		return nil, nil, err
 	}
+	sourceRows, err := tx.QueryContext(ctx, `SELECT context_run_id,payload FROM context_sources WHERE context_run_id IN (SELECT id FROM context_runs WHERE run_id=?) ORDER BY context_run_id`, runID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer sourceRows.Close()
+	for sourceRows.Next() {
+		var contextID int64
+		var payload string
+		if err := sourceRows.Scan(&contextID, &payload); err != nil {
+			return nil, nil, err
+		}
+		var source SourceInfo
+		if err := json.Unmarshal([]byte(payload), &source); err != nil {
+			return nil, nil, fmt.Errorf("assessment %d context source has malformed payload: %w", runID, err)
+		}
+		if contextRun, ok := byID[contextID]; ok {
+			contextRun.Source = &source
+			byID[contextID] = contextRun
+		}
+	}
+	if err := sourceRows.Err(); err != nil {
+		return nil, nil, err
+	}
 	contexts := make([]ContextRun, 0, len(ids))
 	for _, id := range ids {
 		contexts = append(contexts, byID[id])

@@ -27,12 +27,13 @@ type RunStatus string
 // locality evidence; version 15 renames the VM NIC direct-path field to UPT
 // compatibility, which is what vSphere reports. The old serialized direct-path
 // value in schema 12–14 rows was UPT compatibility mislabeled and is no longer
-// read.
+// read; version 17 records each context's ServiceInstance About identity for
+// the `vSource` export tab.
 // All keep the payload backward-compatible with older ledger rows:
 // a reader of an older run sees the field absent, which is what it is. The
 // metadata fields introduced in schema 16 are optional evidence, so consumers
 // must continue to treat older captures as metadata-unavailable.
-const CurrentInventorySchemaVersion = "16"
+const CurrentInventorySchemaVersion = "17"
 
 const (
 	RunRunning  RunStatus = "running"
@@ -69,6 +70,40 @@ type ContextRun struct {
 	VMStatus    string          `json:"vm_status"`
 	Error       string          `json:"error,omitempty"`
 	Collections []CollectionRun `json:"collections,omitempty"`
+	// Source is the ServiceInstance About record the server reported when
+	// this context was captured. It is nil for runs captured before schema 17
+	// and for contexts that never connected; consumers must not substitute
+	// current configuration or a live query for it.
+	Source *SourceInfo `json:"source,omitempty"`
+}
+
+// SourceInfo is the persisted ServiceInstance About evidence for one context
+// of one run. Every field is stored exactly as the server reported it; an
+// empty value means the server did not report it.
+type SourceInfo struct {
+	Name                  string `json:"name,omitempty"`
+	FullName              string `json:"full_name,omitempty"`
+	Vendor                string `json:"vendor,omitempty"`
+	Version               string `json:"version,omitempty"`
+	PatchLevel            string `json:"patch_level,omitempty"`
+	Build                 string `json:"build,omitempty"`
+	OSType                string `json:"os_type,omitempty"`
+	ProductLineID         string `json:"product_line_id,omitempty"`
+	APIType               string `json:"api_type,omitempty"`
+	APIVersion            string `json:"api_version,omitempty"`
+	InstanceUUID          string `json:"instance_uuid,omitempty"`
+	LicenseProductName    string `json:"license_product_name,omitempty"`
+	LicenseProductVersion string `json:"license_product_version,omitempty"`
+}
+
+// SourceInfoFromAbout converts a live client's About record into the value
+// persisted with a run.
+func SourceInfoFromAbout(a vsphere.About) *SourceInfo {
+	return &SourceInfo{
+		Name: a.Name, FullName: a.FullName, Vendor: a.Vendor, Version: a.Version, PatchLevel: a.PatchLevel,
+		Build: a.Build, OSType: a.OSType, ProductLineID: a.ProductLineID, APIType: a.APIType, APIVersion: a.APIVersion,
+		InstanceUUID: a.InstanceID, LicenseProductName: a.LicenseProductName, LicenseProductVersion: a.LicenseProductVersion,
+	}
 }
 
 // CollectionRun records the result of one resource-group collection inside a
