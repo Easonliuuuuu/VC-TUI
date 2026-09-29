@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/easonliuuuuu/vsfleet/internal/health"
+	"github.com/easonliuuuuu/vsfleet/internal/vsphere"
 )
 
 type orphanFlags struct {
@@ -121,6 +122,15 @@ func filterOrphans(entries []health.OrphanEvidence, flags orphanFlags) []health.
 	return out
 }
 
+// orphanPath is the file as the operator would type it. The stored path already
+// carries its "[datastore]" prefix; only a bare relative path needs one added.
+func orphanPath(entry health.OrphanEvidence) string {
+	if _, _, ok := vsphere.SplitDatastorePath(entry.Path); ok {
+		return entry.Path
+	}
+	return "[" + entry.Object.Name + "] " + entry.Path
+}
+
 func printOrphans(a *App, report health.OrphanReport) {
 	if len(report.Entries) == 0 {
 		fmt.Fprintln(a.out(), orphanEmptyMessage(report.Coverage))
@@ -130,7 +140,7 @@ func printOrphans(a *App, report health.OrphanReport) {
 		if i > 0 {
 			fmt.Fprintln(a.out())
 		}
-		fmt.Fprintf(a.out(), "[%s] [%s] %s  %s  %s\n", orphanLabel(entry.Confidence), entry.Object.Name, entry.Path, humanBytes(entry.SizeBytes), orphanDate(entry.Modified))
+		fmt.Fprintf(a.out(), "[%s] %s  %s  %s\n", orphanLabel(entry.Confidence), orphanPath(entry), humanBytes(entry.SizeBytes), orphanDate(entry.Modified))
 		fields := newFields(a.out())
 		if len(entry.ReferencedBy) == 0 {
 			fields.add("not referenced by", strings.Join(entry.CheckedContexts, ", "))
