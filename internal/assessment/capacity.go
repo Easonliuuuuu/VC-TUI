@@ -611,7 +611,7 @@ func inferredVMDelta(before, after capacityVM, group capacityGroup) (float64, At
 	if len(after.vm.Datastores) == 1 && datastoreNameInGroup(after.vm.Datastores[0], group) {
 		return (after.vm.StorageGB - before.vm.StorageGB) * capacityGiB, BasisInferred, true
 	}
-	if len(after.vm.Datastores) > 1 {
+	if len(after.vm.Datastores) > 1 && vmOnGroup(after.vm, group) {
 		return diskCapacityDelta(before.vm, after.vm, group), BasisSplit, true
 	}
 	return 0, "", false
@@ -621,10 +621,21 @@ func appearedVMDelta(item capacityVM, group capacityGroup) (float64, Attribution
 	if len(item.vm.Datastores) == 1 && datastoreNameInGroup(item.vm.Datastores[0], group) {
 		return vmSize(item.vm), BasisInferred, true
 	}
-	if len(item.vm.Datastores) > 1 {
+	if len(item.vm.Datastores) > 1 && vmOnGroup(item.vm, group) {
 		return diskCapacityForGroup(item.vm, group), BasisSplit, true
 	}
 	return 0, "", false
+}
+
+// vmOnGroup reports whether any datastore the VM lives on belongs to the group,
+// so a multi-datastore VM is never listed against datastores it has no files on.
+func vmOnGroup(vm vsphere.VM, group capacityGroup) bool {
+	for _, name := range vm.Datastores {
+		if datastoreNameInGroup(name, group) {
+			return true
+		}
+	}
+	return false
 }
 
 func datastoreNameInGroup(name string, group capacityGroup) bool {
