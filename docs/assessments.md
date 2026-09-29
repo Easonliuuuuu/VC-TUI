@@ -509,6 +509,80 @@ evidence is blind. Confidence is explicit (`complete`, `partial`, or `unknown`):
 pre-schema-12 or reconstructed evidence is partial, while blind contexts always
 force unknown. `--fail-on-blockers` returns exit code 2 for a blocked result.
 
+### Destination sizing scenarios
+
+`vsfleet assessment sizing [RUN]` tests whether a scoped set of stored VMs
+could consolidate onto a proposed destination, for example whether two
+clusters fit on a smaller one. It is read-only and offline: it reads one stored
+assessment, never contacts vCenter, and never changes the assessment. The
+result is labelled `allocation-based` and is a generic planning scenario, not a
+claim of compatibility with any named hypervisor or cloud platform.
+
+```sh
+vsfleet assessment sizing pre-migration --cluster cluster-a --cluster cluster-b \
+  --hosts 3 --host-cores 48 --host-ram-gib 768 --datastore-capacity 60TiB \
+  --rdm-capacity 2TiB --cpu-ratio 4 --growth-pct 20 --ha-host-failures 1
+```
+
+**Inputs.** `--hosts`, `--host-cores` (usable cores per host),
+`--host-ram-gib` and `--datastore-capacity` (usable capacity, e.g. `40TiB`) are
+required. `--rdm-capacity` is required only when the scope contains RDMs.
+Optional, with visible defaults: `--cpu-ratio` (vCPU per usable core, default
+1), `--memory-ratio` (default 1), `--growth-pct` (default 0) and
+`--ha-host-failures` (default 1, that is N-1; 0 disables). Scope comes from
+`--context`/`--all-contexts` and `--cluster NAME|CONTEXT/NAME` (repeatable).
+Templates are always excluded; powered-off VMs are excluded unless
+`--include-powered-off` is given. Every input, and whether it was provided,
+defaulted or missing, is echoed in the output together with the run ID, the
+capture time, the scope and the generation time.
+
+**Formulas** (each is printed with its numbers):
+
+| Dimension | Required | Supply |
+| --- | --- | --- |
+| `cpu` (vCPU) | sum(vCPU) x (1 + growth/100) | (hosts - failures) x cores x cpu-ratio |
+| `memory` (GiB) | sum(configured memory) x (1 + growth/100) / memory-ratio | (hosts - failures) x RAM per host |
+| `memory-reservation` (GiB) | sum(VM memory reservations) | (hosts - failures) x RAM per host |
+| `datastore-capacity` (GiB) | sum(provisioned datastore-backed disk) x (1 + growth/100) | target datastore capacity |
+| `rdm-capacity` (GiB) | sum(RDM LUN capacity) x (1 + growth/100) | target RDM capacity |
+
+Storage measures are never added together. Datastore-backed provisioned disk
+capacity, RDM LUN capacity and guest filesystem use (from VMware Tools, split
+into datastore-backed, RDM-backed and unattributed) are separate rows. A disk
+attached to several VMs is counted once, a datastore reached through several
+contexts under different names is one physical datastore when the backing
+identity (VMFS UUID, extents, NFS remote, vVol or URL) matches, and an RDM LUN
+is counted once by LUN identity. The verdict is on provisioned size; observed
+(committed) use is shown for context, and the output says when it alone would
+fit. Guest use is informational and never feeds a verdict.
+
+**Verdicts.** Each dimension is `fit`, `insufficient` or `unknown`, and the
+overall verdict is the worst of them (insufficient over unknown over fit).
+`unknown` is produced by a missing target input, a partial or failed source
+collection (a run that is not `complete`, or a context whose VM or datastore
+collection did not answer), VMs with no recorded allocation or disk
+configuration, disks on a datastore missing from the stored inventory,
+same-named datastores in several contexts with no matching backing identity, and
+a shared-bus RDM with no LUN identity. Missing evidence can only add demand, so
+a dimension that is already `insufficient` stays so; it is never upgraded to
+`fit`. `--fail-unless-fit` returns exit code 2 unless every dimension is `fit`.
+
+**Excluded and visible.** Every excluded VM is listed with its reason. Oversubscription,
+memory reservations, the HA (failure) allowance and the target storage
+assumptions (full provisioned size consumed, no thin-provisioning or
+deduplication credit) are shown in the output. CPU reservations (MHz) are
+reported but not compared because the target core frequency is not an input.
+The result also refers to the existing checks: the count of migration-readiness
+blockers and advisories for the scoped VMs (for example `rdm-present`), the
+number of rules not evaluated, and the network-readiness command to run, since
+that needs a source and target cluster mapping.
+
+**Limitations.** The scenario uses configured allocations, not utilization:
+it does not read performance history, infers no rightsizing from point-in-time
+samples, and does not model per-host placement, NUMA, fragmentation, storage
+performance, licensing or overhead. Hosts are assumed homogeneous. Growth is
+applied uniformly, including to RDM LUN size.
+
 ### Importing an RVTools export
 
 The export profile has an inverse: `vsfleet import rvtools` reads an

@@ -27,6 +27,7 @@ configuration, history database, and output options shown below.
 | `vsfleet assessment orphans [run]` | Explain estate-wide browsed VMDK orphan evidence |
 | `vsfleet assessment capacity [run]` | Attribute datastore growth and project free-space thresholds |
 | `vsfleet assessment readiness [run]` | Return a migration-readiness verdict |
+| `vsfleet assessment sizing [run]` | Test whether stored VMs fit a proposed destination (allocation based, offline) |
 | `vsfleet network compare <source-cluster> <target-cluster> [run]` | Compare stored network reachability and policy between clusters |
 | `vsfleet assessment network-readiness --source <cluster> --target <cluster> [run]` | Return a cross-cluster network-readiness verdict |
 | `vsfleet search <text>` | Search every vCenter at once |
