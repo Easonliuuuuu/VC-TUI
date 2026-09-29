@@ -206,6 +206,12 @@ func TestAssessmentOrphansCommandAndConfidenceFiltering(t *testing.T) {
 	if err != nil || !strings.Contains(stdout, "SUSPECTED") || !strings.Contains(stdout, "orphan.vmdk") {
 		t.Fatalf("orphans output err=%v output=%s", err, stdout)
 	}
+	// The stored path already carries "[datastore]"; the header must not add a second one.
+	for _, line := range strings.Split(stdout, "\n") {
+		if strings.HasPrefix(line, "[SUSPECTED]") && strings.Count(line, "] ") != 2 {
+			t.Fatalf("orphan header should name the datastore once: %q", line)
+		}
+	}
 	stdout, _, err = runAssessmentOrphans(t, db, "latest", "-o", "json", "--confidence", string(health.ConfidenceSuspected))
 	if err != nil || !strings.Contains(stdout, `"confidence": "suspected-unreferenced"`) {
 		t.Fatalf("orphans JSON err=%v output=%s", err, stdout)
