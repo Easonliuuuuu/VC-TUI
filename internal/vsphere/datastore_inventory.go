@@ -194,13 +194,28 @@ func classifyInventoryError(err error) string {
 			return FileInventoryDenied
 		}
 	}
-	text := strings.ToLower(err.Error())
-	for _, marker := range []string{"permission", "privilege", "not authorized", "unauthorized", "denied"} {
-		if strings.Contains(text, marker) {
-			return FileInventoryDenied
-		}
+	if BrowsePermissionDenied(err.Error()) {
+		return FileInventoryDenied
 	}
 	return FileInventoryFailed
+}
+
+// DatastoreInaccessibleMessage is the browse error recorded for a datastore
+// that reported itself inaccessible, so no browse was attempted.
+const DatastoreInaccessibleMessage = "datastore is inaccessible"
+
+// BrowsePermissionDenied reports whether a recorded browse error text says the
+// account lacked the privilege, rather than the browse failing for another
+// reason. The browser task reports only the server's localized text, so text is
+// also what runs captured before this classification carry.
+func BrowsePermissionDenied(text string) bool {
+	text = strings.ToLower(text)
+	for _, marker := range []string{"permission", "privilege", "not authorized", "unauthorized", "denied"} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // inventoryDatastore lists every file of one datastore through the recursive

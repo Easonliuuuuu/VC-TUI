@@ -121,10 +121,10 @@ func TestOrphansCoverageReportsBrowseState(t *testing.T) {
 		data := base("failed")
 		var ds vsphere.Datastore
 		_ = json.Unmarshal(data.Resources[0].Payload, &ds)
-		ds.BrowseError = "permission denied"
+		ds.BrowseError = "host unreachable"
 		data.Resources[0].Payload, _ = json.Marshal(ds)
 		cov := Orphans(data).Coverage
-		if cov.Complete() || len(cov.Gaps) != 1 || cov.Gaps[0].Status != OrphanScanFailed || cov.Gaps[0].Reason != "permission denied" {
+		if cov.Complete() || len(cov.Gaps) != 1 || cov.Gaps[0].Status != OrphanScanFailed || cov.Gaps[0].Reason != "host unreachable" {
 			t.Fatalf("coverage=%+v", cov)
 		}
 	})
@@ -184,4 +184,74 @@ func TestOrphanSizeLabelDistinguishesUnknownFromSize(t *testing.T) {
 	if got := OrphanSizeLabel(16 << 20); got == "size unknown" || got == "-" {
 		t.Fatalf("real size label=%q", got)
 	}
+}
+
+func browseHintData(t *testing.T, status, browseError string) assessment.ExportData {
+	t.Helper()
+	return assessment.ExportData{
+		Run:      assessment.Run{ID: 7, InventorySchemaVersion: "11", FinishedAt: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)},
+		Contexts: []assessment.ContextRun{completeOrphanContext("prod")},
+		Resources: []assessment.ResourceObservation{orphanResource(t, "prod", "vc-prod", vsphere.Datastore{
+			Location: vsphere.Location{Context: "prod"}, ID: "ds-1", Name: "datastore1", Accessible: true,
+			BrowseStatus: status, BrowseError: browseError,
+		})},
+	}
+}
+
+func TestBrowseRemediationDistinguishesRequestedFromDenied(t *testing.T) {
+	const permission = "ServerFaultCode: Permission to perform this operation was denied."
+	cases := []struct {
+		name, status, err string
+		want              string
+		wantStatus        OrphanScanStatus
+	}{
+		{"not requested", "", "", "a capture run with --browse-datastores", OrphanScanNotBrowsed},
+		{"denied", "denied", permission, "browse denied on 1/1 datastores: grant Datastore.Browse", OrphanScanDenied},
+		{"legacy failed permission text", "failed", permission, "browse denied on 1/1 datastores: grant Datastore.Browse", OrphanScanDenied},
+		{"other failure", "failed", "host unreachable", "browse failed on 1/1 datastores: host unreachable", OrphanScanFailed},
+		{"inaccessible datastore", "denied", vsphere.DatastoreInaccessibleMessage, "browse failed on 1/1 datastores: " + vsphere.DatastoreInaccessibleMessage, OrphanScanDenied},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data := browseHintData(t, tc.status, tc.err)
+			report := Orphans(data)
+			if got := report.Coverage.BrowseRemediation(); got != tc.want {
+				t.Fatalf("remediation = %q, want %q", got, tc.want)
+			}
+			if len(report.Coverage.Gaps) != 1 || report.Coverage.Gaps[0].Status != tc.wantStatus {
+				t.Fatalf("gaps = %+v, want status %s", report.Coverage.Gaps, tc.wantStatus)
+			}
+			// Safety: denied or failed evidence is never a clean result.
+			if report.Coverage.Complete() || len(report.Entries) != 0 {
+				t.Fatalf("incomplete evidence reported as clean: %+v", report)
+			}
+			status := zombieRuleStatus(t, data)
+			if status.Status != "not-evaluated" || status.Result != "unknown" || status.Reason != tc.want {
+				t.Fatalf("zombie rule status = %+v, want reason %q", status, tc.want)
+			}
+		})
+	}
+}
+
+func TestBrowseRemediationEmptyWhenAnyDatastoreBrowsed(t *testing.T) {
+	data := browseHintData(t, "denied", "Permission to perform this operation was denied.")
+	ok := orphanResource(t, "prod", "vc-prod", vsphere.Datastore{Location: vsphere.Location{Context: "prod"}, ID: "ds-2", Name: "datastore2", BrowseStatus: "success"})
+	data.Resources = append(data.Resources, ok)
+	if got := Orphans(data).Coverage.BrowseRemediation(); got != "" {
+		t.Fatalf("remediation = %q, want empty", got)
+	}
+	if got := zombieRuleStatus(t, data); got.Status != "evaluated" || got.Result != "unknown" {
+		t.Fatalf("partially denied browse must stay unknown, got %+v", got)
+	}
+}
+
+func zombieRuleStatus(t *testing.T, data assessment.ExportData) RuleStatus {
+	t.Helper()
+	for _, rule := range Evaluate(data, Options{}).Rules {
+		if rule.Rule == "datastore-zombie-vmdk" {
+			return rule
+		}
+	}
+	t.Fatal("datastore-zombie-vmdk rule missing")
+	return RuleStatus{}
 }

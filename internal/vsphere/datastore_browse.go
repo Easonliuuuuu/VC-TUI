@@ -83,6 +83,9 @@ func (c *Client) browseDatastoreFiles(parent context.Context, datastore string, 
 	}
 	result, err := c.searchDatastoreSubFolders(ctx, browser, fmt.Sprintf("[%s]", datastore), spec)
 	if err != nil {
+		if classifyInventoryError(err) == FileInventoryDenied {
+			return nil, "denied", err.Error(), false
+		}
 		return nil, "failed", err.Error(), false
 	}
 

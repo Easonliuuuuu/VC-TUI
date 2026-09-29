@@ -112,8 +112,34 @@ func TestBrowseDatastorePermissionFailureIsProvenance(t *testing.T) {
 		t.Fatal("simulator returned no datastores")
 	}
 	for _, datastore := range inv.Datastores {
-		if datastore.BrowseStatus != "failed" || datastore.BrowseError == "" || len(datastore.Files) != 0 {
-			t.Fatalf("failed browse lost provenance: %+v", datastore)
+		if datastore.BrowseStatus != "denied" || datastore.BrowseError == "" || len(datastore.Files) != 0 {
+			t.Fatalf("denied browse lost provenance: %+v", datastore)
+		}
+	}
+}
+
+func TestBrowseDatastoreOtherFailureIsNotDenied(t *testing.T) {
+	c, model := browseSimulator(t)
+	model.Service.FaultInjector().AddRule(&simulator.FaultInjectionRule{
+		MethodName:  "SearchDatastoreSubFolders_Task",
+		ObjectType:  "*",
+		ObjectName:  "*",
+		Probability: 1,
+		FaultType:   simulator.FaultTypeInvalidState,
+		Message:     "host unreachable",
+		Enabled:     true,
+	})
+	idx, err := c.NewIndex(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	inv := c.FetchGroupWith(context.Background(), idx, GroupDatastores, FetchOptions{PageSize: -1, BrowseDatastoreFiles: true})
+	if len(inv.Datastores) == 0 {
+		t.Fatal("simulator returned no datastores")
+	}
+	for _, datastore := range inv.Datastores {
+		if datastore.BrowseStatus != "failed" || datastore.BrowseError == "" {
+			t.Fatalf("non-permission failure must stay failed: %+v", datastore)
 		}
 	}
 }

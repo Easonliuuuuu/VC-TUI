@@ -1071,27 +1071,37 @@ all is stored as partial and says so.`), Example: `  # Capture the current conte
 			return err
 		}
 		var coverage []assessment.FileInventoryContext
-		if inventoryOptions != nil {
+		var browse assessment.BrowseSummary
+		if inventoryOptions != nil || browseDatastores {
 			// Read the stored evidence back rather than trusting in-memory
 			// state, so what is reported is exactly what an export will say.
 			if store, storeErr := a.History(); storeErr == nil {
 				if data, loadErr := store.LoadExportData(cmd.Context(), run.ID); loadErr == nil {
-					coverage = assessment.FileInventoryCoverage(data)
+					if inventoryOptions != nil {
+						coverage = assessment.FileInventoryCoverage(data)
+					}
+					if browseDatastores {
+						browse = assessment.SummarizeBrowse(data)
+					}
 				} else {
-					fmt.Fprintf(a.errOut(), "%s file inventory coverage could not be read back: %v\n", glyphFail, loadErr)
+					fmt.Fprintf(a.errOut(), "%s capture coverage could not be read back: %v\n", glyphFail, loadErr)
 				}
 			}
 		}
 		if a.json() {
 			payload := struct {
 				assessment.Run
-				FileInventory []assessment.FileInventoryContext `json:"file_inventory,omitempty"`
-			}{run, coverage}
+				DatastoreBrowse *assessment.BrowseSummary         `json:"datastore_browse,omitempty"`
+				FileInventory   []assessment.FileInventoryContext `json:"file_inventory,omitempty"`
+			}{Run: run, FileInventory: coverage}
+			if browse.Requested {
+				payload.DatastoreBrowse = &browse
+			}
 			if writeErr := writeJSON(a.out(), payload); writeErr != nil {
 				return writeErr
 			}
 		} else {
-			printRun(a.out(), run)
+			printRun(a.out(), run, browse.Note())
 			printFileInventoryCoverage(a.out(), coverage)
 		}
 		for _, warning := range fileInventoryWarnings(coverage) {
@@ -1546,7 +1556,7 @@ func targetTime(runs []assessment.Run, id int64) time.Time {
 	}
 	return time.Time{}
 }
-func printRun(out interface{ Write([]byte) (int, error) }, r assessment.Run) {
+func printRun(out interface{ Write([]byte) (int, error) }, r assessment.Run, notes ...string) {
 	label := ""
 	if r.Label != "" {
 		label = " label=" + r.Label
@@ -1554,7 +1564,13 @@ func printRun(out interface{ Write([]byte) (int, error) }, r assessment.Run) {
 	if r.Pinned {
 		label += " pinned"
 	}
-	fmt.Fprintf(out, "assessment %d: %s%s (%d/%d contexts successful)\n", r.ID, r.Status, label, r.SuccessfulContexts, r.RequestedContexts)
+	detail := fmt.Sprintf("%d/%d contexts successful", r.SuccessfulContexts, r.RequestedContexts)
+	for _, note := range notes {
+		if note != "" {
+			detail += ", " + note
+		}
+	}
+	fmt.Fprintf(out, "assessment %d: %s%s (%s)\n", r.ID, r.Status, label, detail)
 }
 func changeDetail(v assessment.VMChange) string {
 	if len(v.Fields) == 0 {

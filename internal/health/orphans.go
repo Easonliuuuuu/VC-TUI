@@ -1,6 +1,7 @@
 package health
 
 import (
+	"fmt"
 	"path"
 	"sort"
 	"strings"
@@ -112,6 +113,57 @@ type OrphanCoverage struct {
 // "No candidates" is only a genuine clean result when Complete is true.
 func (c OrphanCoverage) Complete() bool {
 	return c.Datastores > 0 && len(c.Gaps) == 0
+}
+
+// PermissionDenied reports whether the gap is a browse the account was not
+// privileged to make, as opposed to an inaccessible datastore or another
+// failure.
+func (g OrphanScanGap) PermissionDenied() bool {
+	return g.Status == OrphanScanDenied && g.Reason != vsphere.DatastoreInaccessibleMessage
+}
+
+// BrowseRemediation says what is needed to get browse evidence when none of the
+// datastores was browsed. It separates a capture that never asked for a browse
+// (run with --browse-datastores) from one that asked and was refused (grant
+// Datastore.Browse) and from one that failed for another reason (the failure
+// itself). It is empty when at least one datastore was browsed.
+func (c OrphanCoverage) BrowseRemediation() string {
+	if c.Datastores == 0 || c.Browsed > 0 {
+		return ""
+	}
+	var denied, failed, notBrowsed int
+	firstFailure := ""
+	for _, gap := range c.Gaps {
+		switch {
+		case gap.PermissionDenied():
+			denied++
+		case gap.Status == OrphanScanNotBrowsed:
+			notBrowsed++
+		default:
+			failed++
+			if firstFailure == "" {
+				firstFailure = gap.Reason
+			}
+		}
+	}
+	var parts []string
+	if denied > 0 {
+		parts = append(parts, fmt.Sprintf("browse denied on %d/%d datastores: grant Datastore.Browse", denied, c.Datastores))
+	}
+	if failed > 0 {
+		part := fmt.Sprintf("browse failed on %d/%d datastores", failed, c.Datastores)
+		if firstFailure != "" {
+			part += ": " + firstFailure
+		}
+		parts = append(parts, part)
+	}
+	if len(parts) == 0 {
+		return "a capture run with --browse-datastores"
+	}
+	if notBrowsed > 0 {
+		parts = append(parts, fmt.Sprintf("%d not browsed", notBrowsed))
+	}
+	return strings.Join(parts, "; ")
 }
 
 // OrphanReport contains every browsed VMDK candidate, including unknown ones.
@@ -485,8 +537,14 @@ func orphanCoverage(data assessment.ExportData, stores []orphanDatastore) Orphan
 				coverage.Gaps = append(coverage.Gaps, OrphanScanGap{Object: object, Status: OrphanScanTruncated, Reason: "datastore browse listing was truncated at the file cap"})
 			}
 		case "denied":
-			coverage.Gaps = append(coverage.Gaps, OrphanScanGap{Object: object, Status: OrphanScanDenied, Reason: nonempty(store.ds.BrowseError, "datastore is inaccessible")})
+			coverage.Gaps = append(coverage.Gaps, OrphanScanGap{Object: object, Status: OrphanScanDenied, Reason: nonempty(store.ds.BrowseError, vsphere.DatastoreInaccessibleMessage)})
 		case "failed":
+			// Runs captured before a permission fault was classified recorded
+			// it as a plain failure; the server's text still says which it was.
+			if vsphere.BrowsePermissionDenied(store.ds.BrowseError) {
+				coverage.Gaps = append(coverage.Gaps, OrphanScanGap{Object: object, Status: OrphanScanDenied, Reason: store.ds.BrowseError})
+				continue
+			}
 			coverage.Gaps = append(coverage.Gaps, OrphanScanGap{Object: object, Status: OrphanScanFailed, Reason: nonempty(store.ds.BrowseError, "datastore browse failed")})
 		default:
 			coverage.Gaps = append(coverage.Gaps, OrphanScanGap{Object: object, Status: OrphanScanNotBrowsed, Reason: "assessment was captured without --browse-datastores"})
