@@ -578,6 +578,111 @@ export interoperability was independently implemented without RVTools source
 code or non-public documentation. RVTools is a Dell Technologies product;
 references here describe export-file interoperability only.
 
+### Scoped sharing profiles and pseudonymization
+
+Handing over a complete RVTools-style workbook gives the recipient every VM
+name, IP address, folder and datastore path. When the recipient only needs
+capacity for planning or licensing, export a named profile instead. The
+ordinary `assessment export` is unchanged and never transformed unless
+`--profile` is given; your local assessment is never modified either way.
+
+| Profile | Contents |
+| --- | --- |
+| `sizing-summary` | `vInfo`, `vDisk`, `vSource`, `vCluster`, `vHost`, `vDatastore` and `vsfleetCoverage`, each limited to the columns listed in the allowlist below |
+| `full-inventory` | Every worksheet and column of the ordinary export, so pseudonymization can be applied to the whole inventory |
+
+`sizing-summary` allowlist (a column not listed is omitted, not blanked):
+
+- `vInfo`: VM, Powerstate, Template, CPUs, Memory, In Use MiB, Datacenter, Cluster, Host, OS according to the configuration file, VM ID, vsfleet Context
+- `vDisk`: VM, Powerstate, Template, Disk, Disk Key, Capacity MiB, Thin, Disk Mode, Sharing mode, Path, VM ID, vsfleet Context
+- `vSource`: everything except VI SDK Server and VI SDK UUID
+- `vCluster`, `vHost`, `vDatastore`: capacity, state and version columns plus names and vsfleet Context; no Object ID or VI SDK columns
+- `vsfleetCoverage`: all columns
+
+Both profiles append two worksheets: `vsfleetShare` (profile, run ID and
+status, whether the assessment is partial, contexts, coverage gaps, omitted
+worksheets and the warnings below) and `vsfleetShareFields` (every column of
+the ordinary export with its sensitivity class and whether it was kept,
+pseudonymized, scrubbed or omitted). Run and context provenance and the
+`vsfleetCoverage` gaps are always retained.
+
+Every column carries a sensitivity class: `name`, `ip`, `path`, `id`,
+`free-text`, `topology` or `none`. A column with no rule, or an allowlisted
+column that does not exist, is an error: the export never guesses.
+
+Preview first. It prints the contexts, worksheets, row counts, columns and
+sensitivity classes, and writes nothing. It shares its plan code with the
+export, so the workbook contains exactly what the preview lists:
+
+```sh
+vsfleet assessment export --profile sizing-summary --pseudonymize --preview
+```
+
+Pseudonymization is opt-in. Without `--pseudonymize` a profile only scopes
+which worksheets and columns are included, and values are written as they are.
+With it:
+
+```sh
+openssl rand -base64 32 > ~/.config/vsfleet/share.key && chmod 600 ~/.config/vsfleet/share.key
+vsfleet assessment export --profile sizing-summary --pseudonymize \
+  --pseudonymize-key-file ~/.config/vsfleet/share.key --file sizing.xlsx
+```
+
+- Each name, IP, MAC, identifier, path segment and endpoint is replaced with a
+  token such as `vm-3f9a1c2b7d40`, computed as HMAC-SHA256 over the value with
+  your key. The same value always gives the same token, in every worksheet, so
+  joins survive: two VMs with the same name in different vCenters keep the same
+  name token and stay distinguishable by their context token, and disks that
+  share a backing file keep equal path tokens. IPs become tokens rather than
+  addresses, so subnet relationships are not visible.
+- Paths are tokenized per segment. The bracketed datastore in `[ds] dir/x.vmdk`
+  uses the same token as the `Datastore` and `Name` columns, and a short
+  alphabetic file extension such as `.vmdk` is kept.
+- Tokens are bound to the run by default, so two exports of different runs do
+  not correlate. `--link-exports` drops the run binding: the same key then
+  gives the same tokens across exports of the same estate. Only use it when you
+  intend the recipient to correlate them.
+- The same input, profile, key and options produce a byte-identical workbook.
+  A different key produces different tokens.
+- The key is read from a file (`--pseudonymize-key-file`, or `-` for standard
+  input), never from a flag value. The file must be at least 16 bytes and, on
+  Unix, not readable by group or others. Without a key, or with a short one,
+  the export fails and writes nothing. The key is never written to the
+  workbook, and no key identifier is recorded either, so nothing in the file
+  helps guess it.
+
+Pseudonymization is not removal, and the result is not anonymous.
+
+- Free text (`Annotation`, snapshot descriptions, contacts, labels) is replaced
+  by a token. System-generated text (`Error`, health `Message`, `Evidence`,
+  `Recommendation`) is retained so coverage gaps stay readable; known names
+  and addresses of four or more characters are replaced inside it on a
+  best-effort basis, and other identifying wording can remain. The preview and
+  `vsfleetShare` list every retained free-text column.
+- VLANs, subnet masks, uplink names and segment IDs are kept because they carry
+  topology. Counts, capacities, versions, product builds and timestamps are
+  kept too. Together they can identify an environment to someone who knows it.
+- Whoever holds the key can confirm any guess by recomputing its token, and can
+  therefore test whether a known VM or IP name appears. Nobody without the key
+  can reverse a token. The tokens are one-way: vsfleet cannot turn them back
+  into names, so keep your local assessment if you need to map a question about
+  `vm-3f9a...` back to a VM: recompute tokens for your own inventory with the
+  same key and options and look the token up.
+- Store the key the way you store a credential: a mode 0600 file on an
+  encrypted disk or in your secret manager, never in the export directory and
+  never sent alongside the workbook. Losing it does not affect your local
+  assessment; it only stops you re-creating matching tokens. Rotating it makes
+  every future token differ from earlier exports.
+
+A partial or failed assessment stays visibly partial: the plan, the preview, the
+`vsfleetShare` worksheet and the coverage gaps all say so, and missing rows do
+not mean missing objects.
+
+A reduced or pseudonymized workbook keeps vsfleet's worksheet and column
+names, but it is not the ordinary export and vsfleet makes no claim that RVTools
+or any other importer will accept it. `--profile` writes XLSX only; `--format
+csv` cannot be combined with it.
+
 ### Guest partitions need VMware Tools
 
 `vPartition` reports what the guest sees: filesystem paths, capacity, consumed

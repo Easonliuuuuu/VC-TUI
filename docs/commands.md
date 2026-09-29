@@ -42,6 +42,7 @@ configuration, history database, and output options shown below.
 | `vsfleet vm history <name-or-uuid>` | Show a VM's stored assessment timeline |
 | `vsfleet vm decommission-check <name-or-uuid> [run]` | Review stored evidence before decommissioning a VM |
 | `vsfleet assessment ...` | Capture and compare historical observations |
+| `vsfleet assessment export --profile <name> [--pseudonymize --pseudonymize-key-file <file>] [--preview]` | Export a scoped `sizing-summary` or `full-inventory` workbook, optionally pseudonymized; see [scoped sharing profiles](assessments.md#scoped-sharing-profiles-and-pseudonymization) |
 | `vsfleet import rvtools <file.xlsx>` | Import an RVTools-compatible export as a new offline assessment run |
 | `vsfleet compatibility report` | Describe every worksheet and column the export writes |
 

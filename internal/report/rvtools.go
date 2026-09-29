@@ -159,19 +159,29 @@ func WriteRVTools(w io.Writer, data assessment.ExportData, healthReport health.R
 	if err != nil {
 		return err
 	}
-	if err := checkXLSXRows(sheets); err != nil {
-		return err
-	}
-	f := excelize.NewFile()
-	defer f.Close()
-	if err := f.SetDocProps(&excelize.DocProperties{
+	return writeWorkbook(w, sheets, excelize.DocProperties{
 		Title:       "vsfleet RVTools assessment export",
 		Subject:     "Persisted vsfleet assessment",
 		Creator:     "vsfleet",
 		Description: "Offline export of a persisted vsfleet assessment",
 		Created:     data.Run.StartedAt.UTC().Format(time.RFC3339),
 		Modified:    data.Run.StartedAt.UTC().Format(time.RFC3339),
-	}); err != nil {
+	})
+}
+
+// writeWorkbook renders sheets as one deterministic XLSX with the given
+// document properties. The ordinary export and the scoped sharing profiles
+// share it so both normalize the archive the same way.
+func writeWorkbook(w io.Writer, sheets []sheet, props excelize.DocProperties) error {
+	if len(sheets) == 0 {
+		return fmt.Errorf("no worksheets to write")
+	}
+	if err := checkXLSXRows(sheets); err != nil {
+		return err
+	}
+	f := excelize.NewFile()
+	defer f.Close()
+	if err := f.SetDocProps(&props); err != nil {
 		return err
 	}
 	styles, err := newStyles(f)
