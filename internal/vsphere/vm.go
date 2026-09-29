@@ -685,8 +685,7 @@ func applyNetworkBacking(out *VMNIC, backing types.BaseVirtualDeviceBackingInfo,
 	case *types.VirtualEthernetCardDistributedVirtualPortBackingInfo:
 		out.NetworkID, out.SwitchID = b.Port.PortgroupKey, b.Port.SwitchUuid
 		if out.Network == "" && idx != nil && b.Port.PortgroupKey != "" {
-			ref := types.ManagedObjectReference{Type: "DistributedVirtualPortgroup", Value: b.Port.PortgroupKey}
-			out.Network = idx.name(&ref)
+			out.Network = idx.portgroupName(b.Port.PortgroupKey)
 		}
 	case *types.VirtualEthernetCardOpaqueNetworkBackingInfo:
 		out.NetworkID = b.OpaqueNetworkId

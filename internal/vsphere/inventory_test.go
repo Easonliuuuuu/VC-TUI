@@ -260,7 +260,7 @@ func TestListTemplates(t *testing.T) {
 // for the fault injector instead: SkipCount/MaxCount target one specific
 // RetrievePropertiesEx call by its position in the sequence ListInventory
 // always makes in the same order (the path index, then VMs, hosts,
-// clusters, datastores, networks). The skip count below (5, not the 4 that
+// clusters, datastores, networks). The skip count below (7, not the 4 that
 // sequence alone would suggest) is calibrated against what the test
 // actually observes rather than derived from that list — some other
 // RetrievePropertiesEx call happens first, and which one does not change
@@ -280,7 +280,7 @@ func TestListInventoryIsPartialOnOneKindFailing(t *testing.T) {
 		ObjectType:  "*",
 		ObjectName:  "*",
 		Probability: 1,
-		SkipCount:   6,
+		SkipCount:   7,
 		MaxCount:    1,
 		Enabled:     true,
 		FaultType:   simulator.FaultTypeNoPermission,
