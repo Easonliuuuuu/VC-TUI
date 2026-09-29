@@ -268,3 +268,31 @@ func TestCapacityAnomaliesFlagOnlySpikes(t *testing.T) {
 		t.Fatalf("steady anomalies=%+v", anomalies)
 	}
 }
+
+// A VM spanning several datastores is a split contributor only to the
+// datastores it actually lives on, never to every datastore in the context.
+func TestSplitVMContributesOnlyToItsOwnDatastores(t *testing.T) {
+	vm := vsphere.VM{
+		Name:       "vm-iso",
+		Datastores: []string{"local-esxi02", "nfs-shared"},
+		Disks:      []vsphere.VMDisk{{BackingPath: "[local-esxi02] vm-iso/disk.vmdk", CapacityBytes: 100}},
+	}
+	group := func(name string) capacityGroup {
+		return capacityGroup{items: []capacityDS{{ds: vsphere.Datastore{Name: name}}}}
+	}
+	item := capacityVM{vm: vm}
+
+	if _, _, ok := appearedVMDelta(item, group("local-esxi01")); ok {
+		t.Fatal("appeared VM listed against a datastore it has no files on")
+	}
+	if _, _, ok := inferredVMDelta(item, item, group("local-esxi01")); ok {
+		t.Fatal("inferred VM listed against a datastore it has no files on")
+	}
+	delta, basis, ok := appearedVMDelta(item, group("local-esxi02"))
+	if !ok || basis != BasisSplit || delta != 100 {
+		t.Fatalf("own datastore = %v %v %v, want split +100", delta, basis, ok)
+	}
+	if _, _, ok := appearedVMDelta(item, group("nfs-shared")); !ok {
+		t.Fatal("VM dropped from a datastore it is on, even without a disk there")
+	}
+}
