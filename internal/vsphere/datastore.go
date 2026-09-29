@@ -58,7 +58,7 @@ func (c *Client) listDatastoresWith(ctx context.Context, idx *index, browse bool
 		if browse {
 			if !datastore.Accessible {
 				datastore.BrowseStatus = "denied"
-				datastore.BrowseError = "datastore is inaccessible"
+				datastore.BrowseError = DatastoreInaccessibleMessage
 			} else {
 				datastore.Files, datastore.BrowseStatus, datastore.BrowseError, datastore.BrowseTruncated = c.browseDatastoreFiles(ctx, m.Name, m.Browser)
 			}

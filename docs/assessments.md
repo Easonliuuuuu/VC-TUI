@@ -308,6 +308,16 @@ state independently of the candidates: a run captured without
 `coverage` in the JSON output even when `entries` is empty. Add
 `--fail-on-unknown` to exit non-zero when any datastore was not fully browsed.
 
+The remediation depends on why nothing was browsed. Without
+`--browse-datastores` the hint is to capture with the flag. When the capture did
+request it and the account was refused, the hint names the privilege instead
+(`browse denied on 3/3 datastores: grant Datastore.Browse`), and any other
+failure is shown as itself (`browse failed on 1/1 datastores: ...`) rather than
+suggesting the flag again. `assessment run --browse-datastores` prints the same
+shortfall on its summary line, for example `1/1 contexts successful, datastore
+browse denied on 3/3 datastores`, and adds a `datastore_browse` object to
+`-o json`. Denied or failed browses are never treated as a clean orphan result.
+
 ### Datastore file inventory (vFileInfo)
 
 RVTools 4.8 has an optional `vFileInfo` worksheet listing datastore files.

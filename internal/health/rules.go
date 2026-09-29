@@ -87,7 +87,9 @@ var rules = []Rule{
 					return false, ""
 				}
 			}
-			return true, "a capture run with --browse-datastores"
+			// Nothing was browsed. Say why, so a capture that asked for the
+			// browse and was refused is not told to ask for it again.
+			return true, nonempty(Orphans(in.Data).Coverage.BrowseRemediation(), "a capture run with --browse-datastores")
 		},
 		Eval: func(in Input, emit func(Finding)) {
 			for _, orphan := range Orphans(in.Data).Entries {
