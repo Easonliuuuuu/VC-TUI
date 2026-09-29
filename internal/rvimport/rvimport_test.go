@@ -27,7 +27,7 @@ func writeFixtureWorkbook(t *testing.T, mutate func(*assessment.ExportData)) str
 	data := assessment.ExportData{
 		Run: assessment.Run{ID: 1, StartedAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)},
 		Contexts: []assessment.ContextRun{
-			{Name: "alpha", Endpoint: "https://vc-alpha.example", VCenterID: "vc-alpha-uuid"},
+			{Name: "alpha", Endpoint: "https://vc-alpha.example", VCenterID: "vc-alpha-uuid", Source: &assessment.SourceInfo{Name: "Synthetic vCenter", Version: "1.2.3", Build: "0001", APIType: "VirtualCenter"}},
 			{Name: "beta", Endpoint: "https://vc-beta.example", VCenterID: "vc-beta-uuid"},
 		},
 		VMs: []assessment.ExportVM{
@@ -144,7 +144,7 @@ func TestParseRecognizesMappedAndIgnoresUnmappedWorksheets(t *testing.T) {
 	if !contains(result.Report.RecognizedSheets, sheetVSCVMK) && !contains(result.Report.RecognizedSheets, "vSC_VMK") {
 		t.Errorf("recognized sheets = %v, want a supported vSC VMkernel spelling", result.Report.RecognizedSheets)
 	}
-	for _, want := range []string{"vRP", "vHealth", "vsfleetCoverage"} {
+	for _, want := range []string{"vRP", "vSource", "vHealth", "vsfleetCoverage"} {
 		if !contains(result.Report.IgnoredSheets, want) {
 			t.Errorf("ignored sheets = %v, want %q among them", result.Report.IgnoredSheets, want)
 		}

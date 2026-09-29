@@ -213,7 +213,7 @@ sizing signals as unvalidated until a real-vSphere run is recorded on
 Exports read one persisted run and do not contact vCenter or open a live
 session. The `rvtools` format is an XLSX workbook containing `vInfo`, `vCPU`,
 `vMemory`, per-VM `vDisk`, `vPartition` and `vNetwork`, `vCD`, `vUSB`,
-`vSnapshot`, `vTools`, `vRP`, `vCluster`, `vHost`, `vHBA`, `vNIC`, `vSwitch`,
+`vSnapshot`, `vTools`, `vSource`, `vRP`, `vCluster`, `vHost`, `vHBA`, `vNIC`, `vSwitch`,
 `vPort`, `dvSwitch`, `dvPort`, `vSC_VMK`, `vDatastore`, `vMultiPath`, `vHealth`,
 `vsfleetCoverage` and `vsfleetPerformance` sheets.
 
@@ -226,6 +226,30 @@ The destination is required: a `.xlsx` file for `rvtools` or a directory for
 `csv`. An existing destination needs `--force`. Re-exporting unchanged evidence
 produces byte-identical output in either format. CSV creates one `<tab>.csv`
 file per sheet for `jq`, `awk`, `pandas`, and source-control diffing.
+
+### Source provenance (`vSource`)
+
+`vSource` has one row per context whose run stored the vCenter or ESXi
+`ServiceInstance` About record at capture time. It uses the RVTools 4.8.2
+columns and order (`Name`, `OS type`, `API type`, `API version`, `Version`,
+`Patch level`, `Build`, `Fullname`, `Product name`, `Product version`,
+`Product line`, `Vendor`, `VI SDK Server`, `VI SDK UUID`) plus vsfleet's
+`vsfleet Context` column. Every value is text, so a patch level such as `00400`
+keeps its leading zeros. The record is persisted with each context of the run,
+so exporting an old run never reads current configuration or contacts vCenter,
+and re-exporting an unchanged run is byte-identical. `VI SDK Server` is the
+configured endpoint URL with its scheme, as on every other sheet, whereas
+RVTools writes the host alone.
+
+A run captured before inventory schema 17 has no About record and no `vSource`
+rows, and a context that never connected has none either. `vsfleetCoverage`
+reports the `vSource` sheet for every context: `success` with one item, `failed`
+with the connection error, or `not recorded` for an older capture. No version is
+inferred from anywhere else. Imported RVTools workbooks predate this evidence
+and are reported the same way.
+
+Comparing these names, types and values against a real RVTools 4.8.2 `vSource`
+export from the same lab is still outstanding.
 
 Runs captured before VMware Tools version collection still populate the running
 status column in `vTools`; version columns remain blank and the gap is recorded
@@ -375,12 +399,12 @@ exports](commands.md#importing-rvtools-exports).
 
 ### RVTools file interoperability
 
-The `rvtools` export profile renders twenty-three worksheet layouts used by RVTools
+The `rvtools` export profile renders twenty-four worksheet layouts used by RVTools
 exports, so a downstream tool that reads those worksheet names and columns can
 consume the corresponding parts of a vsfleet export:
 
 `vInfo` · `vCPU` · `vMemory` · `vDisk` · `vPartition` · `vNetwork` · `vCD` · `vUSB` ·
-`vSnapshot` · `vTools` · `vRP` · `vCluster` · `vHost` · `vHBA` · `vNIC` · `vSwitch` ·
+`vSnapshot` · `vTools` · `vSource` · `vRP` · `vCluster` · `vHost` · `vHBA` · `vNIC` · `vSwitch` ·
 `vPort` · `dvSwitch` · `dvPort` · `vSC_VMK` · `vDatastore` · `vMultiPath` ·
 `vHealth`
 
@@ -412,6 +436,7 @@ compare values under a shared header should account for these differences:
 | RVTools-named sheets, `VI SDK Server` | Configured endpoint URL, for example `https://192.168.150.10` | Host without URL scheme, for example `192.168.150.10` |
 | `vHost`, `ESX Version` | Version only, for example `8.0.3` | Product name, version and build, for example `VMware ESXi 8.0.3 build-24784735` |
 | `vHost`, `# VMs total` | Counts host VM references, including templates | Excludes templates; the comparison found 4 versus vsfleet's 5 |
+| `vSource`, `VI SDK Server` | Configured endpoint URL with scheme, as on every other sheet | Host without URL scheme; see the row above |
 | `vTools`, `Tools` | VMware Tools **running status** (`GuestInfo.toolsRunningStatus`), for example `guestToolsNotRunning` | Tools **installation status**, for example `toolsNotInstalled` |
 | `vHBA`, `Type` | vSphere adapter type, for example `HostBlockHba` | Human-readable label, for example `Block SCSI` |
 | `vSnapshot`, `Date / time` | UTC; XLSX displays a date without a zone and CSV uses RFC3339 with `Z` | Collector-local time without a zone |

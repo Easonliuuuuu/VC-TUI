@@ -122,10 +122,12 @@ var sheetMeta = map[string]sheetInfo{
 		note: "One row per virtual disk. Capacity is what vSphere provisioned; how much of it the guest has used is on vPartition, which vSphere cannot see without VMware Tools."},
 	"vPartition": {derivesFrom: "the VM collection",
 		note: "One row per guest filesystem. Only VMware Tools inside the guest can measure this, so a powered-off VM, or one whose Tools are not running, contributes no rows at all. vsfleetCoverage marks the tab partial and names how many VMs answered, so a short tab is never mistaken for a small estate."},
-	"vNetwork":   {derivesFrom: "the VM collection", note: "One row per virtual NIC."},
-	"vCD":        {derivesFrom: "the VM collection", note: "One row per virtual CD/DVD device. Connection and backing fields are preserved as unknown when vSphere omits them; captures before inventory schema 6 mark the sheet not recorded in vsfleetCoverage."},
-	"vUSB":       {derivesFrom: "the VM collection", note: "One row per virtual USB device. Connection and backing fields are preserved as unknown when vSphere omits them; captures before inventory schema 6 mark the sheet not recorded in vsfleetCoverage."},
-	"vTools":     {derivesFrom: "the VM collection", note: "One row per VM. Captures taken before inventory schema 3 populate the running status but leave the version columns blank, and vsfleetCoverage records the gap."},
+	"vNetwork": {derivesFrom: "the VM collection", note: "One row per virtual NIC."},
+	"vCD":      {derivesFrom: "the VM collection", note: "One row per virtual CD/DVD device. Connection and backing fields are preserved as unknown when vSphere omits them; captures before inventory schema 6 mark the sheet not recorded in vsfleetCoverage."},
+	"vUSB":     {derivesFrom: "the VM collection", note: "One row per virtual USB device. Connection and backing fields are preserved as unknown when vSphere omits them; captures before inventory schema 6 mark the sheet not recorded in vsfleetCoverage."},
+	"vTools":   {derivesFrom: "the VM collection", note: "One row per VM. Captures taken before inventory schema 3 populate the running status but leave the version columns blank, and vsfleetCoverage records the gap."},
+	"vSource": {derivesFrom: "the stored ServiceInstance About record",
+		note: "One row per context whose run stored the vCenter or ESXi ServiceInstance About record at capture time, using the RVTools 4.8.2 vSource column names and order plus a vsfleet Context column. Rows come only from that stored evidence: re-exporting never contacts the server or reads current configuration. A context that never connected, and every run captured before inventory schema 17, has no row; vsfleetCoverage marks the tab failed or not recorded and states why. Fields the server does not report are empty. Not yet compared against a real RVTools 4.8.2 export from the same lab (see docs/assessments.md)."},
 	"vHost":      {derivesFrom: "the host collection", note: "One row per ESXi host."},
 	"vHBA":       {derivesFrom: "the host collection", note: "One row per host bus adapter. This profile reports adapter identity, transport details and protocol-specific names; it does not issue storage-system queries for target inventory."},
 	"vNIC":       {derivesFrom: "the host collection", note: "One row per physical NIC. Link speed is empty when the link is down. Distributed-switch membership is collected on dvSwitch and dvPort."},
@@ -302,6 +304,21 @@ var sharedColumns = map[string]ColumnSpec{
 // sheetColumns describes columns whose meaning depends on the worksheet. A
 // name here shadows the shared description for that sheet only.
 var sheetColumns = map[string]map[string]ColumnSpec{
+	"vSource": {
+		"Name":            {Kind: KindText, Empty: "when the server reports no name", Note: "AboutInfo.name: short form of the product name."},
+		"OS type":         {Kind: KindText, Empty: "when the server reports none", Note: "AboutInfo.osType, for example linux-x86 or vmnix-x86."},
+		"API type":        {Kind: KindText, Empty: "when the server reports none", Note: "AboutInfo.apiType: VirtualCenter for vCenter, HostAgent for a standalone ESXi host."},
+		"API version":     {Kind: KindText, Empty: "when the server reports none", Note: "AboutInfo.apiVersion, dot-separated."},
+		"Version":         {Kind: KindText, Empty: "when the server reports none", Note: "AboutInfo.version, dot-separated product version."},
+		"Patch level":     {Kind: KindText, Empty: "when the server reports none, as older vCenter and ESXi releases do not", Note: "AboutInfo.patchLevel."},
+		"Build":           {Kind: KindText, Empty: "when the server reports none", Note: "AboutInfo.build string for the server."},
+		"Fullname":        {Kind: KindText, Empty: "when the server reports none", Note: "AboutInfo.fullName: complete product name including version."},
+		"Product name":    {Kind: KindText, Empty: "when the server reports none", Note: "AboutInfo.licenseProductName: the license product name."},
+		"Product version": {Kind: KindText, Empty: "when the server reports none", Note: "AboutInfo.licenseProductVersion: the license product version."},
+		"Product line":    {Kind: KindText, Empty: "when the server reports none", Note: "AboutInfo.productLineId, for example vpx (vCenter) or embeddedEsx (ESXi)."},
+		"Vendor":          {Kind: KindText, Empty: "when the server reports none", Note: "AboutInfo.vendor."},
+		"VI SDK UUID":     {Kind: KindText, Note: "The stored vCenter identity of this context: AboutInfo.instanceUuid, falling back to the endpoint string when the server omitted it, exactly as every other worksheet records it."},
+	},
 	"vDisk": {
 		"Disk":         {Kind: KindText, Note: "Virtual disk label, e.g. Hard disk 1."},
 		"Disk Key":     {Kind: KindInteger, Note: "Device key of the virtual disk. Joins to the column of the same name on vPartition."},

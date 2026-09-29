@@ -219,6 +219,7 @@ func (c *Collector) captureContext(parent context.Context, cc *config.Context, b
 		return r
 	}
 	r.VCenterID = client.About.InstanceID
+	r.Source = SourceInfoFromAbout(client.About)
 	// Real vCenters expose About.InstanceUuid. Keep the ledger comparable for
 	// compatible endpoints (and deterministic test backends) that omit it by
 	// falling back to the configured endpoint rather than an empty identity.

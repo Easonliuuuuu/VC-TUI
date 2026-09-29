@@ -160,7 +160,7 @@ func openDB(path string) (*sql.DB, error) {
 }
 
 // currentSchemaVersion is the ledger schema this build writes.
-const currentSchemaVersion = 6
+const currentSchemaVersion = 7
 
 func (s *Store) migrate(ctx context.Context) error {
 	var version int
@@ -173,10 +173,41 @@ func (s *Store) migrate(ctx context.Context) error {
 	if version >= currentSchemaVersion {
 		return nil
 	}
-	if err := s.migrateLegacy(ctx); err != nil {
-		return err
+	if version < 6 {
+		if err := s.migrateLegacy(ctx); err != nil {
+			return err
+		}
+		if err := s.migrateV6(ctx); err != nil {
+			return err
+		}
 	}
-	return s.migrateV6(ctx)
+	return s.migrateV7(ctx)
+}
+
+// migrateV7 adds per-context source identity (the ServiceInstance About
+// record). It is additive: runs written before it simply have no row, which
+// readers report as not recorded rather than guessing a version.
+func (s *Store) migrateV7(ctx context.Context) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin history v7 migration: %w", err)
+	}
+	for _, stmt := range []string{
+		`CREATE TABLE IF NOT EXISTS context_sources (
+			context_run_id INTEGER PRIMARY KEY REFERENCES context_runs(id) ON DELETE CASCADE,
+			payload TEXT NOT NULL
+		)`,
+		`PRAGMA user_version = 7`,
+	} {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migrate history database to v7: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit history v7 migration: %w", err)
+	}
+	return nil
 }
 
 // migrateLegacy applies the v1-v5 steps. Note that v5 never recorded its own
@@ -830,6 +861,17 @@ func (s *Store) saveContext(ctx context.Context, runID int64, result ContextResu
 		_ = tx.Rollback()
 		return err
 	}
+	if result.Source != nil {
+		payload, err := json.Marshal(result.Source)
+		if err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO context_sources(context_run_id,payload) VALUES(?,?) ON CONFLICT(context_run_id) DO UPDATE SET payload=excluded.payload`, contextRunID, string(payload)); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
 	for _, vm := range result.VMs {
 		payload, err := json.Marshal(vm.VM)
 		if err != nil {
@@ -935,10 +977,13 @@ func (s *Store) saveContext(ctx context.Context, runID int64, result ContextResu
 }
 
 type ContextResult struct {
-	Name        string
-	VCenterID   string
-	Status      string
-	Error       string
+	Name      string
+	VCenterID string
+	Status    string
+	Error     string
+	// Source is the ServiceInstance About record observed on connect. Leave
+	// it nil when the context never connected.
+	Source      *SourceInfo
 	VMs         []Observation
 	Collections []CollectionResult
 }

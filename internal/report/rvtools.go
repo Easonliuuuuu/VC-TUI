@@ -28,6 +28,7 @@ const (
 	// coverageSheetName is vsfleet's own worksheet, not an RVTools layout.
 	coverageSheetName = "vsfleetCoverage"
 	vmkSheetName      = "vSC_VMK"
+	sourceSheetName   = "vSource"
 )
 
 var (
@@ -35,16 +36,20 @@ var (
 	// per-VM tab: vInfo has its own tail (it also carries the SMBIOS UUID and
 	// omits Folder), but vDisk, vNetwork, vSnapshot, vCPU, vMemory, and vTools
 	// all end in exactly these columns.
-	vmTailHeaders       = []string{"Annotation", "Datacenter", "Cluster", "Host", "Folder", "OS according to the configuration file", "VM ID", "VM UUID", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
-	vmHeaders           = []string{"VM", "Powerstate", "Template", "Guest state", "CPUs", "Memory", "Primary IP Address", "Folder", "In Use MiB", "Annotation", "Datacenter", "Cluster", "Host", "OS according to the configuration file", "VM ID", "VM SMBIOS UUID", "VM UUID", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
-	cpuHeaders          = append([]string{"VM", "Powerstate", "Template", "CPUs"}, vmTailHeaders...)
-	memoryHeaders       = append([]string{"VM", "Powerstate", "Template", "Size MiB"}, vmTailHeaders...)
-	diskHeaders         = []string{"VM", "Powerstate", "Template", "Disk", "Disk Key", "Disk UUID", "Capacity MiB", "Raw", "Disk Mode", "Sharing mode", "Thin", "Eagerly Scrub", "Split", "Write Through", "Level", "Shares", "Reservation", "Limit", "Controller", "SCSI label", "Unit number", "Shared Bus", "Path", "Raw LUN ID", "Raw Compatibility Mode", "Annotation", "Datacenter", "Cluster", "Host", "Folder", "OS according to the configuration file", "VM ID", "VM UUID", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
-	networkHeaders      = []string{"VM", "Powerstate", "Template", "NIC label", "Adapter", "Network", "Connected", "Starts Connected", "Mac Address", "Mac Address type", "IPv4 Address", "IPv6 Address", "Direct Path IO", "Annotation", "Datacenter", "Cluster", "Host", "Folder", "OS according to the configuration file", "VM ID", "VM UUID", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
-	toolsHeaders        = append([]string{"VM", "Powerstate", "Template", "Tools", "Tools Version", "Tools Version Status"}, vmTailHeaders...)
-	cdHeaders           = append([]string{"VM", "Powerstate", "Template", "Device", "Device Key", "Connected", "Starts Connected", "Backing type", "Backing path", "Backing device", "Backing host", "Backing datastore ID", "Backing object ID", "Use auto detect", "Controller", "Controller label", "Unit number"}, vmTailHeaders...)
-	usbHeaders          = append([]string{"VM", "Powerstate", "Template", "Device", "Device Key", "Connected", "Vendor ID", "Product ID", "Family", "Speed", "Backing type", "Backing path", "Backing device", "Backing host", "Backing datastore ID", "Backing object ID", "Use auto detect", "Controller", "Controller label", "Unit number"}, vmTailHeaders...)
-	partitionHeaders    = append([]string{"VM", "Powerstate", "Template", "Disk Key", "Disk", "Capacity MiB", "Consumed MiB", "Free MiB", "Free %", "Filesystem"}, vmTailHeaders...)
+	vmTailHeaders    = []string{"Annotation", "Datacenter", "Cluster", "Host", "Folder", "OS according to the configuration file", "VM ID", "VM UUID", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
+	vmHeaders        = []string{"VM", "Powerstate", "Template", "Guest state", "CPUs", "Memory", "Primary IP Address", "Folder", "In Use MiB", "Annotation", "Datacenter", "Cluster", "Host", "OS according to the configuration file", "VM ID", "VM SMBIOS UUID", "VM UUID", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
+	cpuHeaders       = append([]string{"VM", "Powerstate", "Template", "CPUs"}, vmTailHeaders...)
+	memoryHeaders    = append([]string{"VM", "Powerstate", "Template", "Size MiB"}, vmTailHeaders...)
+	diskHeaders      = []string{"VM", "Powerstate", "Template", "Disk", "Disk Key", "Disk UUID", "Capacity MiB", "Raw", "Disk Mode", "Sharing mode", "Thin", "Eagerly Scrub", "Split", "Write Through", "Level", "Shares", "Reservation", "Limit", "Controller", "SCSI label", "Unit number", "Shared Bus", "Path", "Raw LUN ID", "Raw Compatibility Mode", "Annotation", "Datacenter", "Cluster", "Host", "Folder", "OS according to the configuration file", "VM ID", "VM UUID", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
+	networkHeaders   = []string{"VM", "Powerstate", "Template", "NIC label", "Adapter", "Network", "Connected", "Starts Connected", "Mac Address", "Mac Address type", "IPv4 Address", "IPv6 Address", "Direct Path IO", "Annotation", "Datacenter", "Cluster", "Host", "Folder", "OS according to the configuration file", "VM ID", "VM UUID", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
+	toolsHeaders     = append([]string{"VM", "Powerstate", "Template", "Tools", "Tools Version", "Tools Version Status"}, vmTailHeaders...)
+	cdHeaders        = append([]string{"VM", "Powerstate", "Template", "Device", "Device Key", "Connected", "Starts Connected", "Backing type", "Backing path", "Backing device", "Backing host", "Backing datastore ID", "Backing object ID", "Use auto detect", "Controller", "Controller label", "Unit number"}, vmTailHeaders...)
+	usbHeaders       = append([]string{"VM", "Powerstate", "Template", "Device", "Device Key", "Connected", "Vendor ID", "Product ID", "Family", "Speed", "Backing type", "Backing path", "Backing device", "Backing host", "Backing datastore ID", "Backing object ID", "Use auto detect", "Controller", "Controller label", "Unit number"}, vmTailHeaders...)
+	partitionHeaders = append([]string{"VM", "Powerstate", "Template", "Disk Key", "Disk", "Capacity MiB", "Consumed MiB", "Free MiB", "Free %", "Filesystem"}, vmTailHeaders...)
+	// sourceHeaders are the RVTools 4.8.2 vSource columns, in RVTools order,
+	// followed by vsfleet's own context column. The two VI SDK columns are the
+	// same provenance pair every other worksheet carries.
+	sourceHeaders       = []string{"Name", "OS type", "API type", "API version", "Version", "Patch level", "Build", "Fullname", "Product name", "Product version", "Product line", "Vendor", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
 	hostHeaders         = []string{"Host", "Datacenter", "Cluster", "in Maintenance Mode", "Speed", "# Cores", "CPU usage %", "# Memory", "Memory usage %", "# VMs total", "ESX Version", "Vendor", "Model", "Object ID", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
 	hbaHeaders          = append([]string{"Device", "Bus", "Status", "Model", "Driver", "Pci", "Storage protocol", "WWNN", "WWPN", "iSCSI name", "iSCSI alias", "Type"}, hostTailHeaders...)
 	nicHeaders          = append([]string{"Device", "PCI", "Driver", "Mac Address", "Link speed Mb", "Duplex", "Wake on LAN", "Switch"}, hostTailHeaders...)
@@ -94,6 +99,7 @@ func rvtoolsSheets(data assessment.ExportData, healthReport health.Report) ([]sh
 		{name: "vUSB", headers: usbHeaders, rows: usbRows(data)},
 		{name: "vSnapshot", headers: snapshotHeaders, rows: snapshotRows(data), dateCols: []int{4}},
 		{name: "vTools", headers: toolsHeaders, rows: toolsRows(data)},
+		{name: sourceSheetName, headers: sourceHeaders, rows: sourceRows(data)},
 		{name: "vRP", headers: resourcePoolHeaders, rows: resourcePoolRows(data)},
 		{name: "vCluster", headers: clusterHeaders, rows: clusterRows(data)},
 		{name: "vHost", headers: hostHeaders, rows: hostRows(data)},
@@ -112,7 +118,7 @@ func rvtoolsSheets(data assessment.ExportData, healthReport health.Report) ([]sh
 	}, nil
 }
 
-// WriteRVTools writes the twenty-three RVTools-compatible sheets plus the
+// WriteRVTools writes the twenty-four RVTools-compatible sheets plus the
 // vsfleetCoverage and vsfleetPerformance extension sheets. vHealth is derived from the supplied
 // report; callers evaluate it before entering the renderer. The output is normalized as a ZIP archive
 // with fixed entry order and timestamps, making repeated writes byte-identical.
@@ -532,6 +538,22 @@ func optionalInt64(value *int64) any {
 	return *value
 }
 
+// sourceRows renders one row per context whose run stored a ServiceInstance
+// About record. It reads only that stored evidence: a context without one (a
+// run captured before schema 17, or a context that never connected) has no
+// row, and vsfleetCoverage says why, rather than a version being invented.
+func sourceRows(data assessment.ExportData) [][]any {
+	rows := make([][]any, 0, len(data.Contexts))
+	for _, c := range data.Contexts {
+		if c.Source == nil {
+			continue
+		}
+		src := c.Source
+		rows = append(rows, []any{src.Name, src.OSType, src.APIType, src.APIVersion, src.Version, src.PatchLevel, src.Build, src.FullName, src.LicenseProductName, src.LicenseProductVersion, src.ProductLineID, src.Vendor, c.Endpoint, c.VCenterID, c.Name})
+	}
+	return rows
+}
+
 func hostRows(data assessment.ExportData) [][]any {
 	rows := make([][]any, 0)
 	for _, r := range data.Resources {
@@ -873,7 +895,8 @@ func coverageRows(data assessment.ExportData, healthReport health.Report) [][]an
 			}
 		}
 	}
-	rows := make([][]any, 0, len(data.Contexts)*23)
+	rows := make([][]any, 0, len(data.Contexts)*24)
+	sourceRecorded := inventoryAtLeast(data.Run.InventorySchemaVersion, 17)
 	devicesRecorded := inventoryAtLeast(data.Run.InventorySchemaVersion, 2)
 	attachedDevicesRecorded := inventoryAtLeast(data.Run.InventorySchemaVersion, 6)
 	toolsRecorded := inventoryAtLeast(data.Run.InventorySchemaVersion, 3)
@@ -916,6 +939,7 @@ func coverageRows(data assessment.ExportData, healthReport health.Report) [][]an
 			{kind: "vusb", sheet: "vUSB", count: usbCounts[c.Name]},
 			{kind: "snapshot", sheet: "vSnapshot", count: snapshotCounts[c.Name]},
 			{kind: "vtools", sheet: "vTools", count: counts[c.Name]},
+			{kind: "source", sheet: sourceSheetName},
 			{kind: "resourcepool", sheet: "vRP", count: resources[c.Name]["resourcepool"]},
 			{kind: "cluster", sheet: "vCluster", count: resources[c.Name]["cluster"]},
 			{kind: "host", sheet: "vHost", count: resources[c.Name]["host"]},
@@ -937,6 +961,19 @@ func coverageRows(data assessment.ExportData, healthReport health.Report) [][]an
 				continue
 			}
 			switch {
+			case spec.kind == "source":
+				switch {
+				case c.Source != nil:
+					status, spec.count = "success", 1
+				case !sourceRecorded:
+					status = "not recorded"
+					message = "capture predates source identity inventory; no ServiceInstance About record was stored"
+				case c.VMStatus != "" && c.VMStatus != "success" && c.VMStatus != "empty":
+					status = "failed"
+					message = "no ServiceInstance About record was stored: " + nonempty(c.Error, "context did not connect")
+				default:
+					message = "no ServiceInstance About record was stored for this context"
+				}
 			case spec.hostConfig && !hostConfigRecorded:
 				status = "not recorded"
 				message = "capture predates host storage and network inventory"
