@@ -1561,7 +1561,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.historyErr == nil {
 			m.loadDefaultHistoryDiff()
 			m.centreScrubWindow()
-			return m, tea.Batch(m.historyDiffCommand(), loadHistoryCoverageCmd(m.ctx, m.assessment, m.runs))
+			coverage := loadHistoryCoverageCmd(m.ctx, m.assessment, m.runs)
+			if len(m.historyScope()) > 0 && len(m.runs) >= 2 {
+				// A scoped span is chosen from coverage, so the diff follows it.
+				m.changeDiff = nil
+				return m, coverage
+			}
+			return m, tea.Batch(m.historyDiffCommand(), coverage)
 		}
 		return m, nil
 	case historyCoverageMsg:
@@ -1571,9 +1577,29 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.historyCoverage = msg.coverage
 		}
-		return m, nil
+		if len(m.historyScope()) == 0 || len(m.runs) < 2 || m.historyErr != nil {
+			return m, nil
+		}
+		if msg.err != nil {
+			return m, m.historyDiffCommand()
+		}
+		base, target, covering, ok := m.scopedDefaultSpan()
+		if !ok {
+			m.changeDiff = nil
+			if covering == 1 {
+				m.historyErr = fmt.Errorf("only one run covers %s — nothing to compare", m.historyScopeLabel())
+			} else {
+				m.historyErr = m.historyScopeError(assessment.ErrUnknownStoredContext, "stored assessments")
+			}
+			return m, nil
+		}
+		m.baseRun, m.targetRun = base, target
+		return m, m.historyDiffCommand()
 	case historyDiffMsg:
 		m.changeDiff, m.historyErr = msg.diff, m.historyScopeError(msg.err, "stored assessments")
+		if msg.err != nil {
+			m.changeDiff = nil
+		}
 		m.changeCursor, m.changeOffset = 0, 0
 		return m, nil
 	case historyTrendsMsg:

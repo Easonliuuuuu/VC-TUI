@@ -75,6 +75,32 @@ func (m *Model) loadDefaultHistoryDiff() {
 	m.historyErr = nil
 }
 
+// scopedDefaultSpan picks the newest two runs that reached every vCenter in
+// scope, so a scoped Changes pane opens on a comparison that can exist rather
+// than on the newest runs overall. ok is false when fewer than two qualify;
+// covering is how many did.
+func (m *Model) scopedDefaultSpan() (base, target int64, covering int, ok bool) {
+	scope := m.historyScope()
+	var ids []int64
+	for _, r := range m.runs {
+		reached := m.historyCoverage[r.ID]
+		all := len(reached) > 0
+		for _, name := range scope {
+			if reached[name] != "success" {
+				all = false
+				break
+			}
+		}
+		if all {
+			ids = append(ids, r.ID)
+		}
+	}
+	if len(ids) < 2 {
+		return 0, 0, len(ids), false
+	}
+	return ids[1], ids[0], len(ids), true
+}
+
 func (m *Model) historyDiffCommand() tea.Cmd {
 	if m.assessment == nil || len(m.runs) < 2 {
 		return nil
@@ -238,7 +264,11 @@ func comparisonRunLine(t theme, r assessment.Run, interval string, width int) st
 		coverage = fmt.Sprintf("%d/%d vCenters", r.SuccessfulContexts, r.RequestedContexts)
 		coverStyle = t.warn
 	}
-	line := fmt.Sprintf("%s %-6s %s  %s  %s", pad(label, labelW, false), historyRunLabel(r.ID), r.StartedAt.Local().Format(dateFormat), status, coverStyle.Render(pad(coverage, 12, false)))
+	when := "—"
+	if !r.StartedAt.IsZero() {
+		when = r.StartedAt.Local().Format(dateFormat)
+	}
+	line := fmt.Sprintf("%s %-6s %s  %s  %s", pad(label, labelW, false), historyRunLabel(r.ID), pad(when, len(dateFormat), false), status, coverStyle.Render(pad(coverage, 12, false)))
 	if interval != "" {
 		line += t.faint.Render(" +" + interval)
 	}
@@ -1503,4 +1533,9 @@ func changeDetail(v assessment.VMChange) string {
 	return strings.Join(parts, " ")
 }
 
-func historyRunLabel(id int64) string { return "#" + strconv.FormatInt(id, 10) }
+func historyRunLabel(id int64) string {
+	if id <= 0 {
+		return "—"
+	}
+	return "#" + strconv.FormatInt(id, 10)
+}

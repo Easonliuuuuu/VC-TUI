@@ -213,3 +213,67 @@ func TestTrendsFailureLeavesTheChangesPaneAlone(t *testing.T) {
 		t.Fatalf("Changes rendered the Trends error:\n%s", view)
 	}
 }
+
+// TestScopedChangesDefaultsToRunsThatReachedTheContext: the newest runs cover
+// only customer-a, so a prod-scoped pane must open on prod's own newest pair
+// rather than on the newest runs overall (which prod was never part of), and
+// must never draw an unset run as "#0" or the zero time.
+func TestScopedChangesDefaultsToRunsThatReachedTheContext(t *testing.T) {
+	store, err := assessment.Open(filepath.Join(t.TempDir(), "history.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	ctx := context.Background()
+	prod := &config.Context{Name: "prod", Endpoint: "https://prod", Username: "user"}
+	customer := &config.Context{Name: "customer-a", Endpoint: "https://customer-a", Username: "user"}
+	collected := allKindsCollected()
+	when := time.Date(2026, 1, 1, 8, 0, 0, 0, time.UTC)
+	var ids []int64
+	for i, withProd := range []bool{true, true, false, false} {
+		requested := []*config.Context{customer}
+		if withProd {
+			requested = []*config.Context{prod, customer}
+		}
+		run, err := store.StartRun(ctx, "test", requested, when)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, run.ID)
+		if withProd {
+			if err := store.SaveContext(ctx, run.ID, assessment.ContextResult{
+				Name: "prod", VCenterID: "vc-prod", Status: "success",
+				VMs:         []assessment.Observation{scopedVM("prod", "vc-prod", "billing")},
+				Collections: collected,
+			}, when); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := store.SaveContext(ctx, run.ID, assessment.ContextResult{
+			Name: "customer-a", VCenterID: "vc-cust", Status: "success",
+			VMs:         []assessment.Observation{scopedVM("customer-a", "vc-cust", "cust-"+string(rune('a'+i)))},
+			Collections: collected,
+		}, when); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.FinishRun(ctx, run.ID, when); err != nil {
+			t.Fatal(err)
+		}
+		when = when.Add(time.Hour)
+	}
+
+	m := newTestModel(t, twoHealthy(), Options{Current: "prod", Assessment: &assessment.Service{Store: store}})
+	press(t, m, "H")
+	if m.historyErr != nil {
+		t.Fatalf("scoped Changes errored instead of using prod's own runs: %v", m.historyErr)
+	}
+	if m.baseRun != ids[0] || m.targetRun != ids[1] {
+		t.Fatalf("span = %d→%d, want prod's newest pair %d→%d", m.baseRun, m.targetRun, ids[0], ids[1])
+	}
+	if got := historyRunLabel(0); got != "—" {
+		t.Fatalf("unset run label = %q, want —", got)
+	}
+	if out := strings.Join(m.viewChanges(), "\n"); strings.Contains(out, "#0") || strings.Contains(out, "01 Jan 08:06") {
+		t.Fatalf("Changes rendered a zero-value end:\n%s", out)
+	}
+}
