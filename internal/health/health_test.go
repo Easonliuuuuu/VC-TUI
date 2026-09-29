@@ -126,6 +126,29 @@ func TestEvaluateMigrationReadinessRules(t *testing.T) {
 	}
 }
 
+func TestDVPortGroupPromiscuousSkipsUplinkPortGroups(t *testing.T) {
+	trueValue := true
+	dvs, _ := json.Marshal(vsphere.DVSwitch{Location: vsphere.Location{Datacenter: "dc-a"}, ID: "dvs-1", Name: "dvSwitch0", PortGroups: []vsphere.DVPortGroup{
+		{Name: "dvSwitch0-DVUplinks-1", Uplink: true, ForgedTransmits: &trueValue},
+		{Name: "migration", Promiscuous: &trueValue},
+	}})
+	data := assessment.ExportData{Run: assessment.Run{ID: 52, InventorySchemaVersion: assessment.CurrentInventorySchemaVersion}, Contexts: []assessment.ContextRun{{Name: "prod", VMStatus: "empty", Collections: []assessment.CollectionRun{{Kind: "vm", Status: "empty"}, {Kind: "dvswitch", Status: "success"}}}}, Resources: []assessment.ResourceObservation{{Context: "prod", VCenterID: "vc-1", Kind: "dvswitch", ID: "dvs-1", Name: "dvSwitch0", Payload: dvs}}}
+	var flagged []string
+	for _, finding := range Evaluate(data, Options{}).Findings {
+		if finding.Rule != "dvportgroup-promiscuous" {
+			continue
+		}
+		for _, ev := range finding.Evidence {
+			if ev.Field == "port_group" {
+				flagged = append(flagged, ev.Observed)
+			}
+		}
+	}
+	if len(flagged) != 1 || flagged[0] != "migration" {
+		t.Fatalf("flagged port groups = %v, want [migration]", flagged)
+	}
+}
+
 func TestEvaluateHostPathRedundancyLocality(t *testing.T) {
 	local, shared := true, false
 	cases := []struct {

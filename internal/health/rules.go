@@ -1065,7 +1065,8 @@ func evaluateDVPortGroupPromiscuous(in Input, emit func(Finding)) {
 		}
 		obj := resourceObject(in.Data, resource, "dvswitch", sw.Name, sw.ID, sw.Datacenter)
 		for _, group := range sw.PortGroups {
-			if !securityPolicyEnabled(group.Promiscuous, group.ForgedTransmits, group.MACChanges) {
+			// Uplink port groups cannot host VMs and default to forged transmits.
+			if group.Uplink || !securityPolicyEnabled(group.Promiscuous, group.ForgedTransmits, group.MACChanges) {
 				continue
 			}
 			emit(Finding{Rule: "dvportgroup-promiscuous", Object: obj,
