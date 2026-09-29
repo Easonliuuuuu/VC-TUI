@@ -248,6 +248,7 @@ func TestEveryCommandIsReadOnly(t *testing.T) {
 		{"search", "LocalDS", "--kind", "datastore"},
 		{"assessment", "run", "--browse-datastores"},
 		{"assessment", "run", "--include-licenses"},
+		{"assessment", "run", "--datastore-file-inventory"},
 		{"assessment", "perf", "collect", "--window", "24h"},
 		{"assessment", "perf", "list"},
 		{"assessment", "perf", "show", "latest"},

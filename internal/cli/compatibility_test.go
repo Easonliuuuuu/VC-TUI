@@ -65,7 +65,7 @@ func TestCompatibilityReportCoversEveryWorksheet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compatibility report: %v", err)
 	}
-	for _, sheet := range []string{"vInfo", "vCPU", "vMemory", "vDisk", "vPartition", "vNetwork", "vCD", "vUSB", "vSnapshot", "vTools", "vRP", "vCluster", "vHost", "vHBA", "vNIC", "vSwitch", "vPort", "dvSwitch", "dvPort", "vSC_VMK", "vDatastore", "vMultiPath", "vHealth", "vsfleetCoverage"} {
+	for _, sheet := range []string{"vInfo", "vCPU", "vMemory", "vDisk", "vPartition", "vNetwork", "vCD", "vUSB", "vSnapshot", "vTools", "vRP", "vCluster", "vHost", "vHBA", "vNIC", "vSwitch", "vPort", "dvSwitch", "dvPort", "vSC_VMK", "vDatastore", "vMultiPath", "vFileInfo", "vHealth", "vsfleetCoverage"} {
 		if !strings.Contains(out, sheet) {
 			t.Errorf("report does not mention the %s worksheet", sheet)
 		}
@@ -126,11 +126,11 @@ func TestCompatibilityReportMarksTheVsfleetExtension(t *testing.T) {
 }
 
 func TestCompatibilityReportRejectsAnUnknownWorksheet(t *testing.T) {
-	_, _, _, err := runCompatibilityReport(t, "--sheet", "vFileInfo")
+	_, _, _, err := runCompatibilityReport(t, "--sheet", "vMetaData")
 	if err == nil {
 		t.Fatal("expected an error for a worksheet this profile does not write")
 	}
-	// The message must name what is available, so the answer to "is vFileInfo
+	// The message must name what is available, so the answer to "is vMetaData
 	// in here?" is settled by the error itself.
 	if !strings.Contains(err.Error(), "vInfo") {
 		t.Errorf("the error does not list the worksheets that exist: %v", err)

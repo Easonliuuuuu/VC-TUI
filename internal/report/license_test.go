@@ -15,7 +15,7 @@ import (
 
 // licensedTabOrder is the tab order of an export whose run collected licenses.
 // RVTools 4.8 places vLicense directly after vMultiPath.
-var licensedTabOrder = []string{"vInfo", "vCPU", "vMemory", "vDisk", "vPartition", "vNetwork", "vCD", "vUSB", "vSnapshot", "vTools", "vSource", "vRP", "vCluster", "vHost", "vHBA", "vNIC", "vSwitch", "vPort", "dvSwitch", "dvPort", "vSC_VMK", "vDatastore", "vMultiPath", "vLicense", "vsfleetLicenseAssignment", "vHealth", "vsfleetCoverage", "vsfleetPerformance"}
+var licensedTabOrder = []string{"vInfo", "vCPU", "vMemory", "vDisk", "vPartition", "vNetwork", "vCD", "vUSB", "vSnapshot", "vTools", "vSource", "vRP", "vCluster", "vHost", "vHBA", "vNIC", "vSwitch", "vPort", "dvSwitch", "dvPort", "vSC_VMK", "vDatastore", "vMultiPath", "vLicense", "vsfleetLicenseAssignment", "vFileInfo", "vHealth", "vsfleetCoverage", "vsfleetPerformance"}
 
 // syntheticLicenses are visibly synthetic records. They have no key field, by
 // construction: vsphere.License cannot carry one.

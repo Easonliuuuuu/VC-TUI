@@ -616,6 +616,10 @@ type Datastore struct {
 	BrowseError     string           `json:"browse_error,omitempty"`
 	Backing         DatastoreBacking `json:"backing,omitempty"`
 	BrowseTruncated bool             `json:"browse_truncated,omitempty"`
+	// FileInventory is the opt-in all-file inventory behind the vFileInfo
+	// export. nil means the capture never requested it, which must never be
+	// read as "no files". Orphan analysis does not consume it.
+	FileInventory *DatastoreFileInventory `json:"file_inventory,omitempty"`
 }
 
 // DatastoreBacking identifies the storage a datastore is presented from, so

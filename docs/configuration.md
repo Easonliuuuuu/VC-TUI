@@ -264,8 +264,9 @@ credentials or session cookies.
 Use a read-only vSphere account; the built-in ReadOnly role is enough for
 the connection test and all inventory reads. Inventory and assessment
 collection do not need write privileges. The optional `vsfleet assessment run
---browse-datastores` path additionally needs `Datastore.Browse` on the
-datastores to inspect VM disk-file metadata; it still performs no inventory
+--browse-datastores` path, and the separate opt-in `--datastore-file-inventory`
+path, additionally need `Datastore.Browse` on the datastores to inspect
+VM disk-file metadata (or, for the inventory, list file names and sizes); it still performs no inventory
 mutation. The interactive datastore file browser in the terminal interface
 (see [Terminal interface](tui.md#datastore-file-browser)) needs the same
 privilege and is likewise read-only. The datastore backing identity properties are part of the same

@@ -392,6 +392,15 @@ privilege, never stores or exports license keys, and reports a denied or
 unsupported account as `unavailable` coverage rather than as zero licenses. See
 [License metadata](licensing.md).
 
+`--datastore-file-inventory` is a separate opt-in that lists every file of every
+accessible datastore for the optional `vFileInfo` export tab (also
+`Datastore.Browse`; bounded by `--file-inventory-max-files`,
+`--file-inventory-max-total-files` and `--file-inventory-timeout`). It does not
+enable, and is not enabled by, `--browse-datastores`, and it exports filenames
+and paths: see [Datastore file
+inventory](assessments.md#datastore-file-inventory-vfileinfo) for the limits,
+the incompleteness reporting and the privacy notes.
+
 Without the flag, `datastore-zombie-vmdk` is reported as `not-evaluated`, not as
 a clean result. Orphan confidence is estate-aware: `--fail-on-findings
 --severity warning` fails only on verified-unreferenced VMDKs; suspected and

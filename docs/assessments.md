@@ -214,8 +214,10 @@ Exports read one persisted run and do not contact vCenter or open a live
 session. The `rvtools` format is an XLSX workbook containing `vInfo`, `vCPU`,
 `vMemory`, per-VM `vDisk`, `vPartition` and `vNetwork`, `vCD`, `vUSB`,
 `vSnapshot`, `vTools`, `vSource`, `vRP`, `vCluster`, `vHost`, `vHBA`, `vNIC`, `vSwitch`,
-`vPort`, `dvSwitch`, `dvPort`, `vSC_VMK`, `vDatastore`, `vMultiPath`, `vHealth`,
-`vsfleetCoverage` and `vsfleetPerformance` sheets.
+`vPort`, `dvSwitch`, `dvPort`, `vSC_VMK`, `vDatastore`, `vMultiPath`, `vFileInfo`, `vHealth`,
+`vsfleetCoverage` and `vsfleetPerformance` sheets. `vFileInfo` holds
+files only for a run captured with the opt-in
+[datastore file inventory](#datastore-file-inventory-vfileinfo).
 
 ```sh
 vsfleet assessment export latest --format rvtools --file ./estate.xlsx
@@ -305,6 +307,125 @@ state independently of the candidates: a run captured without
 `NOT EVALUATED`, names the affected datastores on stderr, and is exposed under
 `coverage` in the JSON output even when `entries` is empty. Add
 `--fail-on-unknown` to exit non-zero when any datastore was not fully browsed.
+
+### Datastore file inventory (vFileInfo)
+
+RVTools 4.8 has an optional `vFileInfo` worksheet listing datastore files.
+vsfleet can produce it, but only when you ask, because listing every file of
+every datastore is slow on large estates, needs a privilege ordinary inventory
+does not, and produces a very large record that exposes names.
+
+```sh
+vsfleet assessment run --all-contexts --datastore-file-inventory
+vsfleet assessment export latest --format rvtools --file ./estate.xlsx
+```
+
+**Opt-in, and separate from `--browse-datastores`.** A default assessment
+never browses a datastore. `--datastore-file-inventory` does not imply, and is
+not implied by, `--browse-datastores`: the orphan evidence behind
+`--browse-datastores` queries VMDK files only, records no file type and stops
+at 10,000 files per datastore, so it cannot answer "what is on this
+datastore". The two are separate passes and separate stored fields, and orphan
+and health conclusions never read the file inventory: a datastore whose
+inventory is empty, denied, skipped or truncated is exactly as unknown to
+`assessment orphans` and `health` as before, and a fully listed inventory does
+not promote an unbrowsed datastore to evaluated. A limit flag given without
+`--datastore-file-inventory` is an error, not a quiet way to enable browsing.
+
+**Privilege and limits.** It needs `Datastore.Browse` on each datastore, the
+same read-only privilege as `--browse-datastores`, and it never reads file
+contents. Capture is bounded:
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--file-inventory-max-files` | 100,000 (max 1,000,000) | rows kept per datastore; more is recorded as `truncated` |
+| `--file-inventory-max-total-files` | 500,000 (max 5,000,000) | rows kept per context; datastores not reached are `skipped` |
+| `--file-inventory-timeout` | 10m | time for one datastore before it is `failed`; each context gets three times this at most |
+
+The listing is one recursive browser search per datastore and sorted before the
+limit applies, so which rows survive truncation does not depend on server
+order. The whole result of one datastore is held in memory before it is capped.
+
+**Never read an absent row as an absent file.** Each datastore in a capture
+records one of: `complete`, `truncated` (the row limit was reached: the file
+list is a prefix), `denied` (no `Datastore.Browse`), `failed` (error or
+timeout), `skipped` (the context's row or time budget ran out first) or
+`unavailable` (inaccessible datastore or no browser). Only `complete` means the
+datastore was listed to the end. This is reported three ways:
+
+- `vsfleetCoverage`: for each context one `vFileInfo` row (`success`, `empty`,
+  `partial`, `failed` or `not recorded`) plus, when the capture asked for
+  it, one `vFileInfo/<datastore>` row per datastore carrying that datastore's
+  own status, the file count captured and the reason. A run that never
+  requested the inventory is `not recorded`; so is one that predates inventory
+  schema 17; a context whose datastore collection failed is `failed`.
+- Human output: `assessment run` prints each incomplete datastore, uppercase,
+  and warns on stderr; `assessment export` repeats the warning per incomplete
+  datastore.
+- Machine-readable output: `assessment run -o json` and `assessment export -o
+  json` carry a `file_inventory` array (per context, per datastore: `status`,
+  `files`, `message`).
+
+Like RVTools, the `vFileInfo` tab is always written. When a run has no file
+rows at all, whether the inventory was not captured or every datastore was
+denied, failed, skipped or unavailable, the tab holds one explanatory row in
+`Friendly Path Name` and nothing else. That row is not a file; an empty tab is
+never evidence that a datastore holds no files.
+
+**Export is offline.** `assessment export` reads the stored run and never
+contacts vCenter, so exporting cannot fill in a missing datastore, and
+re-exporting the same run gives byte-identical files (rows are sorted by
+context, datastore, then path, independent of storage or server order).
+RVTools' own rows follow datastore browse order; compare by keys, not by row
+position.
+
+**Columns.** `Friendly Path Name`, `File Name`, `File Type`, `File Size in
+bytes`, `Path`, `Internal Sort Column`, `VI SDK Server`, `VI SDK UUID` follow
+one RVTools 4.8 `-GetFileInfo` export: `Friendly Path Name` and `Path` are both
+the folder as `[datastore] folder/` with a trailing slash, `File Name` is the
+bare name, `Internal Sort Column` is `Path` plus `File Name`, `File Type` is the
+vSphere `FileInfo` subclass (`FileInfo`, `VmDiskFileInfo`, `VmConfigFileInfo`,
+`VmLogFileInfo`, `VmNvramFileInfo`, `VmSnapshotFileInfo`, `IsoImageFileInfo`,
+`TemplateConfigFileInfo`), folders are not rows, hidden directories such as
+`.dvsData` are. `File Size in bytes` is a number formatted `#,##0`; every other
+column is text. vsfleet adds `Datastore`, `Datastore ID`, `Datacenter` and
+`vsfleet Context` after them so a row is attributable to one datastore of one
+vCenter (datastore names repeat across contexts).
+
+Known differences and verified conventions:
+
+- Row order: RVTools follows browse order; vsfleet sorts (see above).
+- vsfleet adds `Datastore`, `Datastore ID`, `Datacenter` and `vsfleet Context`
+  columns after the eight RVTools columns.
+- Compared on 2026-09-29 against an RVTools 4.8 `-GetFileInfo` export of a
+  vCenter 8.0.3 lab with three datastores (VMFS and NFS): the same 97 files, with
+  identical `Friendly Path Name`, `File Name`, `File Type`, `Path`,
+  `Internal Sort Column` and cell types. Sizes differed only for disks of a
+  running VM that grew between the two captures.
+- `-flat.vmdk`: neither lists a separate row; the descriptor `.vmdk` row carries
+  the full disk size (0 for an empty thin disk).
+- Folders are not rows. A real vCenter reports a subfolder in its parent's
+  listing as a plain `FileInfo`; vsfleet drops every entry that is itself a
+  searched folder.
+- Files at the datastore root use the folder `[datastore]` with no trailing
+  space, so their `Internal Sort Column` is `[datastore]name`, as RVTools writes
+  it.
+- Not yet compared: vSAN, vVols and datastores with very large file counts.
+
+**Size and privacy.** Filenames and paths are sensitive: they reveal VM names,
+application and project names, backup and snapshot naming, and the internal
+layout of storage, sometimes including personal or customer names, and a
+workbook containing them should be handled like the estate it describes.
+`assessment export` prints a reminder to stderr when the sheet holds rows. The
+rows are also stored in the local history database (schema 17), so a capture
+with this option enlarges it: roughly 100 to 200 bytes per file, and the
+default limits allow up to 500,000 files, tens of megabytes, per context per
+capture. An XLSX holds at most 1,048,575 rows per sheet, so raise the limits
+with the spreadsheet in mind; a CSV has no such bound. In CSV, a file name
+that starts with `=`, `+`, `-` or `@` is written as is, as in every other
+sheet, and a spreadsheet that opens the CSV may evaluate it. Keep this option
+out of scheduled captures unless the history database and its exports are
+treated as sensitive.
 
 ### Migration readiness
 
@@ -399,16 +520,16 @@ exports](commands.md#importing-rvtools-exports).
 
 ### RVTools file interoperability
 
-The `rvtools` export profile renders twenty-four worksheet layouts used by RVTools
+The `rvtools` export profile renders twenty-five worksheet layouts used by RVTools
 exports, so a downstream tool that reads those worksheet names and columns can
 consume the corresponding parts of a vsfleet export:
 
 `vInfo` · `vCPU` · `vMemory` · `vDisk` · `vPartition` · `vNetwork` · `vCD` · `vUSB` ·
 `vSnapshot` · `vTools` · `vSource` · `vRP` · `vCluster` · `vHost` · `vHBA` · `vNIC` · `vSwitch` ·
 `vPort` · `dvSwitch` · `dvPort` · `vSC_VMK` · `vDatastore` · `vMultiPath` ·
-`vHealth`
+`vFileInfo` · `vHealth`
 
-An opt-in twenty-fourth worksheet, `vLicense`, is written only for a capture
+An opt-in twenty-sixth worksheet, `vLicense`, is written only for a capture
 taken with `--include-licenses`, with the license key column redacted. See
 [License metadata](licensing.md); a default export has no such sheet.
 

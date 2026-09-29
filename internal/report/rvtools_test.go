@@ -21,7 +21,7 @@ import (
 
 // rvtoolsTabOrder is the tab order both WriteRVTools and RVToolsCSV must
 // produce.
-var rvtoolsTabOrder = []string{"vInfo", "vCPU", "vMemory", "vDisk", "vPartition", "vNetwork", "vCD", "vUSB", "vSnapshot", "vTools", "vSource", "vRP", "vCluster", "vHost", "vHBA", "vNIC", "vSwitch", "vPort", "dvSwitch", "dvPort", "vSC_VMK", "vDatastore", "vMultiPath", "vHealth", "vsfleetCoverage", "vsfleetPerformance"}
+var rvtoolsTabOrder = []string{"vInfo", "vCPU", "vMemory", "vDisk", "vPartition", "vNetwork", "vCD", "vUSB", "vSnapshot", "vTools", "vSource", "vRP", "vCluster", "vHost", "vHBA", "vNIC", "vSwitch", "vPort", "dvSwitch", "dvPort", "vSC_VMK", "vDatastore", "vMultiPath", "vFileInfo", "vHealth", "vsfleetCoverage", "vsfleetPerformance"}
 
 func healthReport(data assessment.ExportData) health.Report {
 	return health.Evaluate(data, health.Options{Thresholds: health.DefaultThresholds()})
@@ -355,13 +355,13 @@ func TestRVToolsPreservesTemplateRowsAndHealthCoverageGaps(t *testing.T) {
 	if got, _ := f.GetCellValue("vInfo", "C2"); !strings.EqualFold(got, "true") {
 		t.Fatalf("template vInfo flag=%q", got)
 	}
-	if got, _ := f.GetCellValue("vsfleetCoverage", "J25"); got != "vHealth" {
+	if got, _ := f.GetCellValue("vsfleetCoverage", "J26"); got != "vHealth" {
 		t.Fatalf("health coverage sheet=%q", got)
 	}
-	if got, _ := f.GetCellValue("vsfleetCoverage", "K25"); got != "partial" {
+	if got, _ := f.GetCellValue("vsfleetCoverage", "K26"); got != "partial" {
 		t.Fatalf("health coverage status=%q", got)
 	}
-	if got, _ := f.GetCellValue("vsfleetCoverage", "M25"); !strings.Contains(got, "datastore-zombie-vmdk") {
+	if got, _ := f.GetCellValue("vsfleetCoverage", "M26"); !strings.Contains(got, "datastore-zombie-vmdk") {
 		t.Fatalf("health coverage message=%q", got)
 	}
 }
@@ -817,13 +817,13 @@ func TestWriteRVToolsHealthCoverageStates(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer f.Close()
-			if got, _ := f.GetCellValue("vsfleetCoverage", "J25"); got != "vHealth" {
+			if got, _ := f.GetCellValue("vsfleetCoverage", "J26"); got != "vHealth" {
 				t.Fatalf("health coverage sheet=%q", got)
 			}
-			if got, _ := f.GetCellValue("vsfleetCoverage", "K25"); got != tc.wantStatus {
+			if got, _ := f.GetCellValue("vsfleetCoverage", "K26"); got != tc.wantStatus {
 				t.Fatalf("health coverage status=%q, want %q", got, tc.wantStatus)
 			}
-			if got, _ := f.GetCellValue("vsfleetCoverage", "M25"); !strings.Contains(got, tc.wantMessage) {
+			if got, _ := f.GetCellValue("vsfleetCoverage", "M26"); !strings.Contains(got, tc.wantMessage) {
 				t.Fatalf("health coverage message=%q, want substring %q", got, tc.wantMessage)
 			}
 		})

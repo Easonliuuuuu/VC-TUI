@@ -170,12 +170,15 @@ stored as key-free `vsphere.License` resource observations with a collection
 status of `success`, `partial` or `unavailable`; a run that did not request it
 has no such collection and its export has no license sheets. The vSphere layer
 has no license-key field, so a key cannot reach the ledger, output or exports
-(see [License metadata](licensing.md)). A shared
+(see [License metadata](licensing.md)). Inventory schema version 19 adds the
+opt-in `Datastore.FileInventory` record (status, row limit, truncation
+provenance and file rows) behind `vFileInfo`; it is a separate capture from the
+VMDK browse evidence, and orphan and health evaluation never read it. A shared
 `rvtoolsSheets` compatibility-sheet builder canonicalizes and validates the run
 once and returns every supported worksheet (`vInfo`, `vCPU`, `vMemory`,
 per-VM `vDisk`/`vPartition`/`vNetwork`/`vCD`/`vUSB`,
 `vSnapshot`, `vTools`, `vSource`, `vRP`, `vCluster`, `vHost`, `vHBA`, `vNIC`, `vSwitch`,
-`vPort`, `dvSwitch`, `dvPort`, `vSC_VMK`, `vDatastore`, `vMultiPath`, `vHealth`,
+`vPort`, `dvSwitch`, `dvPort`, `vSC_VMK`, `vDatastore`, `vMultiPath`, `vFileInfo`, `vHealth`,
 `vsfleetCoverage`) in
 tab order; the XLSX writer normalizes ZIP entry order and timestamps on top of
 it, and the CSV writer renders the same tabs as one file per sheet, so both

@@ -60,6 +60,10 @@ type FetchOptions struct {
 	// BrowseDatastoreFiles opts the datastore group into a bounded, read-only
 	// HostDatastoreBrowser query. It is ignored for every other group.
 	BrowseDatastoreFiles bool
+	// FileInventory opts the datastore group into the all-file inventory
+	// behind vFileInfo. nil (the default) never lists datastore files. It is
+	// independent of BrowseDatastoreFiles and ignored for every other group.
+	FileInventory *FileInventoryOptions
 	// HostConfig opts the host group into the expensive config.storageDevice
 	// and config.network properties. It is ignored for every other group.
 	HostConfig bool
@@ -234,7 +238,7 @@ func (c *Client) FetchGroupWith(ctx context.Context, idx *Index, group FetchGrou
 		}
 	case GroupDatastores:
 		reportStage(ctx, StageLoadingDatastores)
-		if datastores, err := c.listDatastoresWith(ctx, idx.idx, opts.BrowseDatastoreFiles); err != nil {
+		if datastores, err := c.listDatastoresWith(ctx, idx.idx, opts.BrowseDatastoreFiles, opts.FileInventory); err != nil {
 			fail(err, KindDatastore)
 		} else {
 			inv.Datastores = datastores

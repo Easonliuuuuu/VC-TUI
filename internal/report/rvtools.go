@@ -29,6 +29,11 @@ const (
 	coverageSheetName = "vsfleetCoverage"
 	vmkSheetName      = "vSC_VMK"
 	sourceSheetName   = "vSource"
+	// fileInfoSheetName is RVTools' optional datastore file listing. It is
+	// written only for a run captured with the opt-in file inventory.
+	fileInfoSheetName = "vFileInfo"
+	// maxXLSXRows is the Excel worksheet row limit, header included.
+	maxXLSXRows = 1048576
 )
 
 var (
@@ -64,8 +69,14 @@ var (
 	resourcePoolHeaders = []string{"Resource pool", "Name", "Status", "VMs", "vCPUs", "CPU limit", "CPU overheadLimit", "CPU reservation", "CPU level", "CPU shares", "CPU expandableReservation", "Mem Configured", "Mem limit", "Mem overheadLimit", "Mem reservation", "Mem level", "Mem shares", "Mem expandableReservation", "Config status", "Object ID", "Datacenter", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
 	datastoreHeaders    = []string{"Name", "Datacenter", "Type", "Capacity MiB", "In Use MiB", "Free MiB", "Free %", "Accessible", "Maintenance mode", "Object ID", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
 	snapshotHeaders     = []string{"VM", "Powerstate", "Name", "Description", "Date / time", "Quiesced", "State", "Annotation", "Datacenter", "Cluster", "Host", "Folder", "OS according to the configuration file", "VM ID", "VM UUID", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
-	healthHeaders       = []string{"Name", "Message", "Message type", "Category", "vsfleet Rule", "Recommendation", "Evidence", "Object type", "Datacenter", "Object ID", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
-	coverageHeaders     = []string{"Run ID", "Run label", "Run started", "Run finished", "Run status", "Context", "Endpoint", "Datacenter", "vCenter ID", "Sheet", "Collection status", "Item count", "Error"}
+	// fileInfoHeaders opens with the eight vFileInfo columns of an RVTools 4.8
+	// export, in RVTools' order and spelling (Friendly Path Name through VI SDK
+	// UUID); Datastore, Datastore ID, Datacenter and vsfleet Context are
+	// vsfleet's identity tail. Row values follow one RVTools 4.8 export taken
+	// with GetFileInfo; see docs/assessments.md for the remaining differences.
+	fileInfoHeaders = []string{"Friendly Path Name", "File Name", "File Type", "File Size in bytes", "Path", "Internal Sort Column", "VI SDK Server", "VI SDK UUID", "Datastore", "Datastore ID", "Datacenter", "vsfleet Context"}
+	healthHeaders   = []string{"Name", "Message", "Message type", "Category", "vsfleet Rule", "Recommendation", "Evidence", "Object type", "Datacenter", "Object ID", "VI SDK Server", "VI SDK UUID", "vsfleet Context"}
+	coverageHeaders = []string{"Run ID", "Run label", "Run started", "Run finished", "Run status", "Context", "Endpoint", "Datacenter", "vCenter ID", "Sheet", "Collection status", "Item count", "Error"}
 )
 
 // sheet is one rendered RVTools tab: a header row plus its data rows, in the
@@ -78,6 +89,10 @@ type sheet struct {
 	headers  []string
 	rows     [][]any
 	dateCols []int
+	// textCols and countCols name column indexes (0-based) whose cells carry a
+	// fixed number format in XLSX: "@" (text) and "#,##0" (an integer count).
+	// Only vFileInfo sets them, to match the RVTools 4.8 worksheet.
+	textCols, countCols []int
 }
 
 // rvtoolsSheets canonicalizes and validates the export data, then returns
@@ -121,25 +136,30 @@ func rvtoolsSheetsFor(data assessment.ExportData, healthReport health.Report, de
 		{name: "vDatastore", headers: datastoreHeaders, rows: datastoreRows(data)},
 		{name: "vMultiPath", headers: multipathHeaders, rows: multipathRows(data)},
 	}
-	// RVTools 4.8 places vLicense directly after vMultiPath. The assignment
-	// detail is a vsfleet extension and follows it.
+	// RVTools 4.8 places vLicense directly after vMultiPath and vFileInfo after
+	// it. The license assignment detail is a vsfleet extension and follows
+	// vLicense.
 	if vLicense, assignments := licenseSheets(data, describeAll); vLicense != nil {
 		all = append(all, *vLicense, *assignments)
 	}
 	return append(all,
+		sheet{name: fileInfoSheetName, headers: fileInfoHeaders, rows: fileInfoRows(data), textCols: []int{0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11}, countCols: []int{3}},
 		sheet{name: "vHealth", headers: healthHeaders, rows: healthRows(data, healthReport)},
 		sheet{name: coverageSheetName, headers: coverageHeaders, rows: coverageRows(data, healthReport), dateCols: []int{2, 3}},
 		sheet{name: performanceSheetName, headers: performanceHeaders, rows: performanceRows(data), dateCols: performanceDateCols},
 	), nil
 }
 
-// WriteRVTools writes the twenty-four RVTools-compatible sheets plus the
+// WriteRVTools writes the twenty-five RVTools-compatible sheets (vFileInfo included) plus the
 // vsfleetCoverage and vsfleetPerformance extension sheets. vHealth is derived from the supplied
 // report; callers evaluate it before entering the renderer. The output is normalized as a ZIP archive
 // with fixed entry order and timestamps, making repeated writes byte-identical.
 func WriteRVTools(w io.Writer, data assessment.ExportData, healthReport health.Report) error {
 	sheets, err := rvtoolsSheets(data, healthReport)
 	if err != nil {
+		return err
+	}
+	if err := checkXLSXRows(sheets); err != nil {
 		return err
 	}
 	f := excelize.NewFile()
@@ -167,6 +187,9 @@ func WriteRVTools(w io.Writer, data assessment.ExportData, healthReport health.R
 		}
 	}
 	for _, s := range sheets {
+		if err := applyColumnFormats(f, s, styles); err != nil {
+			return err
+		}
 		if err := writeSheet(f, s.name, s.headers, s.rows, s.dateCols, styles); err != nil {
 			return err
 		}
@@ -184,6 +207,17 @@ func WriteRVTools(w io.Writer, data assessment.ExportData, healthReport health.R
 		return io.ErrShortWrite
 	}
 	return err
+}
+
+// checkXLSXRows refuses a workbook Excel could not open, rather than writing
+// one whose rows silently stop at the sheet limit.
+func checkXLSXRows(sheets []sheet) error {
+	for _, s := range sheets {
+		if len(s.rows)+1 > maxXLSXRows {
+			return fmt.Errorf("worksheet %s has %d rows, more than an XLSX worksheet can hold (%d); export with --format csv, or capture with lower --file-inventory limits", s.name, len(s.rows), maxXLSXRows-1)
+		}
+	}
+	return nil
 }
 
 // CSVFile is one rendered RVTools tab, ready to write to disk as
@@ -259,7 +293,7 @@ func csvCell(value any) string {
 }
 
 type styles struct {
-	header, date int
+	header, date, text, count int
 }
 
 func newStyles(f *excelize.File) (styles, error) {
@@ -272,7 +306,35 @@ func newStyles(f *excelize.File) (styles, error) {
 	if err != nil {
 		return styles{}, err
 	}
-	return styles{header: header, date: dateStyle}, nil
+	textStyle, err := f.NewStyle(&excelize.Style{NumFmt: 49})
+	if err != nil {
+		return styles{}, err
+	}
+	countStyle, err := f.NewStyle(&excelize.Style{NumFmt: 3})
+	if err != nil {
+		return styles{}, err
+	}
+	return styles{header: header, date: dateStyle, text: textStyle, count: countStyle}, nil
+}
+
+// applyColumnFormats gives a worksheet's fixed-format columns their number
+// format before rows are written, so every cell created in them inherits it.
+func applyColumnFormats(f *excelize.File, s sheet, st styles) error {
+	for _, group := range []struct {
+		cols  []int
+		style int
+	}{{s.textCols, st.text}, {s.countCols, st.count}} {
+		for _, col := range group.cols {
+			name, err := excelize.ColumnNumberToName(col + 1)
+			if err != nil {
+				return err
+			}
+			if err := f.SetColStyle(s.name, name, group.style); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func writeSheet(f *excelize.File, name string, headers []string, rows [][]any, dateCols []int, s styles) error {
@@ -805,6 +867,74 @@ func datastoreRows(data assessment.ExportData) [][]any {
 	return rows
 }
 
+// fileInfoRows writes one row per stored datastore file, datastores in
+// canonical order and files in a total order, so the same evidence always
+// renders the same bytes. RVTools' own row order follows the datastore
+// browse order; vsfleet sorts instead (context, datastore, then folder and
+// file name) because the browse order is not stable between runs. Datastores without a file inventory record, and
+// datastores whose inventory failed, contribute no rows: the absence is
+// reported by vsfleetCoverage, never by an empty tab.
+//
+// RVTools itself always writes the tab and, when it was not asked to list
+// files, fills a single explanatory row; vsfleet does the same whenever there
+// are no file rows at all, so an empty vFileInfo can never be read as "the
+// datastores hold no files".
+func fileInfoRows(data assessment.ExportData) [][]any {
+	rows := make([][]any, 0)
+	for _, r := range data.Resources {
+		if r.Kind != "datastore" {
+			continue
+		}
+		var datastore vsphere.Datastore
+		if err := json.Unmarshal(r.Payload, &datastore); err != nil || datastore.FileInventory == nil {
+			continue
+		}
+		files := append([]vsphere.DatastoreInventoryFile(nil), datastore.FileInventory.Files...)
+		vsphere.SortInventoryFiles(files)
+		name := nonempty(datastore.Name, r.Name)
+		for _, file := range files {
+			folder, leaf := splitFilePath(file.Path)
+			rows = append(rows, []any{folder, leaf, file.Type, file.SizeBytes, folder, folder + leaf, contextEndpoint(data, r.Context), r.VCenterID, name, nonempty(datastore.ID, r.ID), datastore.Datacenter, r.Context})
+		}
+	}
+	if len(rows) == 0 {
+		note := fileInfoNotCapturedNote
+		if assessment.HasFileInventory(data) {
+			note = fileInfoNoRowsNote
+		}
+		row := make([]any, len(fileInfoHeaders))
+		row[0] = note
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+const (
+	fileInfoNotCapturedNote = "This tab page is empty because the datastore file inventory was not captured (assessment run --datastore-file-inventory was not used for this run). It does not mean the datastores hold no files. See vsfleetCoverage."
+	fileInfoNoRowsNote      = "This tab page has no file rows: every datastore in this run was denied, failed, skipped, unavailable or listed empty. It does not mean the datastores hold no files unless vsfleetCoverage reports them complete."
+)
+
+// splitFilePath splits "[ds] dir/sub/file.vmdk" into the RVTools folder form
+// "[ds] dir/sub/" (bracketed datastore, a space, the folder, a trailing slash)
+// and the bare name "file.vmdk". A file at the datastore root has the folder
+// "[ds]" with no trailing space, as RVTools 4.8 writes it.
+func splitFilePath(path string) (folder, leaf string) {
+	start := 0
+	if strings.HasPrefix(path, "[") {
+		if end := strings.IndexByte(path, ']'); end >= 0 {
+			start = end + 1
+		}
+	}
+	head, rest := path[:start], strings.TrimPrefix(path[start:], " ")
+	if i := strings.LastIndexByte(rest, '/'); i >= 0 {
+		return head + " " + rest[:i+1], rest[i+1:]
+	}
+	if start > 0 {
+		return head, rest
+	}
+	return "", path
+}
+
 func snapshotRows(data assessment.ExportData) [][]any {
 	rows := make([][]any, 0)
 	for _, item := range data.VMs {
@@ -919,9 +1049,13 @@ func coverageRows(data assessment.ExportData, healthReport health.Report) [][]an
 			}
 		}
 	}
-	rows := make([][]any, 0, len(data.Contexts)*25)
+	rows := make([][]any, 0, len(data.Contexts)*26)
 	sourceRecorded := inventoryAtLeast(data.Run.InventorySchemaVersion, 17)
 	licenseCounts, licenseAssignmentCounts := licenseCoverageCounts(data)
+	fileInventory := make(map[string]assessment.FileInventoryContext, len(data.Contexts))
+	for _, c := range assessment.FileInventoryCoverage(data) {
+		fileInventory[c.Context] = c
+	}
 	devicesRecorded := inventoryAtLeast(data.Run.InventorySchemaVersion, 2)
 	attachedDevicesRecorded := inventoryAtLeast(data.Run.InventorySchemaVersion, 6)
 	toolsRecorded := inventoryAtLeast(data.Run.InventorySchemaVersion, 3)
@@ -980,13 +1114,20 @@ func coverageRows(data assessment.ExportData, healthReport health.Report) [][]an
 				coverageSpec{kind: assessment.LicenseKind, sheet: licenseAssignmentSheetName, count: licenseAssignmentCounts[c.Name], license: true, assignments: true},
 			)
 		}
-		specs = append(specs, coverageSpec{kind: "vhealth", sheet: "vHealth", count: healthFindingsForContext(healthReport, c.Name)})
+		specs = append(specs,
+			coverageSpec{kind: "vfileinfo", sheet: fileInfoSheetName, count: fileInventory[c.Name].Files()},
+			coverageSpec{kind: "vhealth", sheet: "vHealth", count: healthFindingsForContext(healthReport, c.Name)},
+		)
 		for _, spec := range specs {
 			status, message := "not recorded", ""
 			if spec.license {
 				collection, found := collections[assessment.LicenseKind]
 				status, message = licenseCoverageRow(collection, found, spec.assignments)
 				rows = append(rows, coverageRow(data, c, spec.sheet, status, spec.count, message))
+				continue
+			}
+			if spec.kind == "vfileinfo" {
+				rows = append(rows, fileInfoCoverageRows(data, c, fileInventory[c.Name], collections["datastore"])...)
 				continue
 			}
 			if spec.kind == "vhealth" {
@@ -1078,6 +1219,34 @@ func coverageRows(data assessment.ExportData, healthReport health.Report) [][]an
 			}
 			rows = append(rows, coverageRow(data, c, spec.sheet, status, spec.count, message))
 		}
+	}
+	return rows
+}
+
+// fileInfoCoverageRows reports vFileInfo coverage for one context: a summary
+// row on the vFileInfo sheet, then, when the inventory was requested, one row
+// per datastore on "vFileInfo/<datastore>" carrying that datastore's own
+// status (complete, truncated, denied, failed, skipped or unavailable), the
+// number of files captured, and why. A context is success or empty only when
+// every datastore was listed to the end; an empty vFileInfo tab is never the
+// evidence that a datastore holds no files.
+func fileInfoCoverageRows(data assessment.ExportData, c assessment.ContextRun, inv assessment.FileInventoryContext, datastores assessment.CollectionRun) [][]any {
+	status, message := inv.Summary()
+	switch {
+	case !inv.Requested && !inventoryAtLeast(data.Run.InventorySchemaVersion, assessment.InventoryFileInfoSchema):
+		message = "capture predates datastore file inventory; " + message
+	case !inv.Requested && datastores.Status == "failed":
+		// The capture may have asked; the datastore list never arrived, so
+		// nothing could be attempted. Say that rather than "not requested".
+		status = "failed"
+		message = "datastore collection failed, so no file inventory could be attempted: " + datastores.Error
+	}
+	rows := [][]any{coverageRow(data, c, fileInfoSheetName, status, inv.Files(), message)}
+	if !inv.Requested {
+		return rows
+	}
+	for _, d := range inv.Datastores {
+		rows = append(rows, coverageRow(data, c, fileInfoSheetName+"/"+d.Datastore, d.Status, d.Files, d.Message))
 	}
 	return rows
 }
