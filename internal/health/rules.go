@@ -101,7 +101,7 @@ var rules = []Rule{
 				evidence := []Evidence{
 					{Field: "confidence", Observed: string(orphan.Confidence)},
 					{Field: "path", Observed: orphan.Path, Expected: "referenced by a VM or template"},
-					{Field: "size", Observed: humanize.Bytes(orphan.SizeBytes)},
+					{Field: "size", Observed: OrphanSizeLabel(orphan.SizeBytes)},
 				}
 				if !orphan.Modified.IsZero() {
 					evidence = append(evidence, Evidence{Field: "last_modified", Observed: orphan.Modified.UTC().Format(time.RFC3339)})
@@ -109,7 +109,7 @@ var rules = []Rule{
 				if len(orphan.CheckedContexts) > 0 {
 					evidence = append(evidence, Evidence{Field: "checked_contexts", Observed: strings.Join(orphan.CheckedContexts, ", ")})
 				}
-				message := fmt.Sprintf("%s VMDK %q (%s)", orphanConfidenceLabel(orphan.Confidence), orphan.Path, humanize.Bytes(orphan.SizeBytes))
+				message := fmt.Sprintf("%s VMDK %q (%s)", orphanConfidenceLabel(orphan.Confidence), orphan.Path, OrphanSizeLabel(orphan.SizeBytes))
 				if len(orphan.ReferencedBy) > 0 {
 					message += "; referenced by " + orphan.ReferencedBy[0].VM + " @ " + orphan.ReferencedBy[0].Context
 				}

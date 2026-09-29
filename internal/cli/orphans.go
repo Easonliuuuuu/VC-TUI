@@ -140,7 +140,7 @@ func printOrphans(a *App, report health.OrphanReport) {
 		if i > 0 {
 			fmt.Fprintln(a.out())
 		}
-		fmt.Fprintf(a.out(), "[%s] %s  %s  %s\n", orphanLabel(entry.Confidence), orphanPath(entry), humanBytes(entry.SizeBytes), orphanDate(entry.Modified))
+		fmt.Fprintf(a.out(), "[%s] %s  %s  %s\n", orphanLabel(entry.Confidence), orphanPath(entry), health.OrphanSizeLabel(entry.SizeBytes), orphanDate(entry.Modified))
 		fields := newFields(a.out())
 		if len(entry.ReferencedBy) == 0 {
 			fields.add("not referenced by", strings.Join(entry.CheckedContexts, ", "))

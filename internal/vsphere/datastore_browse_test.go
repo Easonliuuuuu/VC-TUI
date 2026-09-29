@@ -131,3 +131,53 @@ func TestDatastoreFilesCapIsHonored(t *testing.T) {
 		t.Fatal("datastore file cap was reached without truncation provenance")
 	}
 }
+
+// Real ESXi returns fileSize 0 on VmDiskFileInfo results; the plain listing
+// carries the extent sizes. The descriptor row must absorb its extents.
+func TestFoldDiskExtentSizesSumsDescriptorAndExtents(t *testing.T) {
+	const mib = 1 << 20
+	files := []DatastoreFile{
+		{Path: "[nfs] orphans/orphan-disk-flat.vmdk", SizeBytes: 16 * mib},
+		{Path: "[nfs] orphans/orphan-disk.vmdk", SizeBytes: 471},
+		{Path: "[nfs] vm/vm-000001.vmdk", SizeBytes: 300},
+		{Path: "[nfs] vm/vm-000001-delta.vmdk", SizeBytes: 4 * mib},
+		{Path: "[nfs] vm/vm.vmdk", SizeBytes: 400},
+		{Path: "[nfs] vm/vm-flat.vmdk", SizeBytes: 8 * mib},
+		{Path: "[nfs] vm/vm-rdmp.vmdk", SizeBytes: 1 << 40},
+		{Path: "[nfs] other/other.vmdk", SizeBytes: 0},
+		{Path: "[nfs] hosted/hosted.vmdk", SizeBytes: 500},
+		{Path: "[nfs] hosted/hosted-s001.vmdk", SizeBytes: 2 * mib},
+		{Path: "[nfs] hosted/hosted-s002.vmdk", SizeBytes: 1 * mib},
+	}
+	got := foldDiskExtentSizes(files)
+	want := map[string]int64{
+		"[nfs] orphans/orphan-disk.vmdk": 16*mib + 471,
+		"[nfs] vm/vm-000001.vmdk":        4*mib + 300,
+		"[nfs] vm/vm.vmdk":               8*mib + 400,
+		"[nfs] other/other.vmdk":         0,
+		"[nfs] hosted/hosted.vmdk":       3*mib + 500,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("rows=%+v, want %d descriptor rows", got, len(want))
+	}
+	for _, f := range got {
+		if size, ok := want[f.Path]; !ok || f.SizeBytes != size {
+			t.Fatalf("row %s size=%d, want %d (present=%v)", f.Path, f.SizeBytes, size, ok)
+		}
+	}
+}
+
+func TestDatastoreFilesFromRealShapedResultSizeFromExtent(t *testing.T) {
+	result := types.ArrayOfHostDatastoreBrowserSearchResults{HostDatastoreBrowserSearchResults: []types.HostDatastoreBrowserSearchResults{{
+		FolderPath: "[nfs-shared] orphans/",
+		File: []types.BaseFileInfo{
+			&types.FileInfo{Path: "orphan-disk-flat.vmdk", FileSize: 16 << 20},
+			&types.FileInfo{Path: "orphan-disk.vmdk", FileSize: 471},
+		},
+	}}}
+	files, _ := datastoreFiles("nfs-shared", result)
+	files = foldDiskExtentSizes(files)
+	if len(files) != 1 || files[0].SizeBytes != 16<<20+471 {
+		t.Fatalf("files=%+v", files)
+	}
+}

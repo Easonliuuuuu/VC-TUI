@@ -69,8 +69,12 @@ func (c *Client) browseDatastoreFiles(parent context.Context, datastore string, 
 	}
 
 	spec := &types.HostDatastoreBrowserSearchSpec{
-		MatchPattern: []string{"*"},
-		Query:        []types.BaseFileQuery{&types.VmDiskFileQuery{}},
+		MatchPattern: []string{"*.vmdk"},
+		// A plain FileQuery, not VmDiskFileQuery: on real ESXi a VmDiskFileInfo
+		// result reports fileSize 0 for a thin or flat disk, while the plain
+		// listing carries the real size of every -flat/-delta/-sesparse
+		// extent. vcsim hides this because it returns a size on either query.
+		Query: []types.BaseFileQuery{&types.FileQuery{}},
 		Details: &types.FileQueryFlags{
 			FileSize:     true,
 			Modification: true,
@@ -83,6 +87,7 @@ func (c *Client) browseDatastoreFiles(parent context.Context, datastore string, 
 	}
 
 	files, truncated := datastoreFiles(datastore, result)
+	files = foldDiskExtentSizes(files)
 	sort.SliceStable(files, func(i, j int) bool {
 		if !strings.EqualFold(files[i].Path, files[j].Path) {
 			return strings.ToLower(files[i].Path) < strings.ToLower(files[j].Path)
@@ -93,6 +98,64 @@ func (c *Client) browseDatastoreFiles(parent context.Context, datastore string, 
 		return files[i].SizeBytes < files[j].SizeBytes
 	})
 	return files, "success", "", truncated
+}
+
+// diskExtentSuffixes are the per-disk files whose bytes are part of what a disk
+// occupies. RDM pointers (-rdm/-rdmp) are excluded: they report the mapped
+// LUN's size, which deleting the disk would not reclaim.
+var diskExtentSuffixes = []string{"-flat.vmdk", "-delta.vmdk", "-sesparse.vmdk", "-ctk.vmdk", "-digest.vmdk"}
+
+func diskSidecar(lower string) (owner string, counts, sidecar bool) {
+	for _, suffix := range diskExtentSuffixes {
+		if strings.HasSuffix(lower, suffix) {
+			return strings.TrimSuffix(lower, suffix) + ".vmdk", true, true
+		}
+	}
+	for _, suffix := range []string{"-rdm.vmdk", "-rdmp.vmdk"} {
+		if strings.HasSuffix(lower, suffix) {
+			return "", false, true
+		}
+	}
+	// Split hosted extents: disk-s001.vmdk (sparse) and disk-f001.vmdk (flat).
+	stem := strings.TrimSuffix(lower, ".vmdk")
+	if n := len(stem); n > 5 && stem[n-5] == '-' && (stem[n-4] == 's' || stem[n-4] == 'f') && isDigits(stem[n-3:]) {
+		return stem[:n-5] + ".vmdk", true, true
+	}
+	return "", false, false
+}
+
+func isDigits(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return s != ""
+}
+
+// foldDiskExtentSizes turns a plain *.vmdk listing into one row per virtual
+// disk. The descriptor keeps the row and its size becomes the on-disk total of
+// the descriptor plus every extent sharing its folder and stem; the extent
+// files themselves are dropped, as they were when the browse used
+// VmDiskFileQuery. RDM pointers and extents whose descriptor is not listed
+// (for example after truncation) do not become rows.
+func foldDiskExtentSizes(files []DatastoreFile) []DatastoreFile {
+	extentTotals := make(map[string]int64)
+	for _, f := range files {
+		if owner, counts, sidecar := diskSidecar(strings.ToLower(f.Path)); sidecar && counts {
+			extentTotals[owner] += f.SizeBytes
+		}
+	}
+	out := make([]DatastoreFile, 0, len(files))
+	for _, f := range files {
+		lower := strings.ToLower(f.Path)
+		if _, _, sidecar := diskSidecar(lower); sidecar {
+			continue
+		}
+		f.SizeBytes += extentTotals[lower]
+		out = append(out, f)
+	}
+	return out
 }
 
 // searchDatastoreSubFolders issues the recursive search and waits for it.
