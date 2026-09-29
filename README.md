@@ -44,7 +44,7 @@ Managing multiple VMware vCenters traditionally requires juggling browser tabs, 
 - 🔒 **Strict Read-Only Safety**: Guaranteed zero mutation. Never powers VMs on or off, reverts snapshots, modifies networks, or alters inventory.
 - 🔀 **Independent Proxy Routing**: Route each context independently through direct TCP, SOCKS5, HTTP, or HTTPS CONNECT proxies.
 - 🔑 **Secure Credential Handling**: Zero plaintext passwords in `config.toml`. Resolves credentials dynamically via native OS keyrings, interactive prompts, or unattended sources.
-- 📊 **Historical Drift & RVTools-Compatible Exports**: Capture immutable local SQLite snapshots, track drift over time, and export 24-sheet Excel workbooks for migration sizing.
+- 📊 **Historical Drift & RVTools-Compatible Exports**: Capture immutable local SQLite snapshots, track drift over time, and export 24-sheet Excel workbooks for migration sizing. An opt-in, key-free `vLicense` sheet is available for licensing reviews ([details](docs/licensing.md)).
 - 🌐 **Distributed-Network Readiness**: Compare cross-cluster VLAN mappings, policy, MTU, host coverage, and affected VMs before migration.
 - 🖥️ **Interactive TUI + Scriptable JSON**: Fast Bubble Tea terminal UI with local workstation handoffs (SSH, web browser, clipboard) alongside stable JSON for automation.
 

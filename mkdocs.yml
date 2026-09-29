@@ -49,6 +49,7 @@ nav:
   - Containers: containers.md
   - CLI Guide: commands.md
   - Assessments: assessments.md
+  - License Metadata: licensing.md
   - Terminal UI: tui.md
   - Configuration: configuration.md
   - Operator Recipes: recipes.md

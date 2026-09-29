@@ -32,8 +32,11 @@ type RunStatus string
 // All keep the payload backward-compatible with older ledger rows:
 // a reader of an older run sees the field absent, which is what it is. The
 // metadata fields introduced in schema 16 are optional evidence, so consumers
-// must continue to treat older captures as metadata-unavailable.
-const CurrentInventorySchemaVersion = "17"
+// must continue to treat older captures as metadata-unavailable. Schema 18
+// adds the opt-in "license" collection (key-free license metadata and entity
+// assignments); a run that did not ask for it simply has no such collection,
+// which readers must treat as "not collected", never as "no licenses".
+const CurrentInventorySchemaVersion = "18"
 
 const (
 	RunRunning  RunStatus = "running"
@@ -270,6 +273,9 @@ type RunMetadata struct {
 	Pinned                 bool
 	ToolVersion            string
 	InventorySchemaVersion string
+	// Licenses records that the capture asked for the opt-in license
+	// collection, so a complete run expects one license collection per context.
+	Licenses bool
 }
 
 type CoverageIssue struct {

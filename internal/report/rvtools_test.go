@@ -839,12 +839,14 @@ func TestEveryExportedColumnIsDocumented(t *testing.T) {
 	if err != nil {
 		t.Fatalf("building the compatibility profile: %v", err)
 	}
-	if len(profile) != len(rvtoolsTabOrder) {
-		t.Fatalf("profile describes %d worksheets, export renders %d", len(profile), len(rvtoolsTabOrder))
+	// The profile describes every sheet the exporter can write, including the
+	// opt-in license sheets a default export omits.
+	if len(profile) != len(licensedTabOrder) {
+		t.Fatalf("profile describes %d worksheets, export renders %d", len(profile), len(licensedTabOrder))
 	}
 	for i, spec := range profile {
-		if spec.Name != rvtoolsTabOrder[i] {
-			t.Errorf("worksheet %d is %q, want %q", i, spec.Name, rvtoolsTabOrder[i])
+		if spec.Name != licensedTabOrder[i] {
+			t.Errorf("worksheet %d is %q, want %q", i, spec.Name, licensedTabOrder[i])
 		}
 		if spec.DerivesFrom == "" {
 			t.Errorf("%s: no collection named as its source", spec.Name)
@@ -865,7 +867,7 @@ func TestEveryExportedColumnIsDocumented(t *testing.T) {
 // spreadsheet column.
 func TestProfileMatchesRenderedHeaderRow(t *testing.T) {
 	when := time.Date(2024, 5, 1, 12, 0, 0, 0, time.UTC)
-	data := sampleExportData(when)
+	data := withSyntheticLicenses(sampleExportData(when))
 	var buf bytes.Buffer
 	if err := WriteRVTools(&buf, data, healthReport(data)); err != nil {
 		t.Fatalf("writing the workbook: %v", err)

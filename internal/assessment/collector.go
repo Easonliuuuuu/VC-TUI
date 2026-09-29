@@ -118,8 +118,12 @@ type CaptureOptions struct {
 	ToolVersion            string
 	InventorySchemaVersion string
 	BrowseDatastores       bool
-	Now                    func() time.Time
-	Progress               func(ContextProgress)
+	// IncludeLicenses opts in to read-only license metadata collection. It is
+	// off by default because it needs an extra privilege and reads a
+	// credential-adjacent API; license keys are never stored either way.
+	IncludeLicenses bool
+	Now             func() time.Time
+	Progress        func(ContextProgress)
 }
 
 // Capture creates one immutable run while preserving the session manager's
@@ -140,7 +144,7 @@ func (c *Collector) Capture(ctx context.Context, opts CaptureOptions) (Run, erro
 		return Run{}, err
 	}
 	defer c.Store.ReleaseCaptureLease(context.Background(), lease)
-	run, err := c.Store.StartRunWithMetadata(ctx, opts.Source, opts.Contexts, now(), RunMetadata{Label: opts.Label, Note: opts.Note, Pinned: opts.Pinned, ToolVersion: opts.ToolVersion, InventorySchemaVersion: opts.InventorySchemaVersion})
+	run, err := c.Store.StartRunWithMetadata(ctx, opts.Source, opts.Contexts, now(), RunMetadata{Label: opts.Label, Note: opts.Note, Pinned: opts.Pinned, ToolVersion: opts.ToolVersion, InventorySchemaVersion: opts.InventorySchemaVersion, Licenses: opts.IncludeLicenses})
 	if err != nil {
 		return Run{}, err
 	}
@@ -176,7 +180,7 @@ func (c *Collector) Capture(ctx context.Context, opts CaptureOptions) (Run, erro
 			if opts.Progress != nil {
 				opts.Progress(ContextProgress{Context: cc.Name, Status: "connecting"})
 			}
-			result := c.captureContext(ctx, cc, opts.BrowseDatastores)
+			result := c.captureContext(ctx, cc, opts.BrowseDatastores, opts.IncludeLicenses)
 			if err := c.Store.SaveContextWithLease(ctx, run.ID, result, now(), lease); err != nil {
 				result.Status = "failed"
 				result.Error = fmt.Sprintf("save assessment: %v", err)
@@ -204,7 +208,7 @@ func errorFrom(s string) error {
 	return fmt.Errorf("%s", s)
 }
 
-func (c *Collector) captureContext(parent context.Context, cc *config.Context, browseDatastores bool) ContextResult {
+func (c *Collector) captureContext(parent context.Context, cc *config.Context, browseDatastores, includeLicenses bool) ContextResult {
 	r := ContextResult{Name: cc.Name, Status: "failed"}
 	opCtx, cancel, tracker := c.Manager.Operation(parent)
 	defer cancel()
@@ -229,7 +233,11 @@ func (c *Collector) captureContext(parent context.Context, cc *config.Context, b
 	idx, err := client.NewIndex(opCtx)
 	if err != nil {
 		r.Error = c.Manager.TimeoutError(err, tracker).Error()
-		for _, kind := range persistedKinds {
+		kinds := persistedKinds
+		if includeLicenses {
+			kinds = append(append([]string(nil), kinds...), LicenseKind)
+		}
+		for _, kind := range kinds {
 			r.Collections = append(r.Collections, CollectionResult{Kind: kind, Status: "failed", Error: r.Error})
 		}
 		return r
@@ -294,6 +302,9 @@ func (c *Collector) captureContext(parent context.Context, cc *config.Context, b
 		case vsphere.GroupNetworks:
 			r.Collections = append(r.Collections, resourceCollection("network", r.VCenterID, cc.Name, part.Networks, part.ErrorFor))
 		}
+	}
+	if includeLicenses {
+		r.Collections = append(r.Collections, licenseCollection(opCtx, client, r.VCenterID, cc.Name))
 	}
 	for _, collection := range r.Collections {
 		if collection.Status == "failed" {

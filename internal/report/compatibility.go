@@ -63,7 +63,7 @@ type SheetSpec struct {
 // row and no rows, which is the enumeration this report needs and cannot get
 // out of step with.
 func Profile() ([]SheetSpec, error) {
-	sheets, err := rvtoolsSheets(assessment.ExportData{}, health.Report{})
+	sheets, err := rvtoolsSheetsFor(assessment.ExportData{}, health.Report{}, true)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +72,7 @@ func Profile() ([]SheetSpec, error) {
 		meta := sheetMeta[s.name]
 		spec := SheetSpec{
 			Name:        s.name,
-			Compatible:  s.name != coverageSheetName && s.name != performanceSheetName,
+			Compatible:  s.name != coverageSheetName && s.name != performanceSheetName && s.name != licenseAssignmentSheetName,
 			DerivesFrom: meta.derivesFrom,
 			Note:        meta.note,
 			Columns:     make([]ColumnSpec, 0, len(s.headers)),
@@ -146,6 +146,10 @@ var sheetMeta = map[string]sheetInfo{
 		note: "One row per finding. Derived at export time from the stored evidence rather than collected, so re-exporting an unchanged run reproduces it exactly. assessment export always evaluates with the default thresholds; the tuning flags on `vsfleet health` do not apply to an export."},
 	performanceSheetName: {derivesFrom: "the performance ledger",
 		note: "A vsfleet extension, not an RVTools worksheet. One row per VM per counter from the newest bounded performance collection of each vCenter, collected separately from the inventory run by `vsfleet assessment perf collect`; the Window start and Window end columns say which period it covers. Values are averages over the vCenter's roll-up interval, so a Peak is the highest interval average, not an instantaneous maximum. An empty statistic is unknown, never zero: read Status and Reason. A vCenter with no collection has one \"not collected\" row. Sizing signals are simulator-validated only until a real-vSphere validation is recorded (see docs/assessments.md)."},
+	licenseSheetName: {derivesFrom: "the license collection",
+		note: "Opt-in: written only for a run captured with `assessment run --include-licenses`, so a default export has no vLicense sheet. One row per license record. The Key column is kept so column positions match RVTools, but every cell is the fixed marker [redacted]: license keys are never collected into the ledger or exported. Total and Used are the aggregate cost-unit counts vSphere reports, and Used is not a count of hosts; host assignments are on vsfleetLicenseAssignment. Reported usage is an observation, not a compliance determination, an entitlement statement or a quote. When the account lacks the Global.Licenses privilege, or the server cannot answer, the sheet has no rows and vsfleetCoverage says unavailable; an empty vLicense sheet is never evidence of an unlicensed estate. Header names follow an RVTools 4.8 lab export; Cost Unit, Expiration Date and Features value formats are not yet verified against real license rows."},
+	licenseAssignmentSheetName: {derivesFrom: "the license collection",
+		note: "A vsfleet extension, not an RVTools worksheet, present only when vLicense is. One row per entity (host, cluster or the vCenter itself) that vSphere reports as holding a license, from LicenseAssignmentManager. License is the display name and Edition key the edition, never the key. If vSphere could not return assignments, this sheet has no rows and vsfleetCoverage marks it unavailable."},
 	coverageSheetName: {derivesFrom: "the run ledger",
 		note: "A vsfleet extension, not an RVTools worksheet. One row per worksheet per vCenter, naming what collected, what failed, and why. A partial estate is reported as partial rather than handed over as if it were whole."},
 }
@@ -296,7 +300,7 @@ var sharedColumns = map[string]ColumnSpec{
 	"vCenter ID": {Kind: KindText, Note: "vCenter instance UUID, falling back to the endpoint string."},
 	"Sheet":      {Kind: KindText, Note: "The worksheet this row accounts for."},
 	"Collection status": {Kind: KindText,
-		Note: "success, empty, failed, partial, or \"not recorded\" when the capture predates the worksheet."},
+		Note: "success, empty, failed, partial, unavailable (a license worksheet whose data the account or server could not provide), or \"not recorded\" when the capture predates the worksheet."},
 	"Item count": {Kind: KindInteger, Note: "Rows this context contributed to that worksheet."},
 	"Error":      {Kind: KindText, Empty: "when nothing went wrong", Note: "Why a collection failed, or what a partial one is missing."},
 }
@@ -522,6 +526,24 @@ var sheetColumns = map[string]map[string]ColumnSpec{
 		"Host":           {Kind: KindText, Note: "ESXi host that owns the LUN paths."},
 		"Cluster":        {Kind: KindText, Empty: "for a standalone host"},
 		"Object ID":      {Kind: KindText, Note: "vCenter managed object reference of the host."},
+	},
+	licenseSheetName: {
+		"Name":            {Kind: KindText, Note: "License display name, e.g. a product edition or Evaluation Mode."},
+		"Key":             {Kind: KindText, Note: "Always the marker [redacted]. The license key is deliberately never stored or exported; the column exists only so positions match RVTools. A key-bearing export would need a separate, deliberately designed and validated gate, and none exists."},
+		"Labels":          {Kind: KindText, Empty: "always", Note: "Not collected: license labels are free text and are outside the licensing-review need."},
+		"Cost Unit":       {Kind: KindText, Empty: "when vSphere reports none", Note: "The unit the license is counted in, as vSphere names it (for example cpuPackage or vm)."},
+		"Total":           {Kind: KindInteger, Note: "Units the license holds, as vSphere reports it. Not a purchase or entitlement record."},
+		"Used":            {Kind: KindInteger, Note: "Units vSphere reports as consumed. vSphere omits the field when it is zero, so 0 means none reported. This is an observation, not a compliance result."},
+		"Expiration Date": {Kind: KindDate, Empty: "when vSphere reports no expiration property (a perpetual license, or a server that omits it)", Note: "UTC. A zone-free date cell in XLSX and RFC3339 UTC in CSV."},
+		"Features":        {Kind: KindText, Empty: "when vSphere lists no features", Note: "Feature names the license enables, sorted and joined with a semicolon and space."},
+	},
+	licenseAssignmentSheetName: {
+		"License":     {Kind: KindText, Note: "Display name of the assigned license. Never the key."},
+		"Edition key": {Kind: KindText, Empty: "when vSphere reports none", Note: "vSphere edition identifier, for example esx.enterprisePlus.cpuPackage."},
+		"Entity":      {Kind: KindText, Empty: "when vSphere reports no display name", Note: "Display name of the host, cluster or vCenter holding the license."},
+		"Entity type": {Kind: KindText, Note: "host, cluster, vcenter or other, derived from the entity ID."},
+		"Entity ID":   {Kind: KindText, Note: "Managed object reference (for example host-12), or the vCenter instance UUID for the vCenter itself."},
+		"Scope":       {Kind: KindText, Empty: "when vSphere reports none", Note: "The vCenter instance that owns the entity, when reported."},
 	},
 	"vHealth": {
 		"Name":      {Kind: KindText, Note: "Name of the object the finding is about."},

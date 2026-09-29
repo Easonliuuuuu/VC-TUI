@@ -994,7 +994,7 @@ func sparkline(values []float64) string {
 func newAssessmentRunCommand(a *App) *cobra.Command {
 	var label, note string
 	var pin bool
-	var browseDatastores bool
+	var browseDatastores, includeLicenses bool
 	var failOnPartial bool
 	cmd := &cobra.Command{Use: "run", Short: "Capture a point-in-time inventory assessment", Long: strings.TrimSpace(`
 Read inventory from the selected contexts and store it as one immutable
@@ -1011,6 +1011,10 @@ all is stored as partial and says so.`), Example: `  # Capture the current conte
   # Also record datastore VMDK files, so "assessment orphans" has evidence
   vsfleet assessment run --all-contexts --browse-datastores
 
+  # Also record license products, usage, expiration and host assignments for a
+  # licensing review (keys are never stored or exported)
+  vsfleet assessment run --all-contexts --include-licenses
+
   # Pin a baseline so pruning never removes it
   vsfleet assessment run --all-contexts --label pre-migration --pin
 
@@ -1024,9 +1028,14 @@ all is stored as partial and says so.`), Example: `  # Capture the current conte
 		if err != nil {
 			return err
 		}
-		run, err := service.Capture(cmd.Context(), assessment.CaptureOptions{Contexts: contexts, Source: "cli", Label: label, Note: note, Pinned: pin, BrowseDatastores: browseDatastores, ToolVersion: version.String(), InventorySchemaVersion: assessment.CurrentInventorySchemaVersion, Progress: func(p assessment.ContextProgress) {
+		run, err := service.Capture(cmd.Context(), assessment.CaptureOptions{Contexts: contexts, Source: "cli", Label: label, Note: note, Pinned: pin, BrowseDatastores: browseDatastores, IncludeLicenses: includeLicenses, ToolVersion: version.String(), InventorySchemaVersion: assessment.CurrentInventorySchemaVersion, Progress: func(p assessment.ContextProgress) {
 			if p.Error != nil {
 				fmt.Fprintf(a.errOut(), "%s %s: %v\n", glyphFail, p.Context, p.Error)
+			}
+			for _, collection := range p.Collections {
+				if collection.Kind == assessment.LicenseKind && collection.Status != "success" && collection.Status != "empty" {
+					fmt.Fprintf(a.errOut(), "%s %s license collection %s: %v\n", glyphFail, p.Context, collection.Status, collection.Error)
+				}
 			}
 		}})
 		if err != nil {
@@ -1051,6 +1060,7 @@ all is stored as partial and says so.`), Example: `  # Capture the current conte
 	cmd.Flags().StringVar(&note, "note", "", "operator note stored with this assessment")
 	cmd.Flags().BoolVar(&pin, "pin", false, "pin this assessment against deletion")
 	cmd.Flags().BoolVar(&browseDatastores, "browse-datastores", false, "record VM disk files from each accessible datastore (requires Datastore.Browse; adds time on large estates)")
+	cmd.Flags().BoolVar(&includeLicenses, "include-licenses", false, "record license products, usage, expiration and host assignments (read-only; needs the Global.Licenses privilege; license keys are never stored)")
 	cmd.Flags().BoolVar(&failOnPartial, "fail-on-partial", false, "exit 3 when the capture stored evidence from some contexts but not all")
 	return cmd
 }

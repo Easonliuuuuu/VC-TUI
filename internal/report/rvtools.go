@@ -84,11 +84,19 @@ type sheet struct {
 // every RVTools tab in tab order. WriteRVTools and RVToolsCSV both build on
 // this so the two formats render identical content on identical terms.
 func rvtoolsSheets(data assessment.ExportData, healthReport health.Report) ([]sheet, error) {
+	return rvtoolsSheetsFor(data, healthReport, false)
+}
+
+// rvtoolsSheetsFor is rvtoolsSheets with control over the opt-in license
+// worksheets. They are written only for a run that recorded license
+// collection, unless describeAll is set, which the compatibility profile uses
+// to enumerate every sheet the exporter can produce.
+func rvtoolsSheetsFor(data assessment.ExportData, healthReport health.Report, describeAll bool) ([]sheet, error) {
 	data = canonicalData(data)
 	if err := validateResources(data.Resources); err != nil {
 		return nil, err
 	}
-	return []sheet{
+	all := []sheet{
 		{name: "vInfo", headers: vmHeaders, rows: vmRows(data)},
 		{name: "vCPU", headers: cpuHeaders, rows: cpuRows(data)},
 		{name: "vMemory", headers: memoryHeaders, rows: memoryRows(data)},
@@ -112,10 +120,17 @@ func rvtoolsSheets(data assessment.ExportData, healthReport health.Report) ([]sh
 		{name: vmkSheetName, headers: vmkHeaders, rows: vmkRows(data)},
 		{name: "vDatastore", headers: datastoreHeaders, rows: datastoreRows(data)},
 		{name: "vMultiPath", headers: multipathHeaders, rows: multipathRows(data)},
-		{name: "vHealth", headers: healthHeaders, rows: healthRows(data, healthReport)},
-		{name: coverageSheetName, headers: coverageHeaders, rows: coverageRows(data, healthReport), dateCols: []int{2, 3}},
-		{name: performanceSheetName, headers: performanceHeaders, rows: performanceRows(data), dateCols: performanceDateCols},
-	}, nil
+	}
+	// RVTools 4.8 places vLicense directly after vMultiPath. The assignment
+	// detail is a vsfleet extension and follows it.
+	if vLicense, assignments := licenseSheets(data, describeAll); vLicense != nil {
+		all = append(all, *vLicense, *assignments)
+	}
+	return append(all,
+		sheet{name: "vHealth", headers: healthHeaders, rows: healthRows(data, healthReport)},
+		sheet{name: coverageSheetName, headers: coverageHeaders, rows: coverageRows(data, healthReport), dateCols: []int{2, 3}},
+		sheet{name: performanceSheetName, headers: performanceHeaders, rows: performanceRows(data), dateCols: performanceDateCols},
+	), nil
 }
 
 // WriteRVTools writes the twenty-four RVTools-compatible sheets plus the
@@ -829,6 +844,15 @@ func healthEvidence(evidence []health.Evidence) string {
 	return strings.Join(parts, "; ")
 }
 
+// coverageSpec is one worksheet's coverage accounting for one context.
+type coverageSpec struct {
+	kind, sheet string
+	count       int
+	hostConfig  bool
+	license     bool
+	assignments bool
+}
+
 func coverageRows(data assessment.ExportData, healthReport health.Report) [][]any {
 	counts := make(map[string]int)
 	diskCounts := make(map[string]int)
@@ -895,8 +919,9 @@ func coverageRows(data assessment.ExportData, healthReport health.Report) [][]an
 			}
 		}
 	}
-	rows := make([][]any, 0, len(data.Contexts)*24)
+	rows := make([][]any, 0, len(data.Contexts)*25)
 	sourceRecorded := inventoryAtLeast(data.Run.InventorySchemaVersion, 17)
+	licenseCounts, licenseAssignmentCounts := licenseCoverageCounts(data)
 	devicesRecorded := inventoryAtLeast(data.Run.InventorySchemaVersion, 2)
 	attachedDevicesRecorded := inventoryAtLeast(data.Run.InventorySchemaVersion, 6)
 	toolsRecorded := inventoryAtLeast(data.Run.InventorySchemaVersion, 3)
@@ -924,11 +949,7 @@ func coverageRows(data assessment.ExportData, healthReport health.Report) [][]an
 		for _, collection := range c.Collections {
 			collections[collection.Kind] = collection
 		}
-		for _, spec := range []struct {
-			kind, sheet string
-			count       int
-			hostConfig  bool
-		}{
+		specs := []coverageSpec{
 			{kind: "vm", sheet: "vInfo", count: counts[c.Name]},
 			{kind: "vcpu", sheet: "vCPU", count: counts[c.Name]},
 			{kind: "vmemory", sheet: "vMemory", count: counts[c.Name]},
@@ -952,9 +973,22 @@ func coverageRows(data assessment.ExportData, healthReport health.Report) [][]an
 			{kind: "host", sheet: vmkSheetName, count: hostConfigCounts[c.Name][vmkSheetName], hostConfig: true},
 			{kind: "datastore", sheet: "vDatastore", count: resources[c.Name]["datastore"]},
 			{kind: "host", sheet: "vMultiPath", count: hostConfigCounts[c.Name]["vMultiPath"], hostConfig: true},
-			{kind: "vhealth", sheet: "vHealth", count: healthFindingsForContext(healthReport, c.Name)},
-		} {
+		}
+		if licensesRecorded(data) {
+			specs = append(specs,
+				coverageSpec{kind: assessment.LicenseKind, sheet: licenseSheetName, count: licenseCounts[c.Name], license: true},
+				coverageSpec{kind: assessment.LicenseKind, sheet: licenseAssignmentSheetName, count: licenseAssignmentCounts[c.Name], license: true, assignments: true},
+			)
+		}
+		specs = append(specs, coverageSpec{kind: "vhealth", sheet: "vHealth", count: healthFindingsForContext(healthReport, c.Name)})
+		for _, spec := range specs {
 			status, message := "not recorded", ""
+			if spec.license {
+				collection, found := collections[assessment.LicenseKind]
+				status, message = licenseCoverageRow(collection, found, spec.assignments)
+				rows = append(rows, coverageRow(data, c, spec.sheet, status, spec.count, message))
+				continue
+			}
 			if spec.kind == "vhealth" {
 				status, _, message = healthCoverage(data, c, healthReport)
 				rows = append(rows, coverageRow(data, c, spec.sheet, status, spec.count, message))
@@ -1397,6 +1431,8 @@ func validateResources(resources []assessment.ResourceObservation) error {
 			value = &vsphere.ResourcePool{}
 		case "dvswitch":
 			value = &vsphere.DVSwitch{}
+		case assessment.LicenseKind:
+			value = &vsphere.License{}
 		default:
 			return fmt.Errorf("unsupported persisted resource kind %q", resource.Kind)
 		}

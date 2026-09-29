@@ -271,4 +271,7 @@ mutation. The interactive datastore file browser in the terminal interface
 privilege and is likewise read-only. The datastore backing identity properties are part of the same
 read-only datastore inventory and require no additional privilege. Without
 `Datastore.Browse` or without the flag, zombie-VMDK health is reported as not
-evaluated.
+evaluated. The opt-in `--include-licenses` path needs the `Global.Licenses`
+privilege, which the built-in ReadOnly role lacks; without it license
+coverage is reported `unavailable`, never as zero licenses (see
+[License metadata](licensing.md)).

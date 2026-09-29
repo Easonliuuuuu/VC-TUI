@@ -386,6 +386,12 @@ vsfleet assessment orphans latest
 vsfleet assessment capacity latest
 ```
 
+Add `--include-licenses` to also record license products, usage, expiration and
+host assignments for a licensing review. It needs the `Global.Licenses`
+privilege, never stores or exports license keys, and reports a denied or
+unsupported account as `unavailable` coverage rather than as zero licenses. See
+[License metadata](licensing.md).
+
 Without the flag, `datastore-zombie-vmdk` is reported as `not-evaluated`, not as
 a clean result. Orphan confidence is estate-aware: `--fail-on-findings
 --severity warning` fails only on verified-unreferenced VMDKs; suspected and

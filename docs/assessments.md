@@ -408,6 +408,10 @@ consume the corresponding parts of a vsfleet export:
 `vPort` · `dvSwitch` · `dvPort` · `vSC_VMK` · `vDatastore` · `vMultiPath` ·
 `vHealth`
 
+An opt-in twenty-fourth worksheet, `vLicense`, is written only for a capture
+taken with `--include-licenses`, with the license key column redacted. See
+[License metadata](licensing.md); a default export has no such sheet.
+
 Compatibility is limited to the listed worksheet names and columns. Other
 worksheets are outside this export profile, so a downstream pipeline that
 requires them is not supported. This is an interoperability export, not RVTools
