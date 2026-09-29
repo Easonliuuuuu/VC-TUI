@@ -309,6 +309,12 @@ type exportReceipt struct {
 	Bytes  int64        `json:"bytes,omitempty"`
 	SHA256 string       `json:"sha256,omitempty"`
 	Files  []exportFile `json:"files,omitempty"`
+	// Profile, Pseudonymized, Partial and Warnings describe a scoped sharing
+	// export; they are absent from the ordinary export receipt.
+	Profile       string   `json:"profile,omitempty"`
+	Pseudonymized bool     `json:"pseudonymized,omitempty"`
+	Partial       bool     `json:"partial,omitempty"`
+	Warnings      []string `json:"warnings,omitempty"`
 	// FileInventory reports, per context and datastore, how complete the
 	// vFileInfo rows are. It is present only when the run opted into the
 	// datastore file inventory; a status other than "complete" means the
@@ -319,6 +325,7 @@ type exportReceipt struct {
 func newAssessmentExportCommand(a *App) *cobra.Command {
 	var format, file string
 	var force bool
+	var share shareFlags
 	cmd := &cobra.Command{Use: "export [RUN]", Short: "Export a stored assessment as RVTools XLSX or CSV", Example: `  # 25-sheet RVTools workbook from the most recent capture
   vsfleet assessment export --file estate.xlsx
 
@@ -329,11 +336,30 @@ func newAssessmentExportCommand(a *App) *cobra.Command {
   vsfleet assessment export nightly --file estate.xlsx --force
 
   # See what the workbook will contain before exporting
-  vsfleet compatibility report`, Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+  vsfleet compatibility report
+
+  # Preview a scoped sizing summary, then write it with pseudonymized names
+  vsfleet assessment export --profile sizing-summary --pseudonymize --preview
+  vsfleet assessment export --profile sizing-summary --pseudonymize \
+    --pseudonymize-key-file ~/.config/vsfleet/share.key --file sizing.xlsx`, Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		format = strings.ToLower(strings.TrimSpace(format))
+		if err := share.validate(format); err != nil {
+			return err
+		}
+		var shareKey []byte
+		if share.enabled() && !share.preview && share.pseudonymize {
+			key, err := readShareKey(share.keyFile, a.in())
+			if err != nil {
+				return err
+			}
+			shareKey = key
+		}
+		if file == "" && !share.preview {
+			return fmt.Errorf("--file is required")
+		}
 		switch format {
 		case "rvtools":
-			if filepath.Ext(file) != ".xlsx" {
+			if file != "" && filepath.Ext(file) != ".xlsx" {
 				return fmt.Errorf("--file must have a .xlsx extension")
 			}
 		case "csv":
@@ -376,6 +402,34 @@ func newAssessmentExportCommand(a *App) *cobra.Command {
 			fmt.Fprintf(a.errOut(), "note: vFileInfo lists %d datastore file names and paths; the export can reveal VM names and internal layout, so handle it as sensitive\n", files)
 		}
 		var receipt exportReceipt
+		if share.enabled() {
+			opts := share.options(shareKey)
+			plan, err := report.PlanShare(data, healthReport, opts)
+			if err != nil {
+				return err
+			}
+			if share.preview {
+				return printSharePlan(a, plan)
+			}
+			for _, w := range plan.Warnings {
+				fmt.Fprintf(a.errOut(), "note: %s\n", w)
+			}
+			receipt, err = publishXLSX(data.Run.ID, file, force, func(w io.Writer) error {
+				if err := report.WriteShared(w, data, healthReport, opts); err != nil {
+					return fmt.Errorf("write %s export: %w", opts.Profile, err)
+				}
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+			receipt.Profile, receipt.Pseudonymized, receipt.Partial, receipt.Warnings = plan.Profile, plan.Pseudonymize, plan.Partial, plan.Warnings
+			if a.json() {
+				return writeJSON(a.out(), receipt)
+			}
+			fmt.Fprintf(a.out(), "assessment %d exported to %s with profile %s (%d bytes, sha256 %s)\n", receipt.RunID, receipt.Path, plan.Profile, receipt.Bytes, receipt.SHA256)
+			return nil
+		}
 		if format == "csv" {
 			receipt, err = publishRVToolsCSV(data, healthReport, file, force)
 		} else {
@@ -401,7 +455,7 @@ func newAssessmentExportCommand(a *App) *cobra.Command {
 	cmd.Flags().StringVar(&format, "format", "rvtools", "export format: rvtools (XLSX) or csv (one file per RVTools tab)")
 	cmd.Flags().StringVar(&file, "file", "", "destination: a .xlsx file for --format rvtools, a directory for --format csv")
 	cmd.Flags().BoolVar(&force, "force", false, "replace an existing export")
-	_ = cmd.MarkFlagRequired("file")
+	share.add(cmd)
 	return cmd
 }
 
@@ -410,6 +464,17 @@ func newAssessmentExportCommand(a *App) *cobra.Command {
 // --force, otherwise a no-clobber hard link) so a failed export never leaves
 // a half-written workbook.
 func publishRVToolsXLSX(data assessment.ExportData, healthReport health.Report, file string, force bool) (exportReceipt, error) {
+	return publishXLSX(data.Run.ID, file, force, func(w io.Writer) error {
+		if err := report.WriteRVTools(w, data, healthReport); err != nil {
+			return fmt.Errorf("write RVTools export: %w", err)
+		}
+		return nil
+	})
+}
+
+// publishXLSX publishes the workbook write produces at file with the atomic,
+// no-clobber-without-force behavior shared by every XLSX export.
+func publishXLSX(runID int64, file string, force bool, write func(io.Writer) error) (exportReceipt, error) {
 	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
 		return exportReceipt{}, fmt.Errorf("create export directory: %w", err)
 	}
@@ -428,9 +493,9 @@ func publishRVToolsXLSX(data assessment.ExportData, healthReport health.Report, 
 		_ = tmp.Close()
 		return exportReceipt{}, err
 	}
-	if err := report.WriteRVTools(tmp, data, healthReport); err != nil {
+	if err := write(tmp); err != nil {
 		_ = tmp.Close()
-		return exportReceipt{}, fmt.Errorf("write RVTools export: %w", err)
+		return exportReceipt{}, err
 	}
 	if err := tmp.Close(); err != nil {
 		return exportReceipt{}, fmt.Errorf("close temporary export: %w", err)
@@ -446,7 +511,7 @@ func publishRVToolsXLSX(data assessment.ExportData, healthReport health.Report, 
 	if err := publishExportFile(tmpName, file, force); err != nil {
 		return exportReceipt{}, err
 	}
-	return exportReceipt{RunID: data.Run.ID, Path: file, Bytes: info.Size(), SHA256: hash}, nil
+	return exportReceipt{RunID: runID, Path: file, Bytes: info.Size(), SHA256: hash}, nil
 }
 
 // publishRVToolsCSV renders data as one CSV file per RVTools tab under dir.
