@@ -176,3 +176,12 @@ func TestOrphansDoesNotCrossSuppressSameNameDatastores(t *testing.T) {
 		t.Fatalf("same-name independent datastores produced %d entries, want 2", got)
 	}
 }
+
+func TestOrphanSizeLabelDistinguishesUnknownFromSize(t *testing.T) {
+	if got := OrphanSizeLabel(0); got != "size unknown" {
+		t.Fatalf("zero size label=%q", got)
+	}
+	if got := OrphanSizeLabel(16 << 20); got == "size unknown" || got == "-" {
+		t.Fatalf("real size label=%q", got)
+	}
+}

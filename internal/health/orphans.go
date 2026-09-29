@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/easonliuuuuu/vsfleet/internal/assessment"
+	"github.com/easonliuuuuu/vsfleet/internal/humanize"
 	"github.com/easonliuuuuu/vsfleet/internal/vsphere"
 )
 
@@ -762,4 +763,13 @@ func appendUnique(values []string, value string) []string {
 		}
 	}
 	return append(values, value)
+}
+
+// OrphanSizeLabel renders an orphan's size, saying so explicitly when none was
+// reported: a zero is a server that did not tell us, never an empty disk.
+func OrphanSizeLabel(bytes int64) string {
+	if bytes <= 0 {
+		return "size unknown"
+	}
+	return humanize.Bytes(bytes)
 }
