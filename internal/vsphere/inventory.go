@@ -45,6 +45,12 @@ type index struct {
 	// to — see resolveRoot. Every per-kind lister reuses it rather than each
 	// resolving the configured datacenter over again.
 	root types.ManagedObjectReference
+	// portgroups maps a distributed port group's key — the value a VM NIC's
+	// distributed-port backing reports as PortgroupKey — to its name. It is
+	// filled from a dedicated port group retrieval so a NIC's network name
+	// does not depend on the generic entity walk having reached, or typed,
+	// the port group the way the backing's key expects.
+	portgroups map[string]string
 }
 
 func newIndex(ctx context.Context, c *Client) (*index, error) {
@@ -63,7 +69,36 @@ func newIndex(ctx context.Context, c *Client) (*index, error) {
 	for _, e := range ents {
 		idx.byRef[e.Self] = entity{ref: e.Self, name: e.Name, parent: e.Parent}
 	}
+	idx.portgroups = make(map[string]string)
+	// Best effort: the generic walk above already names most objects, and a
+	// failure here only costs the port group fallback.
+	var pgs []mo.DistributedVirtualPortgroup
+	if err := retrieve(ctx, c, root, []string{"DistributedVirtualPortgroup"}, []string{"DistributedVirtualPortgroup"}, []string{"name", "key"}, &pgs); err == nil {
+		for i := range pgs {
+			pg := &pgs[i]
+			if pg.Name == "" {
+				continue
+			}
+			idx.portgroups[pg.Self.Value] = pg.Name
+			if pg.Key != "" {
+				idx.portgroups[pg.Key] = pg.Name
+			}
+		}
+	}
 	return idx, nil
+}
+
+// portgroupName resolves a distributed port group's name from the key a NIC
+// backing reports. The entity walk is tried first, then the dedicated port
+// group map, which is keyed by both the key and the managed object ID.
+func (i *index) portgroupName(key string) string {
+	if key == "" {
+		return ""
+	}
+	if n := i.name(&types.ManagedObjectReference{Type: "DistributedVirtualPortgroup", Value: key}); n != "" {
+		return n
+	}
+	return i.portgroups[key]
 }
 
 // resolveRoot returns the container-view root for a client's context: the

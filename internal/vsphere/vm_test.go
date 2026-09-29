@@ -323,3 +323,27 @@ func TestNewVMCopiesGuestHostName(t *testing.T) {
 		t.Errorf("unsafe hostname kept: %q", vm.GuestHostName)
 	}
 }
+
+func TestApplyNetworkBackingResolvesDistributedPortgroupName(t *testing.T) {
+	backing := &types.VirtualEthernetCardDistributedVirtualPortBackingInfo{
+		Port: types.DistributedVirtualSwitchPortConnection{PortgroupKey: "dvportgroup-1005", SwitchUuid: "50 1c aa"},
+	}
+	// The generic entity walk knows nothing about the port group; only the
+	// dedicated port group map does.
+	idx := &index{byRef: map[types.ManagedObjectReference]entity{}, portgroups: map[string]string{"dvportgroup-1005": "dvpg-vlan100"}}
+	var nic VMNIC
+	applyNetworkBacking(&nic, backing, idx)
+	if nic.Network != "dvpg-vlan100" || nic.NetworkID != "dvportgroup-1005" || nic.SwitchID != "50 1c aa" {
+		t.Fatalf("nic = %+v", nic)
+	}
+
+	// Resolved through the entity walk when that has it.
+	idx = &index{byRef: map[types.ManagedObjectReference]entity{
+		{Type: "DistributedVirtualPortgroup", Value: "dvportgroup-1005"}: {name: "walk-name"},
+	}}
+	nic = VMNIC{}
+	applyNetworkBacking(&nic, backing, idx)
+	if nic.Network != "walk-name" {
+		t.Fatalf("nic = %+v", nic)
+	}
+}
