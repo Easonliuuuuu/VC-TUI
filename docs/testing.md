@@ -76,6 +76,16 @@ It drives the real CLI through direct, SOCKS5, and HTTP proxy routes and is
 the right tier for command behavior, credentials, timeout handling, and
 read-only SOAP auditing without external dependencies.
 
+The license-metadata tests (`internal/vsphere/license*_test.go`,
+`internal/report/license_test.go`, `tests/cli_license_test.go`) run against
+synthetic, visibly labelled licenses seeded into the in-process simulator. They
+plant distinctive fake license keys and assert those strings appear in no CLI
+output, JSON, XLSX, CSV or byte of the history database; that a denied or empty
+license answer becomes `unavailable` coverage; that a default assessment
+collects nothing; and that re-export is deterministic and needs no
+configuration. They prove the mapping and redaction, not real-vSphere license
+behavior.
+
 ## Out-of-process vcsim integration
 
 The tagged suite starts one independent `cmd/vsfleet-vcsim` process per

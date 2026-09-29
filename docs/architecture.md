@@ -164,7 +164,13 @@ distributed virtual switch and port-group observations for `dvSwitch` and
 schema version 11 keeps the new datastore backing fields in the payload
 without changing RVTools worksheet columns. Inventory schema version 14 adds
 the `Local disk` column to `vMultiPath`; absent locality is preserved as an
-unknown value for conservative health evaluation. A shared
+unknown value for conservative health evaluation. Inventory schema version 18
+adds the opt-in `license` collection (`assessment run --include-licenses`),
+stored as key-free `vsphere.License` resource observations with a collection
+status of `success`, `partial` or `unavailable`; a run that did not request it
+has no such collection and its export has no license sheets. The vSphere layer
+has no license-key field, so a key cannot reach the ledger, output or exports
+(see [License metadata](licensing.md)). A shared
 `rvtoolsSheets` compatibility-sheet builder canonicalizes and validates the run
 once and returns every supported worksheet (`vInfo`, `vCPU`, `vMemory`,
 per-VM `vDisk`/`vPartition`/`vNetwork`/`vCD`/`vUSB`,

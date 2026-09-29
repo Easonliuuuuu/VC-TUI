@@ -792,6 +792,17 @@ func validateRunLabel(label string) error {
 	return nil
 }
 
+// requestedCollectionCount is how many collection rows a complete run must
+// hold. License collection is opt-in, so it only raises the expectation for a
+// run that asked for it; a default run keeps the historical count.
+func requestedCollectionCount(contexts int, meta RunMetadata) int {
+	n := contexts * len(persistedKinds)
+	if meta.Licenses {
+		n += contexts
+	}
+	return n
+}
+
 func (s *Store) StartRun(ctx context.Context, source string, contexts []*config.Context, now time.Time) (Run, error) {
 	return s.StartRunWithMetadata(ctx, source, contexts, now, RunMetadata{})
 }
@@ -807,7 +818,7 @@ func (s *Store) StartRunWithMetadata(ctx context.Context, source string, context
 	if err != nil {
 		return Run{}, err
 	}
-	res, err := tx.ExecContext(ctx, `INSERT INTO runs(source,started_at,status,requested_contexts,requested_collections,label,note,pinned,tool_version,inventory_schema_version) VALUES(?,?,?,?,?,?,?,?,?,?)`, source, now.UnixMilli(), RunRunning, len(contexts), len(contexts)*len(persistedKinds), meta.Label, meta.Note, boolInt(meta.Pinned), meta.ToolVersion, meta.InventorySchemaVersion)
+	res, err := tx.ExecContext(ctx, `INSERT INTO runs(source,started_at,status,requested_contexts,requested_collections,label,note,pinned,tool_version,inventory_schema_version) VALUES(?,?,?,?,?,?,?,?,?,?)`, source, now.UnixMilli(), RunRunning, len(contexts), requestedCollectionCount(len(contexts), meta), meta.Label, meta.Note, boolInt(meta.Pinned), meta.ToolVersion, meta.InventorySchemaVersion)
 	if err != nil {
 		_ = tx.Rollback()
 		return Run{}, err

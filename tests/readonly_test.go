@@ -92,6 +92,7 @@ var readOnlyMethods = map[string]string{
 	"DestroyPropertyCollector":       "cleanup of that same cursor and its filter; never touches inventory",
 	"SearchDatastoreSubFolders_Task": "read: creates a task only as a handle for directory listing and returns file metadata; cannot modify inventory",
 	"SearchDatastore_Task":           "read: the same bargain for one directory rather than a whole tree — the interactive datastore file browser; returns file metadata and cannot modify inventory",
+	"QueryAssignedLicenses":          "read: lists which entities hold which licenses for opt-in license collection (assessment run --include-licenses); returns license metadata and cannot assign, remove or alter a license. The license list itself is the LicenseManager.licenses property, read through the property collector",
 	"QueryPerf":                      "read: returns performance statistics for the entities it is given; changes nothing on the server. Counters and intervals come from the property collector, not a second operation",
 }
 
@@ -195,6 +196,10 @@ func startRecordingVCenter(t *testing.T) (string, *soapRecorder) {
 // TestEveryCommandIsReadOnly drives every command that talks to a vCenter and
 // asserts that nothing outside readOnlyMethods was ever sent.
 func TestEveryCommandIsReadOnly(t *testing.T) {
+	// The assessment commands below write a history ledger. Keep it in a
+	// throwaway location so this test never reads or writes an operator's real
+	// history database.
+	t.Setenv("VSFLEET_HISTORY_DB", filepath.Join(t.TempDir(), "history.db"))
 	endpoint, rec := startRecordingVCenter(t)
 
 	r := newRunner(t)
@@ -242,6 +247,7 @@ func TestEveryCommandIsReadOnly(t *testing.T) {
 		{"search", "DC0"},
 		{"search", "LocalDS", "--kind", "datastore"},
 		{"assessment", "run", "--browse-datastores"},
+		{"assessment", "run", "--include-licenses"},
 		{"assessment", "perf", "collect", "--window", "24h"},
 		{"assessment", "perf", "list"},
 		{"assessment", "perf", "show", "latest"},
@@ -319,6 +325,7 @@ func TestOnlyPerfAndBrowserShimsDefineFault(t *testing.T) {
 	reviewedShims := []string{
 		filepath.Join("internal", "vsphere", "datastore_browse.go"),
 		filepath.Join("internal", "vsphere", "perf_query.go"),
+		filepath.Join("internal", "vsphere", "license_query.go"),
 	}
 	for _, path := range faultMethods {
 		reviewed := false
@@ -328,6 +335,21 @@ func TestOnlyPerfAndBrowserShimsDefineFault(t *testing.T) {
 		if !reviewed {
 			t.Fatalf("hand-rolled SOAP Fault implementations=%v, want all of them in %v", faultMethods, reviewedShims)
 		}
+	}
+
+	// The license shim may name exactly one request type: the read-only
+	// QueryAssignedLicenses. govmomi's license package also offers AddLicense,
+	// RemoveLicense and UpdateAssignedLicense, which must never be reachable.
+	licenseSrc, err := os.ReadFile(filepath.Join(root, "internal", "vsphere", "license_query.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := map[string]bool{}
+	for _, m := range regexp.MustCompile(`Req\s+\*types\.([A-Za-z]+)`).FindAllStringSubmatch(string(licenseSrc), -1) {
+		requests[m[1]] = true
+	}
+	if len(requests) != 1 || !requests["QueryAssignedLicenses"] {
+		t.Fatalf("license SOAP shim names requests %v, want only QueryAssignedLicenses", requests)
 	}
 
 	path := filepath.Join(root, "internal", "vsphere", "datastore_browse.go")

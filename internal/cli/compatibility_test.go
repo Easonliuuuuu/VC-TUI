@@ -126,11 +126,11 @@ func TestCompatibilityReportMarksTheVsfleetExtension(t *testing.T) {
 }
 
 func TestCompatibilityReportRejectsAnUnknownWorksheet(t *testing.T) {
-	_, _, _, err := runCompatibilityReport(t, "--sheet", "vLicense")
+	_, _, _, err := runCompatibilityReport(t, "--sheet", "vFileInfo")
 	if err == nil {
 		t.Fatal("expected an error for a worksheet this profile does not write")
 	}
-	// The message must name what is available, so the answer to "is vLicense
+	// The message must name what is available, so the answer to "is vFileInfo
 	// in here?" is settled by the error itself.
 	if !strings.Contains(err.Error(), "vInfo") {
 		t.Errorf("the error does not list the worksheets that exist: %v", err)
