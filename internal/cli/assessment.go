@@ -309,12 +309,17 @@ type exportReceipt struct {
 	Bytes  int64        `json:"bytes,omitempty"`
 	SHA256 string       `json:"sha256,omitempty"`
 	Files  []exportFile `json:"files,omitempty"`
+	// FileInventory reports, per context and datastore, how complete the
+	// vFileInfo rows are. It is present only when the run opted into the
+	// datastore file inventory; a status other than "complete" means the
+	// datastore's rows are a partial list.
+	FileInventory []assessment.FileInventoryContext `json:"file_inventory,omitempty"`
 }
 
 func newAssessmentExportCommand(a *App) *cobra.Command {
 	var format, file string
 	var force bool
-	cmd := &cobra.Command{Use: "export [RUN]", Short: "Export a stored assessment as RVTools XLSX or CSV", Example: `  # 24-sheet RVTools workbook from the most recent capture
+	cmd := &cobra.Command{Use: "export [RUN]", Short: "Export a stored assessment as RVTools XLSX or CSV", Example: `  # 25-sheet RVTools workbook from the most recent capture
   vsfleet assessment export --file estate.xlsx
 
   # One CSV per RVTools tab, into a directory
@@ -358,6 +363,18 @@ func newAssessmentExportCommand(a *App) *cobra.Command {
 		for _, warning := range exportWarnings(data) {
 			fmt.Fprintf(a.errOut(), "%s %s\n", glyphFail, warning)
 		}
+		var inventory []assessment.FileInventoryContext
+		if assessment.HasFileInventory(data) {
+			inventory = assessment.FileInventoryCoverage(data)
+			for _, warning := range fileInventoryWarnings(inventory) {
+				fmt.Fprintf(a.errOut(), "%s %s\n", glyphFail, warning)
+			}
+			files := 0
+			for _, c := range inventory {
+				files += c.Files()
+			}
+			fmt.Fprintf(a.errOut(), "note: vFileInfo lists %d datastore file names and paths; the export can reveal VM names and internal layout, so handle it as sensitive\n", files)
+		}
 		var receipt exportReceipt
 		if format == "csv" {
 			receipt, err = publishRVToolsCSV(data, healthReport, file, force)
@@ -367,6 +384,7 @@ func newAssessmentExportCommand(a *App) *cobra.Command {
 		if err != nil {
 			return err
 		}
+		receipt.FileInventory = inventory
 		if a.json() {
 			return writeJSON(a.out(), receipt)
 		}
@@ -995,6 +1013,9 @@ func newAssessmentRunCommand(a *App) *cobra.Command {
 	var label, note string
 	var pin bool
 	var browseDatastores, includeLicenses bool
+	var fileInventory bool
+	var inventoryMaxFiles, inventoryMaxTotal int
+	var inventoryTimeout time.Duration
 	var failOnPartial bool
 	cmd := &cobra.Command{Use: "run", Short: "Capture a point-in-time inventory assessment", Long: strings.TrimSpace(`
 Read inventory from the selected contexts and store it as one immutable
@@ -1015,11 +1036,19 @@ all is stored as partial and says so.`), Example: `  # Capture the current conte
   # licensing review (keys are never stored or exported)
   vsfleet assessment run --all-contexts --include-licenses
 
+  # Also list every datastore file, for the optional vFileInfo export tab.
+  # Opt-in and bounded; exports filenames and paths (see docs/assessments.md)
+  vsfleet assessment run --all-contexts --datastore-file-inventory
+
   # Pin a baseline so pruning never removes it
   vsfleet assessment run --all-contexts --label pre-migration --pin
 
   # Gate a scheduled job: exit 3 when a site was unreachable
   vsfleet assessment run --all-contexts --fail-on-partial`, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		inventoryOptions, err := fileInventoryOptions(cmd, fileInventory, inventoryMaxFiles, inventoryMaxTotal, inventoryTimeout)
+		if err != nil {
+			return err
+		}
 		contexts, err := a.Contexts()
 		if err != nil {
 			return err
@@ -1028,7 +1057,7 @@ all is stored as partial and says so.`), Example: `  # Capture the current conte
 		if err != nil {
 			return err
 		}
-		run, err := service.Capture(cmd.Context(), assessment.CaptureOptions{Contexts: contexts, Source: "cli", Label: label, Note: note, Pinned: pin, BrowseDatastores: browseDatastores, IncludeLicenses: includeLicenses, ToolVersion: version.String(), InventorySchemaVersion: assessment.CurrentInventorySchemaVersion, Progress: func(p assessment.ContextProgress) {
+		run, err := service.Capture(cmd.Context(), assessment.CaptureOptions{Contexts: contexts, Source: "cli", Label: label, Note: note, Pinned: pin, BrowseDatastores: browseDatastores, IncludeLicenses: includeLicenses, FileInventory: inventoryOptions, ToolVersion: version.String(), InventorySchemaVersion: assessment.CurrentInventorySchemaVersion, Progress: func(p assessment.ContextProgress) {
 			if p.Error != nil {
 				fmt.Fprintf(a.errOut(), "%s %s: %v\n", glyphFail, p.Context, p.Error)
 			}
@@ -1041,12 +1070,32 @@ all is stored as partial and says so.`), Example: `  # Capture the current conte
 		if err != nil {
 			return err
 		}
+		var coverage []assessment.FileInventoryContext
+		if inventoryOptions != nil {
+			// Read the stored evidence back rather than trusting in-memory
+			// state, so what is reported is exactly what an export will say.
+			if store, storeErr := a.History(); storeErr == nil {
+				if data, loadErr := store.LoadExportData(cmd.Context(), run.ID); loadErr == nil {
+					coverage = assessment.FileInventoryCoverage(data)
+				} else {
+					fmt.Fprintf(a.errOut(), "%s file inventory coverage could not be read back: %v\n", glyphFail, loadErr)
+				}
+			}
+		}
 		if a.json() {
-			if writeErr := writeJSON(a.out(), run); writeErr != nil {
+			payload := struct {
+				assessment.Run
+				FileInventory []assessment.FileInventoryContext `json:"file_inventory,omitempty"`
+			}{run, coverage}
+			if writeErr := writeJSON(a.out(), payload); writeErr != nil {
 				return writeErr
 			}
 		} else {
 			printRun(a.out(), run)
+			printFileInventoryCoverage(a.out(), coverage)
+		}
+		for _, warning := range fileInventoryWarnings(coverage) {
+			fmt.Fprintf(a.errOut(), "%s %s\n", glyphFail, warning)
 		}
 		if run.Status == assessment.RunFailed {
 			return fmt.Errorf("assessment %d failed: no context returned VM inventory", run.ID)
@@ -1061,6 +1110,10 @@ all is stored as partial and says so.`), Example: `  # Capture the current conte
 	cmd.Flags().BoolVar(&pin, "pin", false, "pin this assessment against deletion")
 	cmd.Flags().BoolVar(&browseDatastores, "browse-datastores", false, "record VM disk files from each accessible datastore (requires Datastore.Browse; adds time on large estates)")
 	cmd.Flags().BoolVar(&includeLicenses, "include-licenses", false, "record license products, usage, expiration and host assignments (read-only; needs the Global.Licenses privilege; license keys are never stored)")
+	cmd.Flags().BoolVar(&fileInventory, "datastore-file-inventory", false, "also list every file on each accessible datastore for the optional vFileInfo export tab (opt-in; needs Datastore.Browse; exports filenames and paths; bounded by the --file-inventory-* limits; independent of --browse-datastores)")
+	cmd.Flags().IntVar(&inventoryMaxFiles, "file-inventory-max-files", vsphere.DefaultFileInventoryMaxFiles, "with --datastore-file-inventory: most file rows kept per datastore; a datastore that hits it is recorded as truncated, never complete")
+	cmd.Flags().IntVar(&inventoryMaxTotal, "file-inventory-max-total-files", vsphere.DefaultFileInventoryMaxTotalFiles, "with --datastore-file-inventory: most file rows kept per context; datastores not reached are recorded as skipped")
+	cmd.Flags().DurationVar(&inventoryTimeout, "file-inventory-timeout", vsphere.DefaultFileInventoryDatastoreTimeout, "with --datastore-file-inventory: time allowed to list one datastore before it is recorded as failed (each context also gets three times this, at most)")
 	cmd.Flags().BoolVar(&failOnPartial, "fail-on-partial", false, "exit 3 when the capture stored evidence from some contexts but not all")
 	return cmd
 }
@@ -1523,4 +1576,68 @@ func resourceChangeDetail(v assessment.ResourceChange) string {
 		parts[i] = f.Field + ":" + f.Before + "→" + f.After
 	}
 	return strings.Join(parts, " ")
+}
+
+// fileInventoryOptions turns the opt-in flag and its limits into capture
+// options. It returns nil, which disables the inventory entirely, unless
+// --datastore-file-inventory was given: a limit flag on its own is an error,
+// never a quiet way to switch datastore browsing on.
+func fileInventoryOptions(cmd *cobra.Command, enabled bool, maxFiles, maxTotal int, timeout time.Duration) (*vsphere.FileInventoryOptions, error) {
+	limitFlags := []string{"file-inventory-max-files", "file-inventory-max-total-files", "file-inventory-timeout"}
+	if !enabled {
+		for _, name := range limitFlags {
+			if cmd.Flags().Changed(name) {
+				return nil, fmt.Errorf("--%s has no effect without --datastore-file-inventory; datastore file inventory is opt-in", name)
+			}
+		}
+		return nil, nil
+	}
+	switch {
+	case maxFiles < 1 || maxFiles > vsphere.MaxFileInventoryMaxFiles:
+		return nil, fmt.Errorf("--file-inventory-max-files must be between 1 and %d", vsphere.MaxFileInventoryMaxFiles)
+	case maxTotal < 1 || maxTotal > vsphere.MaxFileInventoryMaxTotalFiles:
+		return nil, fmt.Errorf("--file-inventory-max-total-files must be between 1 and %d", vsphere.MaxFileInventoryMaxTotalFiles)
+	case timeout < time.Second:
+		return nil, fmt.Errorf("--file-inventory-timeout must be at least 1s")
+	}
+	return &vsphere.FileInventoryOptions{
+		MaxFilesPerDatastore: maxFiles,
+		MaxFilesPerContext:   maxTotal,
+		DatastoreTimeout:     timeout,
+		ContextTimeout:       3 * timeout,
+	}, nil
+}
+
+// printFileInventoryCoverage prints one line per context and one per
+// datastore that is not complete.
+func printFileInventoryCoverage(out io.Writer, coverage []assessment.FileInventoryContext) {
+	for _, c := range coverage {
+		if !c.Requested {
+			continue
+		}
+		status, message := c.Summary()
+		fmt.Fprintf(out, "  file inventory %s: %s, %d files", c.Context, status, c.Files())
+		if message != "" {
+			fmt.Fprintf(out, " (%s)", message)
+		}
+		fmt.Fprintln(out)
+		for _, d := range c.Gaps() {
+			fmt.Fprintf(out, "    %s: %s, %d files captured: %s\n", d.Datastore, strings.ToUpper(d.Status), d.Files, d.Message)
+		}
+	}
+}
+
+// fileInventoryWarnings names every datastore whose file list is incomplete.
+// A datastore with no rows must never read as "no files".
+func fileInventoryWarnings(coverage []assessment.FileInventoryContext) []string {
+	var warnings []string
+	for _, c := range coverage {
+		if !c.Requested {
+			continue
+		}
+		for _, d := range c.Gaps() {
+			warnings = append(warnings, fmt.Sprintf("%s vFileInfo: datastore %s is %s (%d files captured): %s; absence of a file here is not evidence it does not exist", c.Context, d.Datastore, d.Status, d.Files, d.Message))
+		}
+	}
+	return warnings
 }

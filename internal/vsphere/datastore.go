@@ -21,10 +21,13 @@ func (c *Client) ListDatastores(ctx context.Context) ([]Datastore, error) {
 }
 
 func (c *Client) listDatastores(ctx context.Context, idx *index) ([]Datastore, error) {
-	return c.listDatastoresWith(ctx, idx, false)
+	return c.listDatastoresWith(ctx, idx, false, nil)
 }
 
-func (c *Client) listDatastoresWith(ctx context.Context, idx *index, browse bool) ([]Datastore, error) {
+// listDatastoresWith lists datastores. browse opts into the VMDK browse
+// evidence and inventory into the all-file inventory; both are off by default
+// and independent of each other.
+func (c *Client) listDatastoresWith(ctx context.Context, idx *index, browse bool, inventory *FileInventoryOptions) ([]Datastore, error) {
 	var raw []mo.Datastore
 	if err := retrieve(ctx, c, idx.root, []string{"Datastore"}, []string{"Datastore"}, datastoreProps, &raw); err != nil {
 		return nil, err
@@ -61,6 +64,9 @@ func (c *Client) listDatastoresWith(ctx context.Context, idx *index, browse bool
 			}
 		}
 		out = append(out, datastore)
+	}
+	if inventory != nil {
+		c.inventoryDatastores(ctx, out, datastoreBrowsers(raw), *inventory)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil

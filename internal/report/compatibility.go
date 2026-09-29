@@ -49,6 +49,12 @@ type SheetSpec struct {
 	// Compatible reports whether the worksheet is one of the RVTools-named
 	// layouts this profile renders. vsfleetCoverage is vsfleet's own.
 	Compatible bool `json:"rvtools_named"`
+	// Optional reports that the worksheet holds data only for a run that
+	// opted into the matching capture (vFileInfo needs the datastore file
+	// inventory). Any other run has the tab with a single explanatory row,
+	// exactly as RVTools writes it without GetFileInfo, and vsfleetCoverage
+	// says why.
+	Optional bool `json:"optional,omitempty"`
 	// DerivesFrom names the collection the rows come from, matching the
 	// vsfleetCoverage sheet's own accounting.
 	DerivesFrom string       `json:"derives_from"`
@@ -73,6 +79,7 @@ func Profile() ([]SheetSpec, error) {
 		spec := SheetSpec{
 			Name:        s.name,
 			Compatible:  s.name != coverageSheetName && s.name != performanceSheetName && s.name != licenseAssignmentSheetName,
+			Optional:    s.name == fileInfoSheetName,
 			DerivesFrom: meta.derivesFrom,
 			Note:        meta.note,
 			Columns:     make([]ColumnSpec, 0, len(s.headers)),
@@ -142,6 +149,8 @@ var sheetMeta = map[string]sheetInfo{
 		note: "One row per resource pool, including each cluster or standalone host's root Resources pool. vApps are reported on their own terms and are not duplicated here. Identity and CPU/memory allocation configuration only: this read-only capture does not request volatile runtime fields rather than guess at them. Captures before inventory schema 8 mark the tab not recorded."},
 	"vDatastore": {derivesFrom: "the datastore collection", note: "One row per datastore."},
 	"vSnapshot":  {derivesFrom: "the VM collection", note: "One row per snapshot, oldest first within a VM."},
+	fileInfoSheetName: {derivesFrom: "the opt-in datastore file inventory",
+		note: "Optional: holds data only for a run captured with `assessment run --datastore-file-inventory`. Any other run gets the tab with one explanatory row in Friendly Path Name and nothing else, as RVTools writes it without GetFileInfo; that row is not a file. One row per datastore file (folders are not listed; hidden directories such as .dvsData are), ordered by context, datastore, then path. RVTools orders rows by datastore browse order, which is not stable between runs, so vsfleet sorts instead: compare on keys, not on row position. Virtual disks are one row on the descriptor .vmdk (see File Size in bytes). Its size and content are bounded by the capture's row and time limits, and it exposes filenames and paths, so treat the workbook as sensitive. Completeness is NOT visible in the tab: a datastore that was denied, failed, skipped, unavailable or truncated contributes fewer or no rows, and only vsfleetCoverage (one summary row per context plus one `vFileInfo/<datastore>` row per datastore) says so. Never read a missing row, or an empty tab, as an absent file. Column names and value conventions follow one RVTools 4.8 export taken with GetFileInfo; a side-by-side comparison of the same datastore, and of files at the datastore root, is still outstanding (see docs/assessments.md)."},
 	"vHealth": {derivesFrom: "the health rule engine",
 		note: "One row per finding. Derived at export time from the stored evidence rather than collected, so re-exporting an unchanged run reproduces it exactly. assessment export always evaluates with the default thresholds; the tuning flags on `vsfleet health` do not apply to an export."},
 	performanceSheetName: {derivesFrom: "the performance ledger",
@@ -379,6 +388,16 @@ var sheetColumns = map[string]map[string]ColumnSpec{
 		"Free MiB":     {Kind: KindDecimal, Unit: "MiB", Note: "Fractional MiB are retained; RVTools 4.8.1.4 writes integers."},
 		"Free %":       {Kind: KindDecimal, Unit: "percent", Empty: "when the datastore reports no capacity, rather than dividing by zero", Note: "Fractional percentages are retained; RVTools 4.8.1.4 writes integers."},
 		"Object ID":    {Kind: KindText, Note: "vCenter managed object reference of the datastore."},
+	},
+	fileInfoSheetName: {
+		"Friendly Path Name":   {Kind: KindText, Empty: "never; on the single explanatory row of a run without a file inventory it holds the explanation instead", Note: "The file's folder as \"[datastore] folder/subfolder/\": the bracketed datastore, a space, the folder and a trailing slash. Identical to Path, as in RVTools 4.8."},
+		"File Name":            {Kind: KindText, Empty: "on the explanatory row", Note: "The bare file name, without its folder."},
+		"File Type":            {Kind: KindText, Empty: "on the explanatory row", Note: "The vSphere datastore-browser FileInfo subclass: FileInfo, VmDiskFileInfo, VmConfigFileInfo, VmLogFileInfo, VmNvramFileInfo, VmSnapshotFileInfo, IsoImageFileInfo or TemplateConfigFileInfo."},
+		"File Size in bytes":   {Kind: KindInteger, Unit: "bytes", Empty: "on the explanatory row", Note: "Size as the datastore browser reports it. RVTools 4.8 folds a thick or thin disk's -flat.vmdk into its descriptor and reports the full disk size on the .vmdk row (0 for an empty thin disk); vsfleet lists what its browser query returns and may show -flat.vmdk files as separate FileInfo rows. Formatted #,##0 in XLSX."},
+		"Internal Sort Column": {Kind: KindText, Empty: "on the explanatory row", Note: "An RVTools helper column: Path followed by File Name, i.e. the full datastore path of the file."},
+		"Path":                 {Kind: KindText, Empty: "on the explanatory row", Note: "The file's folder, \"[datastore] folder/\" with a trailing slash, NOT the full file path: join it with File Name (or use Internal Sort Column) to get one. The same form as vDisk's Path minus the file name."},
+		"Datastore":            {Kind: KindText, Note: "Datastore name. Not unique across contexts; join on vsfleet Context and Datastore ID."},
+		"Datastore ID":         {Kind: KindText, Note: "vCenter managed object reference of the datastore."},
 	},
 	"vCluster": {
 		"Name":      {Kind: KindText, Note: "Cluster name."},

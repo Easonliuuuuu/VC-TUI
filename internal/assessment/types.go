@@ -35,8 +35,10 @@ type RunStatus string
 // must continue to treat older captures as metadata-unavailable. Schema 18
 // adds the opt-in "license" collection (key-free license metadata and entity
 // assignments); a run that did not ask for it simply has no such collection,
-// which readers must treat as "not collected", never as "no licenses".
-const CurrentInventorySchemaVersion = "18"
+// which readers must treat as "not collected", never as "no licenses". Schema
+// 19 adds the opt-in datastore file inventory (Datastore.FileInventory) behind
+// the vFileInfo export; a run captured without it simply has no such field.
+const CurrentInventorySchemaVersion = "19"
 
 const (
 	RunRunning  RunStatus = "running"

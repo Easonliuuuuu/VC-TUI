@@ -122,8 +122,12 @@ type CaptureOptions struct {
 	// off by default because it needs an extra privilege and reads a
 	// credential-adjacent API; license keys are never stored either way.
 	IncludeLicenses bool
-	Now             func() time.Time
-	Progress        func(ContextProgress)
+	// FileInventory opts the capture into the all-file datastore inventory
+	// behind the vFileInfo export. nil, the default, never lists datastore
+	// files; it is not implied by BrowseDatastores.
+	FileInventory *vsphere.FileInventoryOptions
+	Now           func() time.Time
+	Progress      func(ContextProgress)
 }
 
 // Capture creates one immutable run while preserving the session manager's
@@ -180,7 +184,7 @@ func (c *Collector) Capture(ctx context.Context, opts CaptureOptions) (Run, erro
 			if opts.Progress != nil {
 				opts.Progress(ContextProgress{Context: cc.Name, Status: "connecting"})
 			}
-			result := c.captureContext(ctx, cc, opts.BrowseDatastores, opts.IncludeLicenses)
+			result := c.captureContext(ctx, cc, opts.BrowseDatastores, opts.IncludeLicenses, opts.FileInventory)
 			if err := c.Store.SaveContextWithLease(ctx, run.ID, result, now(), lease); err != nil {
 				result.Status = "failed"
 				result.Error = fmt.Sprintf("save assessment: %v", err)
@@ -208,7 +212,11 @@ func errorFrom(s string) error {
 	return fmt.Errorf("%s", s)
 }
 
-func (c *Collector) captureContext(parent context.Context, cc *config.Context, browseDatastores, includeLicenses bool) ContextResult {
+// datastoreListAllowance is the time granted, on top of an opted-in file
+// inventory's own context budget, to retrieve the datastore properties.
+const datastoreListAllowance = time.Minute
+
+func (c *Collector) captureContext(parent context.Context, cc *config.Context, browseDatastores, includeLicenses bool, fileInventory *vsphere.FileInventoryOptions) ContextResult {
 	r := ContextResult{Name: cc.Name, Status: "failed"}
 	opCtx, cancel, tracker := c.Manager.Operation(parent)
 	defer cancel()
@@ -248,7 +256,19 @@ func (c *Collector) captureContext(parent context.Context, cc *config.Context, b
 	for _, group := range []vsphere.FetchGroup{vsphere.GroupVMs, vsphere.GroupHosts, vsphere.GroupClusters, vsphere.GroupResourcePools, vsphere.GroupDVSwitches, vsphere.GroupDatastores, vsphere.GroupNetworks} {
 		var part *vsphere.Inventory
 		if group == vsphere.GroupDatastores {
-			part = client.FetchGroupWith(opCtx, idx, group, vsphere.FetchOptions{BrowseDatastoreFiles: browseDatastores})
+			// The per-context operation budget (the connect timeout) is
+			// sized for property retrieval, not for walking datastores. An
+			// opted-in file inventory carries its own explicit time bounds,
+			// so it runs under the caller's context plus those bounds; the
+			// listing of datastores themselves still gets a fixed allowance.
+			dsCtx := opCtx
+			if fileInventory != nil {
+				bounded := fileInventory.WithDefaults()
+				var stop context.CancelFunc
+				dsCtx, stop = context.WithTimeout(vsphere.WithStageReporter(parent, tracker.Report), bounded.ContextTimeout+datastoreListAllowance)
+				defer stop()
+			}
+			part = client.FetchGroupWith(dsCtx, idx, group, vsphere.FetchOptions{BrowseDatastoreFiles: browseDatastores, FileInventory: fileInventory})
 		} else if group == vsphere.GroupHosts {
 			part = client.FetchGroupWith(opCtx, idx, group, vsphere.FetchOptions{HostConfig: true})
 		} else {

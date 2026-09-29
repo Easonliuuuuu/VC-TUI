@@ -86,6 +86,19 @@ collects nothing; and that re-export is deterministic and needs no
 configuration. They prove the mapping and redaction, not real-vSphere license
 behavior.
 
+The opt-in datastore file inventory (`vFileInfo`) is covered at each layer
+with synthetic files only: `internal/vsphere` drives the simulator for sizes,
+types, denial, truncation, budget skipping and timeouts; `internal/report`
+proves byte sizes, path mapping, stable order, byte-identical re-export and
+every `vsfleetCoverage` state on a multi-datastore fixture;
+`internal/health` proves the inventory never changes orphan or health
+conclusions; and `tests/cli_file_inventory_test.go` proves that a default
+capture never browses, that limit flags cannot enable browsing, that export
+works from an empty configuration, and that denied and truncated scans are
+visible in human and JSON output. None of that is real-vSphere evidence: the
+comparison with an RVTools export of the same datastores is tracked on issue
+#219.
+
 ## Out-of-process vcsim integration
 
 The tagged suite starts one independent `cmd/vsfleet-vcsim` process per
