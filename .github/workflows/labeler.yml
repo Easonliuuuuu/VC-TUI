@@ -94,158 +94,42 @@ jobs:
               return;
             }
 
-            const labels = new Set();
             const title = (item.title ?? "").trim();
-            const scopeMatch = title.match(/^[a-z]+(?:\(([a-z0-9_/-]+)\))?!?:/i);
-            if (scopeMatch) {
-              const type = title.split("(")[0].split(":")[0].toLowerCase();
-              const scope = (scopeMatch[1] ?? "").toLowerCase();
-
-              if (["tui", "ui"].includes(scope)) labels.add("tui");
-              if (["health", "assessment", "readiness"].includes(scope)) labels.add("assessment");
-              if (["compatibility", "report", "rvtools"].includes(scope)) labels.add("compatibility");
-              if (["vsphere", "vcenter"].includes(scope)) labels.add("vsphere");
-              if (["docs", "documentation"].includes(scope) || type === "docs") labels.add("docs");
-              if (["ci", "workflow"].includes(scope) || type === "ci") labels.add("ci");
-              if (["release", "goreleaser"].includes(scope)) labels.add("release");
-              if (["config", "credentials", "context"].includes(scope)) labels.add("config");
-            }
-
+            const components = [
+              "tui", "assessment", "compatibility", "vsphere",
+              "docs", "ci", "release", "config", "other"
+            ];
+            let component;
             if (context.payload.pull_request) {
-              const pullNumber = context.payload.pull_request.number;
-              const changedFiles = await github.paginate(
-                github.rest.pulls.listFiles,
-                {
-                  owner,
-                  repo,
-                  pull_number: pullNumber,
-                  per_page: 100
-                }
-              );
-              const paths = changedFiles.map((file) => file.filename);
-
-              const anyPath = (predicate) => paths.some(predicate);
-              const startsWithAny = (path, prefixes) =>
-                prefixes.some((prefix) => path.startsWith(prefix));
-
-              if (anyPath((path) =>
-                startsWithAny(path, ["internal/tui/", "internal/uistate/"]) ||
-                path.startsWith("internal/cli/tui") ||
-                path === "docs/tui.md"
-              )) labels.add("tui");
-
-              if (anyPath((path) =>
-                startsWithAny(path, ["internal/assessment/", "internal/health/"]) ||
-                startsWithAny(path, ["internal/cli/assessment", "internal/cli/health"]) ||
-                path === "docs/assessments.md"
-              )) labels.add("assessment");
-
-              if (anyPath((path) =>
-                path.startsWith("internal/report/") ||
-                /(?:rvtools|compatibility)/i.test(path)
-              )) labels.add("compatibility");
-
-              if (anyPath((path) => path.startsWith("internal/vsphere/"))) {
-                labels.add("vsphere");
+              const prTitle = title.match(/^([a-z]+)\(([a-z]+)\)!?: .+$/);
+              const actions = ["feat", "fix", "refactor", "chore", "docs", "test", "ci", "build"];
+              if (!prTitle || !actions.includes(prTitle[1]) || !components.includes(prTitle[2])) {
+                core.setFailed(
+                  "PR title must be action(component): summary. " +
+                  `Actions: ${actions.join(", ")}. Components: ${components.join(", ")}.`
+                );
+                return;
               }
-
-              if (anyPath((path) =>
-                path.startsWith("docs/") ||
-                path === "README.md" ||
-                path === "mkdocs.yml"
-              )) labels.add("docs");
-
-              if (anyPath((path) =>
-                path.startsWith(".github/workflows/") ||
-                path === ".github/dependabot.yml"
-              )) labels.add("ci");
-
-              if (anyPath((path) =>
-                path === ".github/workflows/release.yml" ||
-                path === "release-please-config.json" ||
-                path === ".release-please-manifest.json" ||
-                path === ".goreleaser.yml" ||
-                path === "CHANGELOG.md"
-              )) labels.add("release");
-
-              if (anyPath((path) =>
-                startsWithAny(path, ["internal/config/", "internal/contextops/"]) ||
-                path === "docs/configuration.md"
-              )) labels.add("config");
+              component = prTitle[2];
             } else {
-              // Strip code blocks, inline code, and blockquotes to avoid false-positive keyword matches
-              const rawBody = item.body ?? "";
-              const sanitizedBody = rawBody
-                .replace(/```[\s\S]*?```/g, "")
-                .replace(/`[^`]+`/g, "")
-                .replace(/^>.*$/gm, "");
-
-              const text = `${title}\n${sanitizedBody}`.toLowerCase();
-
-              const issueTextRules = {
-                tui: [
-                  /\btui\b/,
-                  /terminal ui/,
-                  /bubble tea/,
-                  /\bkeybind(?:ing)?s?\b/,
-                  /\bcursor\b/
-                ],
-                assessment: [
-                  /\bassessment\b/,
-                  /\bfindings?\b/,
-                  /\bhealth evaluation\b/,
-                  /\bdrift\b/,
-                  /\btrends?\b/,
-                  /\breadiness\b/
-                ],
-                compatibility: [
-                  /\brvtools\b/,
-                  /\binteroperability\b/,
-                  /\bworksheet\b/,
-                  /\bxlsx\b/
-                ],
-                vsphere: [
-                  /\bvsphere\b/,
-                  /\bvcenter\b/,
-                  /\besxi\b/,
-                  /\bgovmomi\b/,
-                  /\bvapp\b/,
-                  /\bdvswitch\b/,
-                  /\bdvport\b/
-                ],
-                docs: [
-                  /\bdocumentation\b/,
-                  /\breadme\b/,
-                  /\bdoc(?:s|umentation) update\b/
-                ],
-                ci: [
-                  /\bgithub actions?\b/,
-                  /\bcontinuous integration\b/,
-                  /\bci\/cd\b/
-                ],
-                release: [
-                  /\brelease please\b/,
-                  /\bgoreleaser\b/,
-                  /\bversion bump\b/
-                ],
-                config: [
-                  /\bconfig\.toml\b/,
-                  /\bkeyring\b/,
-                  /\bcredentials?\b/,
-                  /\bcontext configuration\b/,
-                  /\bconnection context\b/,
-                  /\boperator settings\b/
-                ]
-              };
-
-              for (const [label, patterns] of Object.entries(issueTextRules)) {
-                if (patterns.some((pattern) => pattern.test(text))) {
-                  labels.add(label);
-                }
+              // GitHub issue forms put the first dropdown at the start of the
+              // body. Ignore free text elsewhere in the issue.
+              const field = (item.body ?? "").match(/^### Component\r?\n\r?\n([^\r\n]+)/);
+              if (field && components.includes(field[1].trim())) {
+                component = field[1].trim();
               }
             }
 
-            if (labels.size === 0) {
+            // Respect area labels already chosen by a maintainer or a prior run.
+            // This also keeps edits and PR updates from accumulating labels.
+            if ((item.labels ?? []).some(({ name }) => Object.hasOwn(managedLabels, name))) {
+              core.info("An area label is already present.");
+              return;
+            }
+
+            const label = component === "other" ? undefined : component;
+
+            if (!label) {
               core.info("No automatic labels matched.");
               return;
             }
@@ -255,21 +139,17 @@ jobs:
                 owner,
                 repo,
                 issue_number: item.number,
-                labels: [...labels].sort()
+                labels: [label]
               });
             } catch (error) {
               // If any managed label is missing, create it on-demand and retry
-              for (const label of labels) {
-                if (managedLabels[label]) {
-                  await ensureLabelExists(label);
-                }
-              }
+              if (managedLabels[label]) await ensureLabelExists(label);
               await github.rest.issues.addLabels({
                 owner,
                 repo,
                 issue_number: item.number,
-                labels: [...labels].sort()
+                labels: [label]
               });
             }
 
-            core.info(`Applied labels: ${[...labels].sort().join(", ")}`);
+            core.info(`Applied label: ${label}`);

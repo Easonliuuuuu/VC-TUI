@@ -1,0 +1,41 @@
+name: Bug report
+description: Report behavior that is broken or unexpected.
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Choose the main area, or other if unsure. This choice controls the area label.
+      options:
+        - tui
+        - assessment
+        - compatibility
+        - vsphere
+        - docs
+        - ci
+        - release
+        - config
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: What happened?
+      description: Describe the actual behavior and what you expected.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include commands or a minimal example if available. Remove credentials and private inventory data.
+    validations:
+      required: false
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include the VSFleet version, operating system, and relevant setup.
+    validations:
+      required: false

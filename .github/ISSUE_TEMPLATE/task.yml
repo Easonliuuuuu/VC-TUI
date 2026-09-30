@@ -1,0 +1,27 @@
+name: Task or other issue
+description: Track documentation, maintenance, investigation, or other work.
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Choose the main area, or other if unsure. This choice controls the area label.
+      options:
+        - tui
+        - assessment
+        - compatibility
+        - vsphere
+        - docs
+        - ci
+        - release
+        - config
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: Describe the work and why it is needed.
+    validations:
+      required: true

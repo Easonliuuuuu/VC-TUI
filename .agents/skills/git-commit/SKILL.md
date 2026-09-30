@@ -4,12 +4,12 @@ description: Stage and commit all changes using conventional commits format, the
 license: MIT
 metadata:
   author: local
-  version: "1.2"
+  version: "1.3"
 ---
 
 Stage and commit all changes using the conventional commits format, then optionally push the branch and open a PR whose description mirrors the commit body.
 
-**Input**: Optional scope or hint from the user (e.g., "socks transport", "context wizard"). If omitted, derive everything from the diff.
+**Input**: Optional component or hint from the user (e.g., "socks transport", "context wizard"). If omitted, derive everything from the diff.
 
 ---
 
@@ -54,10 +54,10 @@ Commits and PRs are authored by the human running the work. An AI assistant is a
    - `build` — build system, Dockerfile, packaging
 
    **Breaking changes** — mark them explicitly whenever the change breaks an existing public API, CLI flag, config shape, or other consumer-facing contract:
-   - Add `!` right after the type/scope: `feat(config)!: drop support for the version 1 configuration format`
+   - Add `!` right after the type/component: `feat(config)!: drop support for the version 1 configuration format`
    - And add a `BREAKING CHANGE: <description>` footer at the end of the body explaining what breaks and how to migrate.
 
-   **Scope** (in parentheses) — the bare name (no path, no slash) of the package, folder, or file most responsible for the change, e.g. `transport`, `client.go`, `ci.yml`. Use a single file's name when the change is concentrated there; use the containing package's name when several files in it changed together. Omit only when changes span unrelated top-level areas with no shared package.
+   **Component** (in parentheses) — required in commit and PR titles. Choose exactly one of `tui`, `assessment`, `compatibility`, `vsphere`, `docs`, `ci`, `release`, or `config` when it describes the main change. Use `other` when no single area fits; it deliberately adds no area label. Do not choose a component merely because the change mentions it or updates supporting documentation. The PR auto-label workflow reads this component, so do not use package names, paths, or file names as the title scope.
 
    **Summary** — imperative mood, lowercase, no period, ≤72 chars total for the first line. Describe what the change *does*, not what files changed.
 
@@ -78,7 +78,7 @@ Commits and PRs are authored by the human running the work. An AI assistant is a
 
    **Examples:**
    ```
-   fix(credentials): serialise prompt reads across concurrent connections
+   fix(config): serialise prompt reads across concurrent connections
 
    Changes:
    - prompt.go: guard ReadLine and ReadSecret with a mutex
@@ -92,7 +92,7 @@ Commits and PRs are authored by the human running the work. An AI assistant is a
    credentials.(*Prompt).ReadSecret
    ```
    ```
-   ci(ci.yml): run gofmt, vet, staticcheck and tests on pushes and pull requests
+   ci(ci): run gofmt, vet, staticcheck and tests on pushes and pull requests
 
    Changes:
    - ci.yml: add a build matrix over Linux, macOS and Windows
@@ -105,10 +105,10 @@ Commits and PRs are authored by the human running the work. An AI assistant is a
    Testing: workflow runs green on the PR that introduces it
    ```
    ```
-   chore(go.mod): bump govmomi to 0.56.0
+   chore(other): bump govmomi to 0.56.0
    ```
    ```
-   feat(cli)!: require --context instead of falling back to the only context
+   feat(config)!: require --context instead of falling back to the only context
 
    Changes:
    - root.go: remove the single-context fallback, require an explicit --context
@@ -267,7 +267,7 @@ Commits and PRs are authored by the human running the work. An AI assistant is a
 
    ```bash
    git commit -m "$(cat <<'EOF'
-   <type>(<scope>): <summary>
+   <type>(<component>): <summary>
 
    Changes:
    - <change 1>
@@ -282,7 +282,7 @@ Commits and PRs are authored by the human running the work. An AI assistant is a
 
    For trivial single-line commits (no body):
    ```bash
-   git commit -m "<type>(<scope>): <summary>"
+   git commit -m "<type>(<component>): <summary>"
    ```
 
 6. **Display result**
@@ -303,7 +303,7 @@ Commits and PRs are authored by the human running the work. An AI assistant is a
 
    If "Push & open PR":
 
-   a. Check the current branch with `git branch --show-current`. If it's `main` (or the repo's default branch), create a new branch first — derive a short kebab-case name from the commit's `<type>(<scope>)` (e.g. `fix/credentials-prompt-race`), or ask the user for one if nothing sensible can be derived:
+   a. Check the current branch with `git branch --show-current`. If it's `main` (or the repo's default branch), create a new branch first — derive a short kebab-case name from the commit's `<type>(<component>)` (e.g. `fix/config-prompt-race`), or ask the user for one if nothing sensible can be derived:
       ```bash
       git checkout -b <branch-name>
       ```
@@ -314,9 +314,9 @@ Commits and PRs are authored by the human running the work. An AI assistant is a
       ```
 
    c. Build the PR title and body from the same material as the commit message — do not re-derive from scratch:
-      - **Title**: the same conventional-commit format as step 2 — `<type>(<scope>): <summary>` — identical to the commit's first line. The parenthesised scope is **required** on a PR title: a title without it (`fix: ...`) or in prose form (`Fix the worktree race`) is not acceptable. Use the same `<type>` values: `feat`, `fix`, `refactor`, `chore`, `docs`, `test`, `ci`, `build`.
-        Examples: `feat(search): query every configured vCenter concurrently`, `fix(credentials): serialise prompt reads across concurrent connections`, `refactor(inventory.go): resolve paths from one name/parent index`.
-        When a PR carries several commits, the title describes the PR as a whole, still as `<type>(<scope>): <summary>`.
+      - **Title**: the same conventional-commit format as step 2 — `<type>(<component>): <summary>` — identical to the commit's first line when the PR contains one commit. The `Auto label` check fails PR titles without a supported type and component. Supported types are `feat`, `fix`, `refactor`, `chore`, `docs`, `test`, `ci`, and `build`; supported components are listed in step 2. A breaking change may use `!` before the colon.
+        Examples: `feat(vsphere): query every configured vCenter concurrently`, `fix(config): serialise prompt reads across concurrent connections`, `refactor(vsphere): resolve paths from one name/parent index`.
+        When a PR carries several commits, the title describes the PR as a whole and still uses `<type>(<component>): <summary>`.
       - **Body** — reuse the commit's `Changes`, `Root cause`/`Motivation`, and `Testing` sections, and add a `Test plan` checklist (concrete, reviewer-actionable steps derived from `Testing`):
 
         ```
