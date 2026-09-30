@@ -10,6 +10,7 @@
 
 ### Bug Fixes
 
+* **assessment:** make `assessment perf collect -o json` exit non-zero when collection fails for every context, matching the text output
 * **assessment:** stop reporting a clean orphan scan when datastore browse evidence is missing ([#115](https://github.com/Easonliuuuuu/vsfleet/issues/115))
 * **vsphere:** make tag lookups honor the context's TLS policy and transport, so `--tls thumbprint` no longer fails the tagging endpoint against a private-CA certificate ([#190](https://github.com/Easonliuuuuu/vsfleet/issues/190))
 * **vsphere:** pass the connection test with the built-in ReadOnly role instead of requiring `Sessions.ValidateSession` ([#189](https://github.com/Easonliuuuuu/vsfleet/issues/189))
