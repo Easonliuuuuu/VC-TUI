@@ -5,7 +5,7 @@ package tests
 import (
 	"encoding/json"
 	"path/filepath"
-	"strings"
+	"reflect"
 	"testing"
 
 	"github.com/easonliuuuuu/vsfleet/internal/assessment"
@@ -34,12 +34,16 @@ func TestVCSIMPartialCoverageSurvivesProcessLoss(t *testing.T) {
 	}
 
 	reportJSON := vcsimJSON(t, r, "--history-db", historyDB, "-o", "json", "assessment", "report", "latest")
+	// The report carries one coverage row per context and collection kind, so a
+	// context is judged by all of its rows rather than by a single status.
 	var report struct {
 		Run      assessment.Run `json:"run"`
 		Coverage []struct {
-			Context string `json:"context"`
-			Status  string `json:"status"`
-			Error   string `json:"error"`
+			Context   string `json:"context"`
+			Kind      string `json:"kind"`
+			Status    string `json:"status"`
+			ItemCount int    `json:"item_count"`
+			Error     string `json:"error"`
 		} `json:"coverage"`
 	}
 	if err := json.Unmarshal([]byte(reportJSON), &report); err != nil {
@@ -48,9 +52,27 @@ func TestVCSIMPartialCoverageSurvivesProcessLoss(t *testing.T) {
 	if report.Run.Status != assessment.RunPartial {
 		t.Fatalf("report status=%s, want partial", report.Run.Status)
 	}
-	coverageText := reportJSON
-	if !strings.Contains(coverageText, "killable") || !strings.Contains(coverageText, "dead-port") {
-		t.Fatalf("coverage omitted failed contexts: %s", coverageText)
+	rows := map[string]int{}
+	for _, row := range report.Coverage {
+		rows[row.Context]++
+		switch row.Context {
+		case "healthy":
+			if row.Status != "success" && row.Status != "empty" || row.Error != "" {
+				t.Fatalf("healthy %s coverage status=%q error=%q, want success or empty: %s", row.Kind, row.Status, row.Error, reportJSON)
+			}
+			if row.Kind == "vm" && (row.Status != "success" || row.ItemCount == 0) {
+				t.Fatalf("healthy vm coverage=%+v, want inventory: %s", row, reportJSON)
+			}
+		case "killable", "dead-port":
+			if row.Kind != "vm" || row.Status != "failed" || row.Error == "" || row.ItemCount != 0 {
+				t.Fatalf("%s coverage=%+v, want a single failed vm row with an error and no items: %s", row.Context, row, reportJSON)
+			}
+		default:
+			t.Fatalf("coverage names unexpected context %q: %s", row.Context, reportJSON)
+		}
+	}
+	if rows["healthy"] == 0 || rows["killable"] != 1 || rows["dead-port"] != 1 {
+		t.Fatalf("coverage rows per context=%v, want healthy evidence and one failed row each for killable and dead-port: %s", rows, reportJSON)
 	}
 
 	findingsJSON := vcsimJSON(t, r, "--history-db", historyDB, "-o", "json", "assessment", "findings", "latest")
@@ -58,8 +80,27 @@ func TestVCSIMPartialCoverageSurvivesProcessLoss(t *testing.T) {
 	if err := json.Unmarshal([]byte(findingsJSON), &findings); err != nil {
 		t.Fatal(err)
 	}
-	if len(findings.Coverage.BlindContexts) == 0 && findings.Coverage.RulesUnknown == 0 {
-		t.Fatalf("partial findings looked clean: %s", findingsJSON)
+	// killable and dead-port recorded no evidence and must be blind for every
+	// rule that needs collected inventory. healthy is expected to be blind for
+	// exactly one rule: vcsim serves no host multipath data, so
+	// host-path-redundancy cannot be resolved even for a fully collected context.
+	if want := []string{"dead-port", "healthy", "killable"}; !reflect.DeepEqual(findings.Coverage.BlindContexts, want) {
+		t.Fatalf("findings blind contexts=%v, want %v: %s", findings.Coverage.BlindContexts, want, findingsJSON)
+	}
+	for _, rule := range findings.Rules {
+		if len(rule.Blind) == 0 {
+			continue
+		}
+		wantBlind := []string{"dead-port", "killable"}
+		if rule.Rule == "host-path-redundancy" {
+			wantBlind = []string{"dead-port", "healthy", "killable"}
+		}
+		if !reflect.DeepEqual(rule.Blind, wantBlind) {
+			t.Fatalf("rule %s blind contexts=%v, want %v: %s", rule.Rule, rule.Blind, wantBlind, findingsJSON)
+		}
+	}
+	if findings.Coverage.Contexts != 3 || findings.Coverage.CompleteContexts != 1 {
+		t.Fatalf("findings coverage contexts=%d complete=%d, want 3 and 1: %s", findings.Coverage.Contexts, findings.Coverage.CompleteContexts, findingsJSON)
 	}
 	readinessJSON := vcsimJSON(t, r, "--history-db", historyDB, "-o", "json", "assessment", "readiness", "latest")
 	var readiness health.ReadinessReport

@@ -118,3 +118,92 @@ func TestVCSIMHistoryDiffVMHistoryAndCapacity(t *testing.T) {
 		t.Fatalf("context-scoped capacity trend omitted context series: %s", contextTrendJSON)
 	}
 }
+
+// TestVCSIMDiffTreatsLostContextAsUnknownNotRemoved proves that a context that
+// answered in the baseline and disappeared before the target capture is
+// reported as not covered rather than as deleted VMs: the diff carries a
+// target-side coverage issue for it and no lifecycle change, the VM's history
+// has no vanished event, the strict policy gate refuses the comparison, and
+// the healthy context's VMs show no spurious change.
+func TestVCSIMDiffTreatsLostContextAsUnknownNotRemoved(t *testing.T) {
+	fixture := fixturePartialFailure(t)
+	r := newRunner(t)
+	addFixtureContexts(t, r, fixture)
+	historyDB := filepath.Join(t.TempDir(), "history.db")
+	first, _ := captureVCSIM(t, r, historyDB, false)
+	if first.Status != assessment.RunComplete || first.SuccessfulContexts != 2 {
+		t.Fatalf("baseline run=%+v, want complete two-context run", first)
+	}
+	fixture.Endpoints["killable"].Kill()
+	second, _ := captureVCSIM(t, r, historyDB, false)
+	if second.Status != assessment.RunPartial || second.SuccessfulContexts != 1 {
+		t.Fatalf("target run=%+v, want partial with one successful context", second)
+	}
+
+	diffJSON := vcsimJSON(t, r, "--history-db", historyDB, "-o", "json", "assessment", "diff", strconv.FormatInt(first.ID, 10), strconv.FormatInt(second.ID, 10), "--include-runtime")
+	var diff assessment.Diff
+	if err := json.Unmarshal([]byte(diffJSON), &diff); err != nil {
+		t.Fatalf("decode diff: %v\n%s", err, diffJSON)
+	}
+	if diff.Base.ID != first.ID || diff.Target.ID != second.ID {
+		t.Fatalf("diff compared runs %d..%d, want %d..%d: %s", diff.Base.ID, diff.Target.ID, first.ID, second.ID, diffJSON)
+	}
+	if diff.Counts != (assessment.DiffCounts{}) || len(diff.VMs) != 0 || len(diff.Resources) != 0 || len(diff.Snapshots) != 0 {
+		t.Fatalf("diff reported changes although only coverage was lost (lost VMs must not read as removed, healthy VMs must not change): %s", diffJSON)
+	}
+	lost := 0
+	for _, issue := range diff.Coverage {
+		if issue.Context != "killable" || issue.Scope != "target" {
+			t.Fatalf("coverage issue %+v, want only target-side issues for killable: %s", issue, diffJSON)
+		}
+		lost++
+	}
+	if lost == 0 {
+		t.Fatalf("diff has no coverage issue for the lost context: %s", diffJSON)
+	}
+	notCollected := false
+	for _, warning := range diff.Warnings {
+		if strings.Contains(warning, "killable") && strings.Contains(warning, "not") && strings.Contains(warning, "target") {
+			notCollected = true
+		}
+		if strings.Contains(warning, "healthy") {
+			t.Fatalf("diff warned about the healthy context: %s", diffJSON)
+		}
+	}
+	if !notCollected {
+		t.Fatalf("diff warnings do not say the killable context was not collected in the target: %s", diffJSON)
+	}
+
+	_, _, policyErr := r.run("", "--history-db", historyDB, "-o", "json", "assessment", "diff", strconv.FormatInt(first.ID, 10), strconv.FormatInt(second.ID, 10), "--require-complete")
+	if exitCode(policyErr) != 2 {
+		t.Fatalf("--require-complete exit=%d err=%v, want 2 for an incomplete target", exitCode(policyErr), policyErr)
+	}
+
+	// Both contexts hold the same generated VM name, so every history query is
+	// scoped to one context.
+	historyEvents := func(contextName string) []assessment.VMHistoryEvent {
+		raw := vcsimJSON(t, r, "--history-db", historyDB, "--context", contextName, "-o", "json", "vm", "history", "DC0_C0_RP0_VM0", "--all-observations", "--include-runtime")
+		var events []assessment.VMHistoryEvent
+		if err := json.Unmarshal([]byte(raw), &events); err != nil {
+			t.Fatalf("decode %s VM history: %v\n%s", contextName, err, raw)
+		}
+		for _, event := range events {
+			if event.Context != contextName {
+				t.Fatalf("%s VM history leaked event %+v: %s", contextName, event, raw)
+			}
+			switch event.Kind {
+			case "vanished", "removed", "deleted":
+				t.Fatalf("%s VM history reports %q: a lost context is unknown, not removed: %s", contextName, event.Kind, raw)
+			}
+		}
+		return events
+	}
+	lostEvents := historyEvents("killable")
+	if len(lostEvents) != 1 || lostEvents[0].Kind != "first_seen" || lostEvents[0].Run.ID != first.ID {
+		t.Fatalf("lost-context VM history=%+v, want only first_seen in run %d (no observation exists for the partial run)", lostEvents, first.ID)
+	}
+	healthyEvents := historyEvents("healthy")
+	if len(healthyEvents) != 2 || healthyEvents[0].Kind != "first_seen" || healthyEvents[0].Run.ID != first.ID || healthyEvents[1].Kind != "observed" || healthyEvents[1].Run.ID != second.ID {
+		t.Fatalf("healthy VM history=%+v, want first_seen then unchanged observed in the partial run", healthyEvents)
+	}
+}

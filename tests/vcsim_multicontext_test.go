@@ -5,6 +5,7 @@ package tests
 import (
 	"encoding/json"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -108,9 +109,43 @@ func TestVCSIMMultiContextInventoryAndProvenance(t *testing.T) {
 		t.Fatalf("offline topology provenance=%v", contexts)
 	}
 
-	report := vcsimJSON(t, r, "--history-db", historyDB, "-o", "json", "assessment", "report", strconv.FormatInt(run.ID, 10))
-	if !strings.Contains(report, `"vm_count":`) || !strings.Contains(report, `"context": "vc-prod"`) || !strings.Contains(report, `"context": "vc-edge"`) {
-		t.Fatalf("assessment report omitted estate/context inventory: %s", report)
+	// Expected inventory is derived from the fixture flags, not from a run:
+	// vc-prod (-dc 2 -cluster 1 -host 2 -vm 3 -ds 3 -pg 3 -app 1) has per
+	// datacenter one cluster, two hosts, three datastores, one root resource
+	// pool, one distributed switch, five networks (three port groups plus the
+	// default network and uplink group) and six VMs (three in the pool, three
+	// in the vApp). vc-edge (-dc 1 -vm 1 -ds 1 -pg 1) is the same shape once
+	// with one VM per container.
+	wantInventory := map[string]map[string]int{
+		"vc-prod": {"vm": 12, "host": 4, "cluster": 2, "datastore": 6, "resourcepool": 2, "dvswitch": 2, "network": 10},
+		"vc-edge": {"vm": 2, "host": 2, "cluster": 1, "datastore": 1, "resourcepool": 1, "dvswitch": 1, "network": 3},
+	}
+	reportJSON := vcsimJSON(t, r, "--history-db", historyDB, "-o", "json", "assessment", "report", strconv.FormatInt(run.ID, 10))
+	var report assessment.AssessmentReport
+	if err := json.Unmarshal([]byte(reportJSON), &report); err != nil {
+		t.Fatalf("decode assessment report: %v\n%s", err, reportJSON)
+	}
+	gotInventory := map[string]map[string]int{}
+	for _, row := range report.Coverage {
+		if row.Kind == "snapshot" {
+			if row.Status != "empty" || row.ItemCount != 0 {
+				t.Fatalf("%s snapshot coverage=%+v, want empty: %s", row.Context, row, reportJSON)
+			}
+			continue
+		}
+		if row.Status != "success" {
+			t.Fatalf("%s %s coverage status=%q, want success: %s", row.Context, row.Kind, row.Status, reportJSON)
+		}
+		if gotInventory[row.Context] == nil {
+			gotInventory[row.Context] = map[string]int{}
+		}
+		gotInventory[row.Context][row.Kind] = row.ItemCount
+	}
+	if !reflect.DeepEqual(gotInventory, wantInventory) {
+		t.Fatalf("per-context inventory=%v, want %v: %s", gotInventory, wantInventory, reportJSON)
+	}
+	if report.VMCount != 14 || report.HostCount != 6 || report.ClusterCount != 3 || report.DatastoreCount != 7 {
+		t.Fatalf("report totals vms=%d hosts=%d clusters=%d datastores=%d, want 14/6/3/7: %s", report.VMCount, report.HostCount, report.ClusterCount, report.DatastoreCount, reportJSON)
 	}
 }
 
