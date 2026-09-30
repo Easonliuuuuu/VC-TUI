@@ -43,6 +43,10 @@ jobs:
           go mod tidy
           git diff --exit-code -- go.mod go.sum
 
+      - name: Test auto labeling
+        if: runner.os == 'Linux'
+        run: node --test scripts/test-labeler.cjs
+
       - name: Vet
         run: go vet ./...
 

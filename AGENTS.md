@@ -14,3 +14,8 @@ Read [docs/testbed.md](docs/testbed.md) for profile boundaries and
 presentation fixtures deterministic, offline, read-only, and visibly
 synthetic. Connected fixtures must remain loopback-only and isolated from
 operator configuration, credentials, keyrings, and network state.
+
+When creating an issue, use the repository issue form that fits the work and
+set its required Component field. The auto label workflow uses that field; use
+`other` when no single area fits. PR labels come from the required
+`action(component): summary` title format.
