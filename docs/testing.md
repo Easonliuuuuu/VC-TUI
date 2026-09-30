@@ -131,6 +131,14 @@ independent vCenter and VM identities.
 | `topology` | One datacenter, one cluster, two hosts, two VMs, two datastores, two port groups, and one vApp for exact hierarchy/attachment assertions. |
 | `history` | The basic small shape, captured three times with power and naming mutations between captures. |
 
+The existing fixtures also carry the offline and collection scenarios: a lost
+context between two captures (`partial-failure`, diff and VM history report it
+as not covered rather than removed), destination sizing over complete and
+partial runs (`basic-multivcenter`), scoped pseudonymized exports
+(`duplicate-names`) and `assessment perf collect` with one endpoint taken down
+(`basic-multivcenter`). vcsim returns randomised performance samples, so the
+perf scenario asserts contexts, coverage, provenance and status, never values.
+
 ## What vcsim does not prove
 
 vcsim proves process isolation, CLI behavior, inventory collection, topology
