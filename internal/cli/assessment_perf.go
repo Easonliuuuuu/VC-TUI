@@ -94,14 +94,19 @@ sampled are listed as such rather than dropped.`), Example: `  # The last week f
 		if err != nil {
 			return err
 		}
-		if a.json() {
-			return writeJSON(a.out(), windows)
-		}
 		failed := 0
 		for _, w := range windows {
-			printPerfWindowSummary(a, w)
 			if w.Status == perf.WindowFailed {
 				failed++
+			}
+		}
+		if a.json() {
+			if err := writeJSON(a.out(), windows); err != nil {
+				return err
+			}
+		} else {
+			for _, w := range windows {
+				printPerfWindowSummary(a, w)
 			}
 		}
 		if failed == len(windows) {
