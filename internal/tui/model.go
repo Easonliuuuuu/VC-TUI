@@ -701,6 +701,15 @@ type Model struct {
 	// here lets the regular detail renderer and timeline operate on the member
 	// while Esc can return to the exact member selection.
 	vappVM *row
+	// vmPerf caches the VM detail pane's charts by row and range, so moving
+	// between VMs or ranges and back does not re-ask the vCenter; the
+	// refresh key replaces an entry. vmPerfGen stamps each request so a
+	// reply that a refresh has superseded is dropped. perfRangeIdx indexes
+	// perfRanges and survives moving between VMs, which is how two VMs are
+	// compared over the same window.
+	vmPerf       map[string]*vmPerfEntry
+	vmPerfGen    uint64
+	perfRangeIdx int
 	// ds holds the read-only datastore file browser while it is open. Like
 	// vapp it is kept apart from the browse cursor, and unlike everything
 	// else on this struct it is the one view whose contents come from a live
@@ -1497,6 +1506,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case dsListingMsg:
 		return m, m.applyDSListing(msg)
+
+	case vmPerfMsg:
+		m.applyVMPerf(msg)
+		return m, nil
 
 	case dsFindMsg:
 		return m, m.applyDSFind(msg)
@@ -2768,7 +2781,7 @@ func (m *Model) open() tea.Cmd {
 	}
 	m.mode = modeDetail
 	m.detailCursor, m.detailY = 0, 0
-	return nil
+	return m.ensureVMPerf(false)
 }
 
 // diagnose walks the connection for the vCenter the cursor is on. In
@@ -2867,6 +2880,13 @@ func (m *Model) handleDetailKey(msg tea.KeyMsg) tea.Cmd {
 		}
 		m.move(delta)
 		m.detailCursor, m.detailY = 0, 0
+		return m.ensureVMPerf(false)
+	case key.Matches(msg, m.keys.ShorterRange):
+		return m.shiftPerfRange(-1)
+	case key.Matches(msg, m.keys.LongerRange):
+		return m.shiftPerfRange(1)
+	case key.Matches(msg, m.keys.Reload):
+		return m.ensureVMPerf(true)
 	}
 	return nil
 }
@@ -2954,7 +2974,11 @@ func (m *Model) scrollDetailPage(dir int) {
 		return
 	}
 	h := m.bodyHeight()
-	limit := max(0, detailTotalLines(r, m.width)-h)
+	total := detailTotalLines(r, m.width)
+	if r.vm != nil {
+		total = len(m.vmDetailLines(r, false))
+	}
+	limit := max(0, total-h)
 	m.detailY = clamp(m.detailY+dir*h, 0, limit)
 }
 

@@ -13,6 +13,7 @@ import (
 	"github.com/easonliuuuuu/vsfleet/internal/config"
 	"github.com/easonliuuuuu/vsfleet/internal/contextops"
 	"github.com/easonliuuuuu/vsfleet/internal/credentials"
+	"github.com/easonliuuuuu/vsfleet/internal/perf"
 	"github.com/easonliuuuuu/vsfleet/internal/session"
 	"github.com/easonliuuuuu/vsfleet/internal/vsphere"
 )
@@ -101,6 +102,22 @@ type datastoreBrowserBackend interface {
 // lack of this extension is rendered as unknown relationship evidence.
 type datastoreRelationshipBackend interface {
 	ListDatastoreVMReferences(ctx context.Context, cc *config.Context, datastoreID string) (vsphere.DatastoreReferenceListing, error)
+}
+
+// vmPerfBackend is the live-query extension behind the VM detail pane's
+// charts. Like datastoreBrowserBackend it is optional and type-asserted: a
+// backend without it shows the pane's properties with a note where the
+// charts would be, rather than failing. The query is read-only and reads one
+// VM's counters in one request.
+type vmPerfBackend interface {
+	VMPerfSeries(ctx context.Context, cc *config.Context, vm vsphere.VM, window time.Duration, interval int, now time.Time) (perf.SeriesSet, error)
+}
+
+// clockBackend lets a backend whose data is pinned to a fixed instant — the
+// synthetic demo estate — supply that instant, so ages computed in the
+// interface (a snapshot's, say) do not drift with the wall clock.
+type clockBackend interface {
+	Now() time.Time
 }
 
 // sessionBackend is the production Backend, over the same session manager,
@@ -242,31 +259,35 @@ func (b *sessionBackend) ListDatastoreVMReferences(ctx context.Context, cc *conf
 // cancelled minutes ago. The connection itself is shared — Manager.Connect
 // reuses the live session — so this costs a query, not a login.
 func browse(ctx context.Context, b *sessionBackend, cc *config.Context, query func(*vsphere.Client, context.Context) (vsphere.DatastoreListing, error)) (vsphere.DatastoreListing, error) {
+	return liveQuery(ctx, b, cc, query)
+}
+
+func browseReference(ctx context.Context, b *sessionBackend, cc *config.Context, query func(*vsphere.Client, context.Context) (vsphere.DatastoreReferenceListing, error)) (vsphere.DatastoreReferenceListing, error) {
+	return liveQuery(ctx, b, cc, query)
+}
+
+// liveQuery runs one read-only question outside an inventory load on a
+// connected session, under its own operation context — see browse.
+func liveQuery[T any](ctx context.Context, b *sessionBackend, cc *config.Context, query func(*vsphere.Client, context.Context) (T, error)) (T, error) {
+	var zero T
 	opCtx, cancel, tracker := b.mgr.Operation(ctx)
 	defer cancel()
 	s, err := b.mgr.Connect(opCtx, cc)
 	if err != nil {
-		return vsphere.DatastoreListing{}, b.mgr.TimeoutError(err, tracker)
+		return zero, b.mgr.TimeoutError(err, tracker)
 	}
 	client := s.Client()
 	if client == nil {
-		return vsphere.DatastoreListing{}, fmt.Errorf("context %q is not connected", cc.Name)
+		return zero, fmt.Errorf("context %q is not connected", cc.Name)
 	}
 	return query(client, opCtx)
 }
 
-func browseReference(ctx context.Context, b *sessionBackend, cc *config.Context, query func(*vsphere.Client, context.Context) (vsphere.DatastoreReferenceListing, error)) (vsphere.DatastoreReferenceListing, error) {
-	opCtx, cancel, tracker := b.mgr.Operation(ctx)
-	defer cancel()
-	s, err := b.mgr.Connect(opCtx, cc)
-	if err != nil {
-		return vsphere.DatastoreReferenceListing{}, b.mgr.TimeoutError(err, tracker)
-	}
-	client := s.Client()
-	if client == nil {
-		return vsphere.DatastoreReferenceListing{}, fmt.Errorf("context %q is not connected", cc.Name)
-	}
-	return query(client, opCtx)
+// VMPerfSeries implements vmPerfBackend.
+func (b *sessionBackend) VMPerfSeries(ctx context.Context, cc *config.Context, vm vsphere.VM, window time.Duration, interval int, now time.Time) (perf.SeriesSet, error) {
+	return liveQuery(ctx, b, cc, func(client *vsphere.Client, opCtx context.Context) (perf.SeriesSet, error) {
+		return client.VMPerfSeries(opCtx, vm, window, interval, now)
+	})
 }
 
 func (b *sessionBackend) Status(name string) (session.Status, bool) { return b.mgr.Status(name) }
