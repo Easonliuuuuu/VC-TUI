@@ -41,11 +41,17 @@ type keyMap struct {
 
 	Reload    key.Binding
 	ReloadAll key.Binding
-	Doctor    key.Binding
-	History   key.Binding
-	Capture   key.Binding
-	Base      key.Binding
-	Target    key.Binding
+	// ShorterRange and LongerRange step the VM detail pane's chart window
+	// through perfRanges. PerfRange is their shared footer hint, carrying no
+	// keys of its own, the way AllScopeBrief shortens AllScope.
+	ShorterRange key.Binding
+	LongerRange  key.Binding
+	PerfRange    key.Binding
+	Doctor       key.Binding
+	History      key.Binding
+	Capture      key.Binding
+	Base         key.Binding
+	Target       key.Binding
 	// Swap exchanges baseline and target on the Changes pane. It is "s"
 	// rather than sharing anything with Sort — Sort belongs to the browse
 	// table, which the history hub never shows, so the two never collide.
@@ -136,18 +142,22 @@ func defaultKeys() keyMap {
 		AllScope:      key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "all vCenters")),
 		AllScopeBrief: key.NewBinding(key.WithHelp("a", "all")),
 
-		Reload:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reload")),
-		ReloadAll:   key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "reload all")),
-		Doctor:      key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "diagnose")),
-		History:     key.NewBinding(key.WithKeys("H"), key.WithHelp("H", "history")),
-		Capture:     key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "capture")),
-		Base:        key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "baseline")),
-		Target:      key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "target")),
-		Swap:        key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "swap")),
-		Timeline:    key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "timeline")),
-		TimelineAll: key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "all observations")),
-		PrevPane:    key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("⇧tab", "prev pane")),
-		NextPane:    key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next pane")),
+		Reload:    key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reload")),
+		ReloadAll: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "reload all")),
+
+		ShorterRange: key.NewBinding(key.WithKeys("<", ","), key.WithHelp("<", "shorter range")),
+		LongerRange:  key.NewBinding(key.WithKeys(">", "."), key.WithHelp(">", "longer range")),
+		PerfRange:    key.NewBinding(key.WithHelp("</>", "range")),
+		Doctor:       key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "diagnose")),
+		History:      key.NewBinding(key.WithKeys("H"), key.WithHelp("H", "history")),
+		Capture:      key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "capture")),
+		Base:         key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "baseline")),
+		Target:       key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "target")),
+		Swap:         key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "swap")),
+		Timeline:     key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "timeline")),
+		TimelineAll:  key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "all observations")),
+		PrevPane:     key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("⇧tab", "prev pane")),
+		NextPane:     key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next pane")),
 
 		// Arrows only: "h" and "l" are the timeline and the browse screen's
 		// kind keys, and a scrubber that also fired those would be a trap.
@@ -229,6 +239,9 @@ func (k keyMap) footerHints(m *Model) []key.Binding {
 		if m.actions != nil {
 			return []key.Binding{k.Up, k.Down, k.RunAction, k.CancelAction}
 		}
+		if r, ok := m.detailRow(); ok && r.vm != nil {
+			return []key.Binding{k.Up, k.Down, k.Open, k.PerfRange, k.Timeline, k.Back, k.Help, k.Quit}
+		}
 		return []key.Binding{k.Up, k.Down, k.Open, k.Timeline, k.Back, k.Help, k.Quit}
 	case modeVAppDetail:
 		return []key.Binding{k.Up, k.Down, k.Open, k.Back, k.Help, k.Quit}
@@ -236,7 +249,7 @@ func (k keyMap) footerHints(m *Model) []key.Binding {
 		if m.actions != nil {
 			return []key.Binding{k.Up, k.Down, k.RunAction, k.CancelAction}
 		}
-		return []key.Binding{k.Up, k.Down, k.Open, k.Timeline, k.Back, k.Help, k.Quit}
+		return []key.Binding{k.Up, k.Down, k.Open, k.PerfRange, k.Timeline, k.Back, k.Help, k.Quit}
 	case modeDoctor:
 		return []key.Binding{k.Reload, k.Back, k.Help, k.Quit}
 	case modeHelp:

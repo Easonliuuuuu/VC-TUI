@@ -624,6 +624,9 @@ func (m *Model) viewDetail() []string {
 }
 
 func (m *Model) viewDetailRow(r row) []string {
+	if r.vm != nil {
+		return scrollLines(m.vmDetailLines(r, true), m.detailY, m.bodyHeight())
+	}
 	t := m.theme
 	lines := []string{m.detailHeaderLine(r), ""}
 	for i, f := range r.detail {

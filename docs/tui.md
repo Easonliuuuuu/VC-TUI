@@ -21,6 +21,45 @@ quiet background refresh.
 | Operations | `d` | Diagnose the selected row's vCenter |
 | Help and exit | `?` / `q` | Show key reference / quit |
 
+## VM detail dashboard
+
+A VM's detail pane is a small dashboard. Its properties keep the field
+cursor and actions described below, and the fields a health rule judges show
+that rule's verdict after their value, using the same default thresholds as
+the History health pane:
+
+| Field | `✓` | `▲` |
+|---|---|---|
+| VMware Tools | running | not installed, not running on a powered-on VM, or needs an upgrade |
+| Snapshots | none, or the oldest is younger than 30 days | the oldest is 30 days or older (its age is shown) |
+| Guest disks | the fullest filesystem has at least 10% free | the fullest filesystem has less than 10% free |
+
+A field with no evidence gets no mark. That covers an empty Tools state, a VM
+read without its configuration, and a guest whose Tools reports no
+filesystems.
+
+Beside the properties, or below them on a terminal narrower than 100
+columns, are charts of the VM's CPU usage, CPU ready, and active memory,
+with the average, 95th percentile, and peak for the range. Below the charts
+are the peak ballooned and swapped memory and the same sizing signal that
+`assessment perf` reports. Each chart column shows the largest sample it
+covers, so a short peak is never averaged away, and a dot on the baseline
+marks a stretch with no samples.
+
+| Key | Action |
+|---|---|
+| `<` / `>` (or `,` / `.`) | Shorter / longer range: 1h of 20-second realtime samples, then 24h, 7d, and 30d of vSphere's 5-minute, 30-minute, and 2-hour roll-ups |
+| `r` | Re-read the current range |
+
+The charts come from one read-only `QueryPerf` request for the opened VM,
+made when the pane opens or the range changes. Results are kept for the
+session, so moving between VMs or ranges and back does not ask the vCenter
+again. The range stays the same as you move between VMs with `←`/`→`, so you
+can compare VMs over one window. If the read fails, for example on a
+permission denial or a statistics level that does not collect a counter, the
+error appears in place of the charts and the properties are unaffected.
+`vsfleet demo` draws fixed synthetic charts.
+
 ## Detail pane actions
 
 Opening a row (`Enter`) puts a cursor on the detail pane itself: `↑`/`↓` move

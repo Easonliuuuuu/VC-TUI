@@ -535,6 +535,7 @@ func (m *Model) handleVAppDetailKey(msg tea.KeyMsg) tea.Cmd {
 			m.vappVM = &r
 			m.detailCursor, m.detailY = 0, 0
 			m.mode = modeVAppVMDetail
+			return m.ensureVMPerf(false)
 		}
 	}
 	return nil
@@ -579,6 +580,12 @@ func (m *Model) handleVAppVMDetailKey(msg tea.KeyMsg) tea.Cmd {
 		m.scrollDetailPage(-1)
 	case key.Matches(msg, m.keys.PageDown):
 		m.scrollDetailPage(1)
+	case key.Matches(msg, m.keys.ShorterRange):
+		return m.shiftPerfRange(-1)
+	case key.Matches(msg, m.keys.LongerRange):
+		return m.shiftPerfRange(1)
+	case key.Matches(msg, m.keys.Reload):
+		return m.ensureVMPerf(true)
 	}
 	return nil
 }

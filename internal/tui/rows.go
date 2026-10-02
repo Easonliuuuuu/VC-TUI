@@ -164,6 +164,9 @@ type row struct {
 	// actions.go. The browse table never reads either.
 	target actionTarget
 	joins  actionJoins
+	// vm is the virtual machine a VM row was built from, so the detail pane
+	// can judge its fields and chart its counters. Nil for every other kind.
+	vm *vsphere.VM
 }
 
 // columnsFor returns the columns for a kind. withContext adds the leading
@@ -481,6 +484,8 @@ func vmRow(vm vsphere.VM, withContext bool) row {
 			{"CPU", strconv.FormatInt(int64(vm.CPU), 10) + " vCPU"},
 			{"Memory", humanize.MB(vm.MemoryMB)},
 			{"Committed storage", humanize.GB(vm.StorageGB)},
+			{"Snapshots", snapshotsValue(vm)},
+			{"Guest disks", guestDisksValue(vm)},
 			{"Host", humanize.Dash(vm.Host)},
 			{"Cluster", humanize.Dash(vm.Cluster)},
 			{"Datacenter", humanize.Dash(vm.Datacenter)},
@@ -491,6 +496,7 @@ func vmRow(vm vsphere.VM, withContext bool) row {
 		},
 		target: actionTarget{moref: vm.ID, morefKind: "VirtualMachine", address: vm.IPAddress, hostName: vm.GuestHostName, path: vm.Path},
 		joins:  actionJoins{host: vm.Host, cluster: vm.Cluster, datastores: vm.Datastores, networks: nicNetworks(vm.NICs)},
+		vm:     &vm,
 	}
 	if vm.Annotation != "" {
 		r.notes = append(r.notes, field{"Notes", vm.Annotation})
