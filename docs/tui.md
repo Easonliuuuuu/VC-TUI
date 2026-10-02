@@ -39,26 +39,60 @@ read without its configuration, and a guest whose Tools reports no
 filesystems.
 
 Beside the properties, or below them on a terminal narrower than 100
-columns, are charts of the VM's CPU usage, CPU ready, and active memory,
-with the average, 95th percentile, and peak for the range. Below the charts
-are the peak ballooned and swapped memory and the same sizing signal that
-`assessment perf` reports. Each chart column shows the largest sample it
-covers, so a short peak is never averaged away, and a dot on the baseline
-marks a stretch with no samples.
+columns, is a chart column with five pages. Press `0`–`4` to switch pages.
+The page tabs show their digits, and every page draws from the same read, so
+switching pages asks the vCenter nothing.
+
+| Key | Page | Shows |
+|---|---|---|
+| `0` | Overview (default) | Charts of CPU usage, active memory, and disk read + write (with peak latency), then a compact table: CPU ready, co-stop, CPU limited, balloon, swap-in, network received/transmitted, dropped packets, and the sizing signal |
+| `1` | CPU | Usage, ready, co-stop, and time held back by a CPU limit ("no CPU limit set" when there is none) |
+| `2` | Memory | Active and consumed memory as a share of configured memory, ballooned memory, and the swap-in rate |
+| `3` | Disk | Read and write throughput, the worst disk's latency, and IOPS |
+| `4` | Network | Received and transmitted throughput, and dropped packets |
+
+Each chart's title carries the average, 95th percentile, and peak. They use
+the same minimum sample count and window coverage as `assessment perf`
+summaries. Each chart column shows the largest sample it covers, so a short
+peak is never averaged away. A faint baseline marks a reading of zero, and a
+dot marks a stretch with no samples. A `▲` marks a reading at or above its
+threshold:
+
+| Reading | Threshold | Source |
+|---|---|---|
+| CPU usage, active memory | 60% | sizing signal |
+| CPU ready | 5% per vCPU | sizing signal |
+| Balloon | 1 MiB | sizing signal |
+| Co-stop | 3% per vCPU | common VMware guidance |
+| CPU limited | 1% per vCPU | any measurable throttling |
+| Disk latency | 20 ms | common VMware guidance |
+| Swap-in rate | 1 KB/s | any active swapping |
+| Dropped packets | 1 per sample | any drop |
+
+The dashboard thresholds only decide where the pane draws a `▲`. They are not
+health rules and are not stored or exported.
 
 | Key | Action |
 |---|---|
+| `0`–`4` | Switch chart page |
 | `<` / `>` (or `,` / `.`) | Shorter / longer range: 1h of 20-second realtime samples, then 24h, 7d, and 30d of vSphere's 5-minute, 30-minute, and 2-hour roll-ups |
 | `r` | Re-read the current range |
 
 The charts come from one read-only `QueryPerf` request for the opened VM,
-made when the pane opens or the range changes. Results are kept for the
-session, so moving between VMs or ranges and back does not ask the vCenter
-again. The range stays the same as you move between VMs with `←`/`→`, so you
-can compare VMs over one window. If the read fails, for example on a
-permission denial or a statistics level that does not collect a counter, the
-error appears in place of the charts and the properties are unaffected.
-`vsfleet demo` draws fixed synthetic charts.
+made when the pane opens or the range changes. That request reads more
+counters than `assessment perf` does, but the dashboard's counters are kept
+separate, so estate-wide collection and its stored summaries are unchanged.
+Disk and network counters are requested for every device and added up when
+the vCenter offers no VM-level total. Results are kept for the session, so
+moving between VMs, pages, or ranges and back does not ask the vCenter again.
+The page and range stay the same as you move between VMs with `←`/`→`, so you
+can compare VMs over one window.
+
+The 1h range reads every counter. The longer ranges only have what the
+vCenter's statistics level keeps, so a counter that is not collected shows
+"no samples" with the reason in place of its chart. If the read fails, for
+example on a permission denial, the error appears in place of the charts and
+the properties are unaffected. `vsfleet demo` draws fixed synthetic charts.
 
 ## Detail pane actions
 

@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -136,6 +137,17 @@ func (m *Model) shiftPerfRange(delta int) tea.Cmd {
 	}
 	m.perfRangeIdx = clamp(m.perfRangeIdx+delta, 0, len(perfRanges)-1)
 	return m.ensureVMPerf(false)
+}
+
+// setPerfPage switches the chart column to the page a digit names. It
+// asks the vCenter nothing: every page draws from the same loaded series.
+func (m *Model) setPerfPage(digit string) {
+	if r, ok := m.detailRow(); !ok || r.vm == nil || len(digit) != 1 {
+		return
+	}
+	if i := int(digit[0] - '0'); i >= 0 && i < len(perfPages) {
+		m.perfPage = i
+	}
 }
 
 // fieldMark is a health rule's verdict on one detail field, drawn after its
@@ -345,28 +357,46 @@ func (m *Model) vmDetailLines(r row, withActions bool) []string {
 	return out
 }
 
+// perfPages are the chart column's pages: an overview of everything, then
+// one focused page per area, chosen with 0–4.
+var perfPages = []string{"Overview", "CPU", "Memory", "Disk", "Network"}
+
 // vmDashLines is the chart column, w cells wide.
 func (m *Model) vmDashLines(r row, w int) []string {
 	t := m.theme
 	rng := m.perfRange()
-	var tabs []string
-	for _, pr := range perfRanges {
-		if pr.label == rng.label {
-			tabs = append(tabs, t.accent.Render("["+pr.label+"]"))
+	page := clamp(m.perfPage, 0, len(perfPages)-1)
+	var pages []string
+	for i, name := range perfPages {
+		label := fmt.Sprintf("%d %s", i, name)
+		if i == page {
+			pages = append(pages, t.accent.Render("["+label+"]"))
 		} else {
-			tabs = append(tabs, t.dim.Render(" "+pr.label+" "))
+			pages = append(pages, t.dim.Render(" "+label+" "))
 		}
 	}
-	head := strings.Join(tabs, "")
+	var ranges []string
+	for _, pr := range perfRanges {
+		if pr.label == rng.label {
+			ranges = append(ranges, t.accent.Render("["+pr.label+"]"))
+		} else {
+			ranges = append(ranges, t.dim.Render(" "+pr.label+" "))
+		}
+	}
+	pageLine := truncate(strings.Join(pages, ""), w)
+	rangeLine := strings.Join(ranges, "")
 	if _, ok := m.backend.(vmPerfBackend); !ok {
-		return []string{head, "", t.dim.Render("Performance charts need a live vCenter connection.")}
+		return []string{pageLine, rangeLine, "", t.dim.Render("Performance charts need a live vCenter connection.")}
 	}
 	e := m.vmPerf[vmPerfKey(r, rng)]
 	source := rng.source
 	if e != nil && !e.loading && e.err == nil {
 		source += " · as of " + e.asOf.Local().Format("15:04:05")
+		if up, ok := lastValue(e.set, perf.SysUptime); ok {
+			source = "up " + ageWords(time.Duration(up)*time.Second) + " · " + source
+		}
 	}
-	lines := []string{joinEnds(head, t.dim.Render(source), w), ""}
+	lines := []string{pageLine, joinEnds(rangeLine, t.dim.Render(source), w), ""}
 	switch {
 	case e == nil || e.loading:
 		return append(lines, t.dim.Render("loading performance…"))
@@ -376,99 +406,442 @@ func (m *Model) vmDashLines(r row, w int) []string {
 		}
 		return lines
 	}
-	vm := *r.vm
-	set := e.set
-	ident := func(v float64) float64 { return v }
-
-	cpu, _ := set.Get(perf.CPUUsage)
-	lines = append(lines, m.chart("CPU usage", fmt.Sprintf("%% of %d vCPU", vm.CPU), cpu, ident, "%", 100, perf.HighPeakPercent, rng, w)...)
-
-	ready, _ := set.Get(perf.CPUReady)
-	readyScale := 2 * perf.ReadyContentionPercent
-	if p := ready.Summary.Peak; p != nil && *p > readyScale {
-		readyScale = *p
+	d := dash{m: m, vm: *r.vm, set: e.set, rng: rng, w: w}
+	switch page {
+	case 1:
+		return append(lines, d.cpuPage()...)
+	case 2:
+		return append(lines, d.memoryPage()...)
+	case 3:
+		return append(lines, d.diskPage()...)
+	case 4:
+		return append(lines, d.networkPage()...)
 	}
-	lines = append(lines, m.chart("CPU ready", "% per vCPU", ready, ident, "%", readyScale, perf.ReadyContentionPercent, rng, w)...)
+	return append(lines, d.overview()...)
+}
 
-	active, _ := set.Get(perf.MemActive)
-	toPct := func(v float64) float64 {
-		if vm.MemoryMB <= 0 {
-			return math.NaN()
+// dash renders one VM's chart pages from one loaded SeriesSet.
+type dash struct {
+	m   *Model
+	vm  vsphere.VM
+	set perf.SeriesSet
+	rng perfRange
+	w   int
+}
+
+// metric is one plotted reading: its values in the plotted unit, how to
+// print a value, and the level from which it draws as a warning (+Inf for
+// none). scale fixes the top of a chart; zero scales it to the peak, but
+// never below minScale, so a quiet counter does not fill the chart.
+type metric struct {
+	name     string
+	unit     string
+	values   []float64
+	missing  string
+	format   func(float64) string
+	scale    float64
+	minScale float64
+	warnAt   float64
+}
+
+func (d dash) series(m perf.Metric) ([]float64, string) {
+	s, ok := d.set.Get(m)
+	if !ok {
+		return nil, "not collected"
+	}
+	if len(s.Values) == 0 {
+		return nil, s.Summary.Reason
+	}
+	return s.Values, ""
+}
+
+// sum adds two series sample by sample, missing only where both are.
+func (d dash) sum(a, b perf.Metric) ([]float64, string) {
+	x, why := d.series(a)
+	y, whyB := d.series(b)
+	switch {
+	case x == nil && y == nil:
+		return nil, why
+	case x == nil:
+		return y, whyB
+	case y == nil:
+		return x, why
+	}
+	out := make([]float64, max(len(x), len(y)))
+	for i := range out {
+		v, ok := 0.0, false
+		if i < len(x) && !math.IsNaN(x[i]) {
+			v, ok = v+x[i], true
 		}
-		return v / float64(vm.MemoryMB) * 100
+		if i < len(y) && !math.IsNaN(y[i]) {
+			v, ok = v+y[i], true
+		}
+		if !ok {
+			v = math.NaN()
+		}
+		out[i] = v
 	}
-	lines = append(lines, m.chart("Memory active", "% of "+humanize.MB(vm.MemoryMB), active, toPct, "%", 100, perf.HighPeakPercent, rng, w)...)
-	lines = append(lines, m.pressureLine(set, w), "")
+	return out, ""
+}
 
+func pctOf(values []float64, whole float64) []float64 {
+	if values == nil {
+		return nil
+	}
+	out := make([]float64, len(values))
+	for i, v := range values {
+		if whole <= 0 {
+			out[i] = math.NaN()
+			continue
+		}
+		out[i] = v / whole * 100
+	}
+	return out
+}
+
+func fmtPct(v float64) string     { return fmt.Sprintf("%.1f%%", v) }
+func fmtMs(v float64) string      { return fmt.Sprintf("%.0f ms", v) }
+func fmtMiB(v float64) string     { return fmt.Sprintf("%.0f MiB", v) }
+func fmtCount(v float64) string   { return humanCount(v) }
+func fmtRate(kbps float64) string { return humanRate(kbps) }
+
+// humanRate prints a KBps value the way people read throughput.
+func humanRate(kbps float64) string {
+	switch {
+	case kbps >= 1024*1024:
+		return fmt.Sprintf("%.1f GB/s", kbps/1024/1024)
+	case kbps >= 1024:
+		return fmt.Sprintf("%.1f MB/s", kbps/1024)
+	}
+	return fmt.Sprintf("%.0f KB/s", kbps)
+}
+
+func humanCount(v float64) string {
+	switch {
+	case v >= 1e6:
+		return fmt.Sprintf("%.1fM", v/1e6)
+	case v >= 1e4:
+		return fmt.Sprintf("%.0fk", v/1e3)
+	case v >= 1e3:
+		return fmt.Sprintf("%.1fk", v/1e3)
+	}
+	return fmt.Sprintf("%.0f", v)
+}
+
+func (d dash) cpuUsage() metric {
+	v, why := d.series(perf.CPUUsage)
+	return metric{name: "CPU usage", unit: fmt.Sprintf("%% of %d vCPU", d.vm.CPU), values: v, missing: why, format: fmtPct, scale: 100, warnAt: perf.HighPeakPercent}
+}
+
+func (d dash) cpuReady() metric {
+	v, why := d.series(perf.CPUReady)
+	return metric{name: "CPU ready", unit: "% per vCPU", values: v, missing: why, format: fmtPct, minScale: 2 * perf.ReadyContentionPercent, warnAt: perf.ReadyContentionPercent}
+}
+
+func (d dash) cpuCostop() metric {
+	v, why := d.series(perf.CPUCostop)
+	return metric{name: "Co-stop", unit: "% per vCPU", values: v, missing: why, format: fmtPct, minScale: 2 * perf.CostopContentionPercent, warnAt: perf.CostopContentionPercent}
+}
+
+func (d dash) cpuLimited() metric {
+	v, why := d.series(perf.CPUMaxLimited)
+	return metric{name: "CPU limited", unit: "% per vCPU held back by a limit", values: v, missing: why, format: fmtPct, minScale: 5, warnAt: perf.LimitedPercent}
+}
+
+// memPct plots a memory counter as a share of configured memory. Only
+// active memory is judged: consumed memory sitting near the configured size
+// is how a host normally backs a VM, not a sign of demand.
+func (d dash) memPct(name string, m perf.Metric) metric {
+	v, why := d.series(m)
+	warnAt := math.Inf(1)
+	if m == perf.MemActive {
+		warnAt = perf.HighPeakPercent
+	}
+	return metric{name: name, unit: "% of " + humanize.MB(d.vm.MemoryMB), values: pctOf(v, float64(d.vm.MemoryMB)), missing: why, format: fmtPct, scale: 100, warnAt: warnAt}
+}
+
+func (d dash) memBalloon() metric {
+	v, why := d.series(perf.MemBalloon)
+	return metric{name: "Balloon", unit: "MiB reclaimed by the balloon driver", values: v, missing: why, format: fmtMiB, minScale: 64, warnAt: perf.MemPressureMiB}
+}
+
+func (d dash) memSwapin() metric {
+	v, why := d.series(perf.MemSwapinRate)
+	return metric{name: "Swap-in", unit: "rate read back from host swap", values: v, missing: why, format: fmtRate, minScale: 64, warnAt: perf.SwapinRateKBps}
+}
+
+func (d dash) diskThroughput() metric {
+	v, why := d.sum(perf.DiskRead, perf.DiskWrite)
+	return metric{name: "Disk", unit: "read + write", values: v, missing: why, format: fmtRate, minScale: 1024, warnAt: math.Inf(1)}
+}
+
+func (d dash) disk(name string, m perf.Metric) metric {
+	v, why := d.series(m)
+	return metric{name: name, values: v, missing: why, format: fmtRate, minScale: 1024, warnAt: math.Inf(1)}
+}
+
+func (d dash) diskLatency() metric {
+	v, why := d.series(perf.DiskMaxLatency)
+	return metric{name: "Max latency", unit: "worst disk, ms", values: v, missing: why, format: fmtMs, minScale: 2 * perf.DiskLatencyHighMs, warnAt: perf.DiskLatencyHighMs}
+}
+
+func (d dash) diskIOPS() metric {
+	v, why := d.sum(perf.DiskReadIOPS, perf.DiskWriteIOPS)
+	return metric{name: "IOPS", unit: "read + write commands per second", values: v, missing: why, format: fmtCount, minScale: 100, warnAt: math.Inf(1)}
+}
+
+func (d dash) net(name string, m perf.Metric) metric {
+	v, why := d.series(m)
+	return metric{name: name, unit: "", values: v, missing: why, format: fmtRate, minScale: 128, warnAt: math.Inf(1)}
+}
+
+func (d dash) netDropped() metric {
+	v, why := d.sum(perf.NetDroppedRx, perf.NetDroppedTx)
+	return metric{name: "Dropped", unit: "packets per sample, rx + tx", values: v, missing: why, format: fmtCount, minScale: 10, warnAt: perf.DroppedPackets}
+}
+
+// limitless reports whether the VM has no CPU limit to be held back by, so
+// the limited chart would only ever draw zero.
+func (d dash) limitless() bool {
+	a := d.vm.CPUAllocation
+	return a != nil && (a.Limit == nil || *a.Limit < 0)
+}
+
+func (d dash) overview() []string {
+	m, w := d.m, d.w
+	t := m.theme
+	var out []string
+	out = append(out, m.chart(d.cpuUsage(), d.rng, w)...)
+	out = append(out, m.chart(d.memPct("Memory active", perf.MemActive), d.rng, w)...)
+	disk := d.diskThroughput()
+	lat := d.diskLatency()
+	disk.unit = "read + write · latency " + d.peakText(lat)
+	if st, ok := statsOf(lat.values); ok && st.peak >= lat.warnAt {
+		disk.unit += " " + glyphCheckWarn
+	}
+	out = append(out, m.chart(disk, d.rng, w)...)
+	out = append(out, t.header.Render("CONTENTION"))
+	out = append(out, m.metricRow(d.cpuReady(), w), m.metricRow(d.cpuCostop(), w))
+	if d.limitless() {
+		out = append(out, m.noteRow("CPU limited", "no CPU limit set", w))
+	} else {
+		out = append(out, m.metricRow(d.cpuLimited(), w))
+	}
+	out = append(out, m.metricRow(d.memBalloon(), w), m.metricRow(d.memSwapin(), w))
+	out = append(out, t.header.Render("NETWORK"))
+	out = append(out, m.metricRow(d.net("Received", perf.NetReceived), w), m.metricRow(d.net("Transmitted", perf.NetTransmitted), w), m.metricRow(d.netDropped(), w))
+	out = append(out, "")
+	return append(out, d.signalLines()...)
+}
+
+func (d dash) cpuPage() []string {
+	var out []string
+	for _, mt := range []metric{d.cpuUsage(), d.cpuReady(), d.cpuCostop()} {
+		out = append(out, d.m.chart(mt, d.rng, d.w)...)
+	}
+	if d.limitless() {
+		out = append(out, d.m.noteRow("CPU limited", "no CPU limit set", d.w), "")
+	} else {
+		out = append(out, d.m.chart(d.cpuLimited(), d.rng, d.w)...)
+	}
+	return append(out, d.signalLines()...)
+}
+
+func (d dash) memoryPage() []string {
+	var out []string
+	for _, mt := range []metric{d.memPct("Memory active", perf.MemActive), d.memPct("Memory consumed", perf.MemConsumed), d.memBalloon(), d.memSwapin()} {
+		out = append(out, d.m.chart(mt, d.rng, d.w)...)
+	}
+	if s, ok := d.set.Get(perf.MemSwapped); ok && s.Summary.Peak != nil {
+		out = append(out, d.m.theme.dim.Render(fmt.Sprintf("swapped out at peak %s, which can be old pages rather than current pressure", fmtMiB(*s.Summary.Peak))))
+	}
+	return out
+}
+
+func (d dash) diskPage() []string {
+	var out []string
+	for _, mt := range []metric{d.disk("Read", perf.DiskRead), d.disk("Write", perf.DiskWrite), d.diskLatency(), d.diskIOPS()} {
+		out = append(out, d.m.chart(mt, d.rng, d.w)...)
+	}
+	return out
+}
+
+func (d dash) networkPage() []string {
+	var out []string
+	for _, mt := range []metric{d.net("Received", perf.NetReceived), d.net("Transmitted", perf.NetTransmitted), d.netDropped()} {
+		out = append(out, d.m.chart(mt, d.rng, d.w)...)
+	}
+	return out
+}
+
+func (d dash) peakText(mt metric) string {
+	if st, ok := statsOf(mt.values); ok {
+		return mt.format(st.peak)
+	}
+	return "—"
+}
+
+func (d dash) signalLines() []string {
+	t := d.m.theme
 	glyph, style := glyphCheckOK, t.ok
-	switch set.Signal {
+	switch d.set.Signal {
 	case perf.SignalContention:
 		glyph, style = glyphCheckWarn, t.warn
 	case perf.SignalUnavailable, perf.SignalInsufficient:
 		glyph, style = glyphSkip, t.faint
 	}
-	signal := t.label.Render("Sizing signal  ") + style.Render(glyph+" "+string(set.Signal))
-	lines = append(lines, truncate(signal, w))
-	for _, l := range wrap(set.SignalReason, w) {
+	lines := []string{truncate(t.label.Render("Sizing signal  ")+style.Render(glyph+" "+string(d.set.Signal)), d.w)}
+	for _, l := range wrap(d.set.SignalReason, d.w) {
 		lines = append(lines, t.dim.Render(l))
 	}
 	return lines
 }
 
-// pressureLine reports ballooning and swapping peaks, which contention makes
-// matter more than any chart: a starved VM can look idle.
-func (m *Model) pressureLine(set perf.SeriesSet, w int) string {
-	t := m.theme
-	part := func(name string, metric perf.Metric) string {
-		s, ok := set.Get(metric)
-		if !ok || s.Summary.Peak == nil {
-			return name + " " + t.faint.Render("—")
-		}
-		v := *s.Summary.Peak
-		style := t.text
-		if v >= perf.MemPressureMiB {
-			style = t.warn
-		}
-		return name + " " + style.Render(fmt.Sprintf("%.0f MiB", v))
+func lastValue(set perf.SeriesSet, m perf.Metric) (float64, bool) {
+	s, ok := set.Get(m)
+	if !ok {
+		return 0, false
 	}
-	return truncate(t.dim.Render("peak ")+part("balloon", perf.MemBalloon)+t.dim.Render(" · ")+part("swap", perf.MemSwapped), w)
+	for i := len(s.Values) - 1; i >= 0; i-- {
+		if !math.IsNaN(s.Values[i]) {
+			return s.Values[i], true
+		}
+	}
+	return 0, false
 }
 
-// chart draws one series as a chartRows-tall block chart under a title line
-// carrying its summary, with the range's ends beneath. Values are converted
-// by conv into the plotted unit; scale is the top of the chart and warnAt
-// the level from which a column takes the warning colour.
-func (m *Model) chart(title, unit string, s perf.Series, conv func(float64) float64, suffix string, scale, warnAt float64, rng perfRange, w int) []string {
-	t := m.theme
-	left := t.title.Render(title) + t.dim.Render("  "+unit)
-	var stats string
-	sum := s.Summary
-	switch {
-	case sum.Status == perf.StatusOK && sum.Average != nil && sum.Peak != nil:
-		parts := []string{fmt.Sprintf("avg %.1f%s", conv(*sum.Average), suffix)}
-		if sum.P95 != nil {
-			parts = append(parts, fmt.Sprintf("p95 %.1f%s", conv(*sum.P95), suffix))
+// seriesStats is what a chart's title line and a metric row report. It is
+// computed from the plotted values, so a sum or a percentage reports what
+// is drawn, and it is gated by the same sample rules as perf.Summarize: too
+// few samples, or too little of the window covered, and there is no number.
+type seriesStats struct {
+	avg, peak, last float64
+	p95             float64
+	hasP95          bool
+}
+
+func statsOf(values []float64) (seriesStats, bool) {
+	var present []float64
+	for _, v := range values {
+		if !math.IsNaN(v) {
+			present = append(present, v)
 		}
-		parts = append(parts, fmt.Sprintf("peak %.1f%s", conv(*sum.Peak), suffix))
-		stats = t.dim.Render(strings.Join(parts, " · "))
-	case sum.Status != "":
-		stats = t.faint.Render(string(sum.Status))
 	}
-	out := []string{joinEnds(left, stats, w)}
-	if len(s.Values) == 0 {
-		reason := sum.Reason
+	if len(present) < perf.MinSummarySamples || float64(len(present)) < perf.MinCoverage*float64(len(values)) {
+		return seriesStats{}, false
+	}
+	st := seriesStats{peak: present[0], last: present[len(present)-1]}
+	sum := 0.0
+	for _, v := range present {
+		sum += v
+		st.peak = math.Max(st.peak, v)
+	}
+	st.avg = sum / float64(len(present))
+	if len(present) >= perf.MinPercentileSamples {
+		sorted := append([]float64(nil), present...)
+		sort.Float64s(sorted)
+		st.p95, st.hasP95 = sorted[int(math.Ceil(0.95*float64(len(sorted))))-1], true
+	}
+	return st, true
+}
+
+func (mt metric) top(st seriesStats) float64 {
+	if mt.scale > 0 {
+		return mt.scale
+	}
+	return math.Max(mt.minScale, st.peak)
+}
+
+// chart draws one metric as a chartRows-tall block chart under a title line
+// carrying its statistics, with the range's ends beneath.
+func (m *Model) chart(mt metric, rng perfRange, w int) []string {
+	t := m.theme
+	left := t.title.Render(mt.name)
+	if mt.unit != "" {
+		left += t.dim.Render("  " + mt.unit)
+	}
+	if len(mt.values) == 0 {
+		reason := mt.missing
 		if reason == "" {
 			reason = "not collected"
 		}
-		return append(out, truncate(t.faint.Render("no samples: "+reason), w), "")
+		return []string{truncate(left, w), truncate(t.faint.Render("no samples: "+reason), w), ""}
 	}
-	values := make([]float64, len(s.Values))
-	for i, v := range s.Values {
-		values[i] = conv(v)
+	st, ok := statsOf(mt.values)
+	out := []string{m.chartTitle(mt, st, ok, w)}
+	out = append(out, m.blockChart(mt.values, w, chartRows, mt.top(st), mt.warnAt)...)
+	return append(out, joinEnds(t.faint.Render("-"+rng.label), t.faint.Render("now"), w), "")
+}
+
+// chartTitle fits a chart's name, unit and statistics on one line. When
+// they do not fit it gives up detail in order of least use: the 95th
+// percentile, then the average, then the unit — the peak and the warning
+// stay to the last, since they are what the chart is checked for.
+func (m *Model) chartTitle(mt metric, st seriesStats, ok bool, w int) string {
+	t := m.theme
+	name := t.title.Render(mt.name)
+	full := name
+	if mt.unit != "" {
+		full += t.dim.Render("  " + mt.unit)
 	}
-	out = append(out, m.blockChart(values, w, chartRows, scale, warnAt)...)
-	out = append(out, joinEnds(t.faint.Render("-"+rng.label), t.faint.Render("now"), w), "")
-	return out
+	if !ok {
+		return joinEnds(full, t.faint.Render(string(perf.StatusInsufficient)), w)
+	}
+	warn := ""
+	if st.peak >= mt.warnAt {
+		warn = " " + t.warn.Render(glyphCheckWarn)
+	}
+	peak := "peak " + mt.format(st.peak)
+	avg := "avg " + mt.format(st.avg)
+	var variants []string
+	if st.hasP95 {
+		variants = append(variants, avg+" · p95 "+mt.format(st.p95)+" · "+peak)
+	}
+	variants = append(variants, avg+" · "+peak, peak)
+	for _, left := range []string{full, name} {
+		for _, v := range variants {
+			stats := t.dim.Render(v) + warn
+			if ansi.StringWidth(left)+1+ansi.StringWidth(stats) <= w {
+				return joinEnds(left, stats, w)
+			}
+		}
+	}
+	return truncate(name+" "+t.dim.Render(peak)+warn, w)
+}
+
+// metricRow is one line of the overview's compact table: name, a one-row
+// sparkline, the latest and peak values, and a verdict where the metric has
+// a threshold.
+func (m *Model) metricRow(mt metric, w int) string {
+	t := m.theme
+	const nameW, valW, peakW = 14, 10, 14
+	name := pad(mt.name, nameW, false)
+	if len(mt.values) == 0 {
+		reason := mt.missing
+		if reason == "" {
+			reason = "not collected"
+		}
+		return truncate(name+t.faint.Render("—  "+reason), w)
+	}
+	st, ok := statsOf(mt.values)
+	sparkW := max(4, w-nameW-valW-peakW-3)
+	spark := m.blockChart(mt.values, sparkW, 1, mt.top(st), mt.warnAt)[0]
+	if !ok {
+		return truncate(name+spark+"  "+t.faint.Render(string(perf.StatusInsufficient)), w)
+	}
+	mark := ""
+	if !math.IsInf(mt.warnAt, 1) {
+		if st.peak >= mt.warnAt {
+			mark = " " + t.warn.Render(glyphCheckWarn)
+		} else {
+			mark = " " + t.ok.Render(glyphCheckOK)
+		}
+	}
+	return truncate(name+spark+" "+pad(mt.format(st.last), valW, true)+t.dim.Render(pad("peak "+mt.format(st.peak), peakW, true))+mark, w)
+}
+
+func (m *Model) noteRow(name, note string, w int) string {
+	return truncate(pad(name, 14, false)+m.theme.faint.Render("—  "+note), w)
 }
 
 // blockChart renders values, oldest first, as h rows of eighth-block glyphs
@@ -520,6 +893,12 @@ func (m *Model) blockChart(values []float64, w, h int, scale, warnAt float64) []
 				}
 				fill := clamp(level-(h-1-row)*8, 0, 8)
 				g = string(glyphs[fill])
+				if row == h-1 && fill == 0 {
+					// The bottom row keeps a faint baseline, so a reading
+					// of zero still shows the series was there, unlike a
+					// gap, which draws a dot.
+					style, g = &t.faint, string(glyphs[1])
+				}
 			}
 			if runStyle != style {
 				flush()

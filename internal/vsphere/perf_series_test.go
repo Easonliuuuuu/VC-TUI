@@ -33,7 +33,7 @@ func TestVMPerfSeriesKeepsEverySampleAndMarksGapsMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.requests != 1 || len(spec.MetricId) != len(perf.Counters) || spec.IntervalId != RealtimePerfInterval || spec.MaxSample != 180 {
+	if f.requests != 1 || len(spec.MetricId) != len(perf.DashboardCounters) || spec.IntervalId != RealtimePerfInterval || spec.MaxSample != 180 {
 		t.Fatalf("query = %d requests, spec %+v; want one realtime request for 180 samples of every counter", f.requests, spec)
 	}
 	cpu, ok := set.Get(perf.CPUUsage)
@@ -89,5 +89,58 @@ func TestVMPerfSeriesRefusesAnUnboundedWindow(t *testing.T) {
 	_, err := collectVMSeries(context.Background(), f, VM{ID: "vm-1"}, 30*24*time.Hour, RealtimePerfInterval, perfNow)
 	if err == nil || f.requests != 0 {
 		t.Fatalf("err = %v after %d requests; want a refusal before any query", err, f.requests)
+	}
+}
+
+func TestVMPerfSeriesRequestsEveryInstanceOnlyForAdditiveCounters(t *testing.T) {
+	f := newFakePerf()
+	var spec types.PerfQuerySpec
+	f.fault = func(specs []types.PerfQuerySpec) error { spec = specs[0]; return nil }
+	f.data = constant(100)
+	if _, err := collectVMSeries(context.Background(), f, VM{ID: "vm-1", CPU: 2, MemoryMB: 2048}, time.Hour, RealtimePerfInterval, perfNow); err != nil {
+		t.Fatal(err)
+	}
+	byKey := map[int32]string{}
+	for _, id := range spec.MetricId {
+		byKey[id.CounterId] = id.Instance
+	}
+	for _, c := range perf.DashboardCounters {
+		want := ""
+		if perf.SumsInstances(c.Metric) {
+			want = "*"
+		}
+		if got := byKey[f.keys[c.VSphereName()]]; got != want {
+			t.Errorf("%s instance = %q; want %q", c.VSphereName(), got, want)
+		}
+	}
+}
+
+func TestVMPerfSeriesSumsDevicesWhenTheAggregateIsMissing(t *testing.T) {
+	f := newFakePerf()
+	f.data = constant(100)
+	readKey := f.keys["disk.read.average"]
+	f.byInstance = func(_ string, key int32, n int) map[string][]int64 {
+		a, b := make([]int64, n), make([]int64, n)
+		for i := range a {
+			a[i], b[i] = 300, 200
+		}
+		a[0], b[0] = perf.NoData, perf.NoData
+		b[1] = perf.NoData
+		if key != readKey {
+			return map[string][]int64{"": a}
+		}
+		return map[string][]int64{"scsi0:0": a, "scsi0:1": b}
+	}
+	set, err := collectVMSeries(context.Background(), f, VM{ID: "vm-1", CPU: 2, MemoryMB: 2048}, time.Hour, RealtimePerfInterval, perfNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read, _ := set.Get(perf.DiskRead)
+	if !math.IsNaN(read.Values[0]) || read.Values[1] != 300 || read.Values[2] != 500 {
+		t.Fatalf("disk read = %v...; want NaN where every disk is missing, then 300 and 500 KBps", read.Values[:3])
+	}
+	written, _ := set.Get(perf.DiskWrite)
+	if written.Values[2] != 300 {
+		t.Fatalf("disk write = %v; an aggregate instance must be used as is, not summed again", written.Values[2])
 	}
 }

@@ -21,6 +21,9 @@ type fakePerf struct {
 	retention []types.PerfInterval
 	// data returns raw samples for a VM and counter key; nil means no series.
 	data func(vm string, key int32, n int) []int64
+	// byInstance, when set, answers a "*" instance request with one series
+	// per named device instead of a single aggregate.
+	byInstance func(vm string, key int32, n int) map[string][]int64
 	// fault, when set, decides whether a call fails.
 	fault    func(specs []types.PerfQuerySpec) error
 	requests int
@@ -28,7 +31,7 @@ type fakePerf struct {
 
 func newFakePerf() *fakePerf {
 	f := &fakePerf{keys: map[string]int32{}}
-	for i, c := range perf.Counters {
+	for i, c := range perf.DashboardCounters {
 		f.keys[c.VSphereName()] = int32(i + 1)
 	}
 	f.retention = []types.PerfInterval{
@@ -46,7 +49,7 @@ func desc(key string) *types.ElementDescription {
 
 func (f *fakePerf) counters(context.Context) ([]types.PerfCounterInfo, error) {
 	var out []types.PerfCounterInfo
-	for _, c := range perf.Counters {
+	for _, c := range perf.DashboardCounters {
 		key, ok := f.keys[c.VSphereName()]
 		if !ok {
 			continue
@@ -70,6 +73,14 @@ func (f *fakePerf) query(_ context.Context, specs []types.PerfQuerySpec) ([]type
 		m := &types.PerfEntityMetric{}
 		m.Entity = spec.Entity
 		for _, id := range spec.MetricId {
+			if id.Instance == "*" && f.byInstance != nil {
+				for name, raw := range f.byInstance(spec.Entity.Value, id.CounterId, int(spec.MaxSample)) {
+					s := &types.PerfMetricIntSeries{Value: raw}
+					s.Id = types.PerfMetricId{CounterId: id.CounterId, Instance: name}
+					m.Value = append(m.Value, s)
+				}
+				continue
+			}
 			raw := f.data(spec.Entity.Value, id.CounterId, int(spec.MaxSample))
 			if raw == nil {
 				continue

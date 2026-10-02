@@ -39,7 +39,7 @@ func (b *perfFakeBackend) VMPerfSeries(_ context.Context, _ *config.Context, vm 
 	}
 	n := int(window.Seconds()) / interval
 	set := perf.SeriesSet{IntervalSeconds: interval, WindowStart: now.Add(-window), WindowEnd: now}
-	for _, c := range perf.Counters {
+	for _, c := range perf.DashboardCounters {
 		raw := make([]int64, n)
 		for i := range raw {
 			raw[i] = 2000
@@ -65,9 +65,10 @@ func TestVMDetailPutsChartsBesideTheProperties(t *testing.T) {
 	b := perfHealthy()
 	m := newTestModel(t, b.fakeBackend, Options{Current: "prod"})
 	m.backend = b
+	m.height = 60
 	press(t, m, "enter")
 	out := m.View()
-	for _, want := range []string{"[1h]", "CPU usage", "CPU ready", "Memory active", "Sizing signal", "live · 20 s samples"} {
+	for _, want := range []string{"[0 Overview]", "[1h]", "CPU usage", "Memory active", "Disk", "CONTENTION", "CPU ready", "Co-stop", "NETWORK", "Dropped", "Sizing signal", "live · 20 s samples"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("dashboard is missing %q:\n%s", want, ansi.Strip(out))
 		}
@@ -260,5 +261,136 @@ func TestVMDetailFooterOffersTheRangeKeys(t *testing.T) {
 	press(t, m, "enter")
 	if !strings.Contains(ansi.Strip(m.viewKeys()), "</> range") {
 		t.Fatalf("footer = %q", ansi.Strip(m.viewKeys()))
+	}
+}
+
+func TestVMDetailPageKeysSwitchChartsWithoutANewRead(t *testing.T) {
+	b := perfHealthy()
+	m := newTestModel(t, b.fakeBackend, Options{Current: "prod"})
+	m.backend = b
+	m.height = 60
+	press(t, m, "enter")
+	pages := []struct {
+		key  string
+		tab  string
+		want []string
+	}{
+		{"1", "[1 CPU]", []string{"CPU usage", "CPU ready", "Co-stop", "CPU limited", "Sizing signal"}},
+		{"2", "[2 Memory]", []string{"Memory active", "Memory consumed", "Balloon", "Swap-in"}},
+		{"3", "[3 Disk]", []string{"Read", "Write", "Max latency", "IOPS"}},
+		{"4", "[4 Network]", []string{"Received", "Transmitted", "Dropped"}},
+		{"0", "[0 Overview]", []string{"CONTENTION", "NETWORK"}},
+	}
+	for _, p := range pages {
+		press(t, m, p.key)
+		out := ansi.Strip(m.View())
+		for _, want := range append([]string{p.tab}, p.want...) {
+			if !strings.Contains(out, want) {
+				t.Errorf("page %s is missing %q:\n%s", p.key, want, out)
+			}
+		}
+	}
+	if len(b.calls) != 1 {
+		t.Fatalf("calls = %d; switching pages must draw from the loaded series", len(b.calls))
+	}
+	press(t, m, "3", "]")
+	if !strings.Contains(ansi.Strip(m.View()), "[3 Disk]") {
+		t.Error("the page should stay selected when moving to the next VM")
+	}
+}
+
+func TestVMDetailSaysWhenThereIsNoCPULimit(t *testing.T) {
+	b := perfHealthy()
+	b.inventories["prod"].VMs[0].CPUAllocation = &vsphere.VMResourceAllocation{Limit: func() *int64 { v := int64(-1); return &v }()}
+	m := newTestModel(t, b.fakeBackend, Options{Current: "prod"})
+	m.backend = b
+	m.height = 60
+	press(t, m, "enter", "1")
+	if _, l := lineWith(m.View(), "CPU limited"); !strings.Contains(l, "no CPU limit set") {
+		t.Fatalf("limited line = %q; an unlimited VM cannot be held back by a limit", l)
+	}
+}
+
+func TestVMDetailSumsDiskReadAndWrite(t *testing.T) {
+	b := perfHealthy()
+	m := newTestModel(t, b.fakeBackend, Options{Current: "prod"})
+	m.backend = b
+	m.height = 60
+	press(t, m, "enter")
+	// The fake reports 2000 KBps for each of read and write.
+	if _, l := lineWith(m.View(), "read + write"); !strings.Contains(l, "peak 3.9 MB/s") {
+		t.Fatalf("overview disk title = %q; want read and write summed", l)
+	}
+	press(t, m, "3")
+	if _, l := lineWith(m.View(), "Read "); !strings.Contains(l, "peak 2.0 MB/s") {
+		t.Fatalf("disk page read title = %q; want read on its own", l)
+	}
+}
+
+func TestVMDetailShowsUptimeFromTheLastSample(t *testing.T) {
+	b := perfHealthy()
+	m := newTestModel(t, b.fakeBackend, Options{Current: "prod"})
+	m.backend = b
+	press(t, m, "enter")
+	// The fake's 2000 seconds of uptime is 33 minutes.
+	if !strings.Contains(ansi.Strip(m.View()), "up 33m") {
+		t.Fatalf("header should carry the uptime:\n%s", ansi.Strip(m.View()))
+	}
+}
+
+func TestMetricStatsAreGatedLikeSummaries(t *testing.T) {
+	few := []float64{1, 2, 3}
+	if _, ok := statsOf(few); ok {
+		t.Error("three samples should not support statistics")
+	}
+	sparse := make([]float64, 40)
+	for i := range sparse {
+		sparse[i] = math.NaN()
+		if i < 15 {
+			sparse[i] = 5
+		}
+	}
+	if _, ok := statsOf(sparse); ok {
+		t.Error("15 of 40 samples is under the coverage floor")
+	}
+	full := make([]float64, 60)
+	for i := range full {
+		full[i] = float64(i)
+	}
+	st, ok := statsOf(full)
+	if !ok || st.peak != 59 || st.last != 59 || !st.hasP95 || st.p95 != 56 {
+		t.Fatalf("stats = %+v, %v", st, ok)
+	}
+}
+
+func TestHumanRateUsesReadableUnits(t *testing.T) {
+	for in, want := range map[float64]string{512: "512 KB/s", 1536: "1.5 MB/s", 3 * 1024 * 1024: "3.0 GB/s"} {
+		if got := humanRate(in); got != want {
+			t.Errorf("humanRate(%v) = %q; want %q", in, got, want)
+		}
+	}
+}
+
+func TestChartTitleGivesUpDetailBeforeThePeak(t *testing.T) {
+	m := newTestModel(t, twoHealthy(), Options{})
+	values := make([]float64, 60)
+	for i := range values {
+		values[i] = float64(i)
+	}
+	mt := metric{name: "Disk", unit: "read + write · latency 37 ms", values: values, format: fmtPct, warnAt: 50}
+	st, ok := statsOf(values)
+	for w, want := range map[int]string{
+		90: "p95",
+		60: "avg",
+		40: "peak",
+		22: "peak",
+	} {
+		got := ansi.Strip(m.chartTitle(mt, st, ok, w))
+		if ansi.StringWidth(got) > w || !strings.Contains(got, want) || !strings.Contains(got, "peak 59.0%") || !strings.Contains(got, glyphCheckWarn) {
+			t.Errorf("width %d: title %q; want %q, the peak and the warning within the width", w, got, want)
+		}
+	}
+	if got := ansi.Strip(m.chartTitle(mt, st, ok, 40)); strings.Contains(got, "latency") {
+		t.Errorf("at 40 columns the unit should go before the peak: %q", got)
 	}
 }

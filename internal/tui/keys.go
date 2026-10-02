@@ -47,11 +47,16 @@ type keyMap struct {
 	ShorterRange key.Binding
 	LongerRange  key.Binding
 	PerfRange    key.Binding
-	Doctor       key.Binding
-	History      key.Binding
-	Capture      key.Binding
-	Base         key.Binding
-	Target       key.Binding
+	// PerfPage picks the VM detail pane's chart page. It shares 0–4 with
+	// Kind, which the detail pane never handles. It has no footer hint: the
+	// detail key line is already at 80 columns, and the page tabs show their
+	// own digits.
+	PerfPage key.Binding
+	Doctor   key.Binding
+	History  key.Binding
+	Capture  key.Binding
+	Base     key.Binding
+	Target   key.Binding
 	// Swap exchanges baseline and target on the Changes pane. It is "s"
 	// rather than sharing anything with Sort — Sort belongs to the browse
 	// table, which the history hub never shows, so the two never collide.
@@ -148,6 +153,7 @@ func defaultKeys() keyMap {
 		ShorterRange: key.NewBinding(key.WithKeys("<", ","), key.WithHelp("<", "shorter range")),
 		LongerRange:  key.NewBinding(key.WithKeys(">", "."), key.WithHelp(">", "longer range")),
 		PerfRange:    key.NewBinding(key.WithHelp("</>", "range")),
+		PerfPage:     key.NewBinding(key.WithKeys("0", "1", "2", "3", "4"), key.WithHelp("0-4", "chart page")),
 		Doctor:       key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "diagnose")),
 		History:      key.NewBinding(key.WithKeys("H"), key.WithHelp("H", "history")),
 		Capture:      key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "capture")),

@@ -580,6 +580,8 @@ func (m *Model) handleVAppVMDetailKey(msg tea.KeyMsg) tea.Cmd {
 		m.scrollDetailPage(-1)
 	case key.Matches(msg, m.keys.PageDown):
 		m.scrollDetailPage(1)
+	case key.Matches(msg, m.keys.PerfPage):
+		m.setPerfPage(msg.String())
 	case key.Matches(msg, m.keys.ShorterRange):
 		return m.shiftPerfRange(-1)
 	case key.Matches(msg, m.keys.LongerRange):

@@ -15,12 +15,13 @@ import (
 // offered by chooseInterval; a caller asks for it explicitly.
 const RealtimePerfInterval = 20
 
-// VMPerfSeries reads one VM's counters as time series, for the detail pane's
-// charts. Unlike CollectPerf it reads exactly one VM in exactly one QueryPerf
-// call and keeps every sample, because what it feeds is a chart rather than
-// a stored summary. interval is explicit — RealtimePerfInterval or one of
-// the historical roll-ups — and the window must fit in DefaultPerfMaxSamples
-// samples at that interval. It is read-only.
+// VMPerfSeries reads one VM's dashboard counters (perf.DashboardCounters) as
+// time series, for the detail pane's charts. Unlike CollectPerf it reads
+// exactly one VM in exactly one QueryPerf call and keeps every sample,
+// because what it feeds is a chart rather than a stored summary. interval is
+// explicit — RealtimePerfInterval or one of the historical roll-ups — and
+// the window must fit in DefaultPerfMaxSamples samples at that interval. It
+// is read-only.
 func (c *Client) VMPerfSeries(ctx context.Context, vm VM, window time.Duration, interval int, now time.Time) (perf.SeriesSet, error) {
 	return collectVMSeries(ctx, perfClient{c}, vm, window, interval, now)
 }
@@ -35,7 +36,7 @@ func collectVMSeries(ctx context.Context, api perfAPI, vm VM, window time.Durati
 	if expected < 1 || expected > DefaultPerfMaxSamples {
 		return set, fmt.Errorf("a %s window at %ds intervals is %d samples per counter, outside 1 to %d", window, interval, expected, DefaultPerfMaxSamples)
 	}
-	keys, err := resolveCounters(ctx, api)
+	keys, err := resolveCounterKeys(ctx, api, perf.DashboardCounters)
 	if err != nil {
 		return set, err
 	}
@@ -48,10 +49,18 @@ func collectVMSeries(ctx context.Context, api perfAPI, vm VM, window time.Durati
 		IntervalId: int32(interval),
 		Format:     string(types.PerfFormatNormal),
 	}
-	for _, c := range perf.Counters {
-		if key, ok := keys[c.Metric]; ok {
-			spec.MetricId = append(spec.MetricId, types.PerfMetricId{CounterId: key, Instance: ""})
+	for _, c := range perf.DashboardCounters {
+		key, ok := keys[c.Metric]
+		if !ok {
+			continue
 		}
+		// Instance "" is the VM-level aggregate; "*" asks for every
+		// instance as well, which an additive counter falls back on.
+		instance := ""
+		if perf.SumsInstances(c.Metric) {
+			instance = "*"
+		}
+		spec.MetricId = append(spec.MetricId, types.PerfMetricId{CounterId: key, Instance: instance})
 	}
 	out, err := api.query(ctx, []types.PerfQuerySpec{spec})
 	if err != nil {
@@ -60,21 +69,31 @@ func collectVMSeries(ctx context.Context, api perfAPI, vm VM, window time.Durati
 		}
 		return set, err
 	}
-	series := map[int32][]int64{}
+	aggregate := map[int32][]int64{}
+	instances := map[int32][][]int64{}
 	for _, base := range out {
 		m, ok := base.(*types.PerfEntityMetric)
 		if !ok || m.Entity.Value != vm.ID {
 			continue
 		}
 		for _, v := range m.Value {
-			if s, ok := v.(*types.PerfMetricIntSeries); ok && s.Id.Instance == "" {
-				series[s.Id.CounterId] = s.Value
+			s, ok := v.(*types.PerfMetricIntSeries)
+			if !ok {
+				continue
+			}
+			if s.Id.Instance == "" {
+				aggregate[s.Id.CounterId] = s.Value
+			} else {
+				instances[s.Id.CounterId] = append(instances[s.Id.CounterId], s.Value)
 			}
 		}
 	}
-	for _, c := range perf.Counters {
+	for _, c := range perf.DashboardCounters {
 		key, offered := keys[c.Metric]
-		raw := series[key]
+		raw := aggregate[key]
+		if len(raw) == 0 && perf.SumsInstances(c.Metric) {
+			raw = sumInstances(instances[key])
+		}
 		switch {
 		case !offered:
 			set.Series = append(set.Series, perf.UnavailableSeries(c, interval, expected, "this server does not offer the "+c.VSphereName()+" counter"))
@@ -87,4 +106,32 @@ func collectVMSeries(ctx context.Context, api perfAPI, vm VM, window time.Durati
 	}
 	set.Signal, set.SignalReason = perf.Classify(perf.ClassifyInput{Summaries: set.Summaries(), MemoryMB: vm.MemoryMB})
 	return set, nil
+}
+
+// sumInstances adds per-device series sample by sample. A sample is
+// missing (NoData) only when every instance is missing it; otherwise the
+// missing instances simply contribute nothing.
+func sumInstances(series [][]int64) []int64 {
+	n := 0
+	for _, s := range series {
+		n = max(n, len(s))
+	}
+	if n == 0 {
+		return nil
+	}
+	out := make([]int64, n)
+	for i := range out {
+		sum, any := int64(0), false
+		for _, s := range series {
+			if i < len(s) && s[i] >= 0 {
+				sum += s[i]
+				any = true
+			}
+		}
+		if !any {
+			sum = perf.NoData
+		}
+		out[i] = sum
+	}
+	return out
 }
