@@ -79,16 +79,22 @@ func Normalize(c Counter, raw int64, intervalSeconds int, vcpu int32) (value flo
 	case CPUUsage:
 		// vSphere reports usage in hundredths of a percent.
 		return float64(raw) / 100, true
-	case CPUReady:
+	case CPUReady, CPUCostop, CPUMaxLimited:
 		if intervalSeconds <= 0 || vcpu <= 0 {
 			return 0, false
 		}
-		// The VM-level (aggregate) instance sums ready time over all vCPUs,
-		// so divide by vCPU count to get a per-vCPU figure.
+		// The VM-level (aggregate) instance sums ready (or co-stop, or
+		// limited) time over all vCPUs, so divide by vCPU count to get a
+		// per-vCPU figure.
 		return float64(raw) / (float64(intervalSeconds) * 1000 * float64(vcpu)) * 100, true
 	case MemActive, MemConsumed, MemBalloon, MemSwapped:
 		// vSphere reports these memory counters in KB.
 		return float64(raw) / 1024, true
+	case MemSwapinRate, DiskRead, DiskWrite, NetReceived, NetTransmitted,
+		DiskMaxLatency, DiskReadIOPS, DiskWriteIOPS, NetDroppedRx, NetDroppedTx, SysUptime:
+		// Already in the normalised unit: KBps, milliseconds, commands per
+		// second, packets per interval, or seconds.
+		return float64(raw), true
 	}
 	return 0, false
 }

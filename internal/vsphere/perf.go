@@ -337,6 +337,12 @@ func (r *perfRun) fail(vms []VM, err error) {
 }
 
 func resolveCounters(ctx context.Context, api perfAPI) (map[perf.Metric]int32, error) {
+	return resolveCounterKeys(ctx, api, perf.Counters)
+}
+
+// resolveCounterKeys maps each of counters to the numeric id this server
+// gives it, leaving out any the server does not offer.
+func resolveCounterKeys(ctx context.Context, api perfAPI, counters []perf.Counter) (map[perf.Metric]int32, error) {
 	infos, err := api.counters(ctx)
 	if err != nil {
 		return nil, err
@@ -350,7 +356,7 @@ func resolveCounters(ctx context.Context, api perfAPI) (map[perf.Metric]int32, e
 		byName[name] = info.Key
 	}
 	keys := map[perf.Metric]int32{}
-	for _, c := range perf.Counters {
+	for _, c := range counters {
 		if key, ok := byName[c.VSphereName()]; ok {
 			keys[c.Metric] = key
 		}

@@ -710,6 +710,9 @@ type Model struct {
 	vmPerf       map[string]*vmPerfEntry
 	vmPerfGen    uint64
 	perfRangeIdx int
+	// perfPage indexes perfPages: the overview, or one area's full charts.
+	// Like the range it survives moving between VMs.
+	perfPage int
 	// ds holds the read-only datastore file browser while it is open. Like
 	// vapp it is kept apart from the browse cursor, and unlike everything
 	// else on this struct it is the one view whose contents come from a live
@@ -2881,6 +2884,8 @@ func (m *Model) handleDetailKey(msg tea.KeyMsg) tea.Cmd {
 		m.move(delta)
 		m.detailCursor, m.detailY = 0, 0
 		return m.ensureVMPerf(false)
+	case key.Matches(msg, m.keys.PerfPage):
+		m.setPerfPage(msg.String())
 	case key.Matches(msg, m.keys.ShorterRange):
 		return m.shiftPerfRange(-1)
 	case key.Matches(msg, m.keys.LongerRange):
