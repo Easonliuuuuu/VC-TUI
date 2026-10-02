@@ -162,14 +162,21 @@ func metadataAttributes(m vsphere.Metadata) string {
 }
 
 func metadataFromSubject(s query.Subject) vsphere.Metadata {
-	tagsStatus, customStatus := "unavailable", "unavailable"
-	if s.TagsAvailable {
-		tagsStatus = "available"
+	return vsphere.Metadata{Tags: s.Tags, CustomAttributes: s.CustomAttributes, TagsStatus: s.TagsStatus, CustomAttributesStatus: s.CustomStatus}
+}
+
+// metadataWarning describes a metadata source that was not read completely.
+// A source that was never part of the evidence (empty status) is silent here;
+// stored-capture readers report it as not recorded instead.
+func metadataWarning(source, status, message string) (string, bool) {
+	if status == "" || status == vsphere.MetadataAvailable || status == vsphere.MetadataNotApplicable {
+		return "", false
 	}
-	if s.CustomAvailable {
-		customStatus = "available"
+	label := strings.ReplaceAll(status, "_", " ")
+	if message == "" {
+		return fmt.Sprintf("metadata %s %s", source, label), true
 	}
-	return vsphere.Metadata{Tags: s.Tags, CustomAttributes: s.CustomAttributes, TagsStatus: tagsStatus, CustomAttributesStatus: customStatus}
+	return fmt.Sprintf("metadata %s %s: %s", source, label, message), true
 }
 
 func reportMetadataWarnings(a *App, values any) {
@@ -185,15 +192,9 @@ func reportMetadataWarnings(a *App, values any) {
 		}
 		for _, item := range [][3]string{{"tags", m.TagsStatus, m.TagsError}, {"custom attributes", m.CustomAttributesStatus, m.CustomAttributesError}} {
 			source, status, message := item[0], item[1], item[2]
-			if status == "unavailable" {
-				if message == "" {
-					message = "source unavailable"
-				}
-				key := source + ":" + message
-				if !seen[key] {
-					fmt.Fprintf(a.errOut(), "%s metadata %s unavailable: %s\n", glyphFail, source, message)
-					seen[key] = true
-				}
+			if line, ok := metadataWarning(source, status, message); ok && !seen[line] {
+				fmt.Fprintf(a.errOut(), "%s %s\n", glyphFail, line)
+				seen[line] = true
 			}
 		}
 	}

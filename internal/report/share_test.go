@@ -189,7 +189,7 @@ func TestSharedFailsClosed(t *testing.T) {
 
 func TestShareRulesCoverEveryColumn(t *testing.T) {
 	data := shareEstate()
-	sheets, err := rvtoolsSheetsFor(data, healthReport(data), true)
+	sheets, err := rvtoolsSheetsFor(data, healthReport(data), sheetOptions{describeAll: true})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -40,6 +40,10 @@ type Subject struct {
 	CustomAttributes []vsphere.CustomAttribute
 	TagsAvailable    bool
 	CustomAvailable  bool
+	// TagsStatus and CustomStatus are the recorded source states, normalized
+	// so a payload without one reads as not recorded.
+	TagsStatus   string
+	CustomStatus string
 }
 
 var schemas = map[vsphere.Kind]map[string]valueKind{}
@@ -254,6 +258,71 @@ func (f Filter) Match(s Subject) bool {
 	return true
 }
 
+// Outcome is the three-valued result of evaluating a filter. Undetermined
+// means no predicate was false but at least one names a metadata source the
+// subject could not read, so membership is unknown rather than negative.
+type Outcome uint8
+
+const (
+	NoMatch Outcome = iota
+	Matched
+	Undetermined
+)
+
+// Evaluate is Match with unknown metadata kept distinct from a false
+// predicate. Sources lists the unreadable sources ("tags", "custom") that
+// left an Undetermined outcome. A definitely false predicate wins: a subject
+// that fails cpu>=8 is excluded no matter what its tags would have said.
+func (f Filter) Evaluate(s Subject) (Outcome, []string) {
+	var unknown []string
+	for _, p := range f.predicates {
+		if source, ok := unreadableSource(p, s); ok {
+			if !contains(unknown, source) {
+				unknown = append(unknown, source)
+			}
+			continue
+		}
+		if !matchPredicate(p, s) {
+			return NoMatch, nil
+		}
+	}
+	if len(unknown) > 0 {
+		return Undetermined, unknown
+	}
+	return Matched, nil
+}
+
+func unreadableSource(p Predicate, s Subject) (string, bool) {
+	switch {
+	case p.Field == "tag" && !s.TagsAvailable:
+		return "tags", true
+	case p.Field == "custom" && !s.CustomAvailable:
+		return "custom", true
+	}
+	return "", false
+}
+
+func contains(values []string, value string) bool {
+	for _, v := range values {
+		if v == value {
+			return true
+		}
+	}
+	return false
+}
+
+// String returns the predicate in the form it was written.
+func (p Predicate) String() string {
+	field := p.Field
+	if p.Qualifier != "" {
+		field += "." + p.Qualifier
+	}
+	return field + p.Operator + p.Value
+}
+
+// Predicates returns the parsed predicates in order.
+func (f Filter) Predicates() []Predicate { return append([]Predicate(nil), f.predicates...) }
+
 func matchPredicate(p Predicate, s Subject) bool {
 	if p.Field == "tag" {
 		if !s.TagsAvailable {
@@ -378,8 +447,10 @@ func SubjectFromJSON(kind vsphere.Kind, raw []byte) (Subject, error) {
 		s.Fields["kind"] = string(kind)
 	}
 	meta, _ := fields["metadata"].(map[string]any)
-	s.TagsAvailable = metaString(meta, "tags_status") == "available"
-	s.CustomAvailable = metaString(meta, "custom_attributes_status") == "available"
+	s.TagsStatus = vsphere.MetadataStatus(metaString(meta, "tags_status"))
+	s.CustomStatus = vsphere.MetadataStatus(metaString(meta, "custom_attributes_status"))
+	s.TagsAvailable = s.TagsStatus == vsphere.MetadataAvailable
+	s.CustomAvailable = s.CustomStatus == vsphere.MetadataAvailable
 	if values, ok := meta["tags"].([]any); ok {
 		for _, value := range values {
 			if b, ok := value.(map[string]any); ok {
@@ -406,4 +477,24 @@ func metaString(m map[string]any, key string) string {
 		return v
 	}
 	return ""
+}
+
+// KnownField reports whether field is a scalar field of any of kinds (or of
+// any kind when kinds is empty), using the same schema Parse checks against.
+func KnownField(field string, kinds []vsphere.Kind) bool {
+	field = strings.ToLower(field)
+	if len(kinds) == 0 {
+		for _, fields := range schemas {
+			if _, ok := fields[field]; ok {
+				return true
+			}
+		}
+		return false
+	}
+	for _, kind := range kinds {
+		if _, ok := schemas[kind][field]; ok {
+			return true
+		}
+	}
+	return false
 }

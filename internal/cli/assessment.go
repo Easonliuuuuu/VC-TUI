@@ -84,7 +84,7 @@ always describe the estate as it was when the capture was taken.`),
   vsfleet assessment findings
   vsfleet assessment export --file estate.xlsx`,
 	})
-	cmd.AddCommand(newAssessmentRunCommand(a), newAssessmentListCommand(a), newAssessmentDiffCommand(a), newAssessmentSnapshotsCommand(a), newAssessmentDeleteCommand(a), newAssessmentUpdateCommand(a), newAssessmentTrendsCommand(a), newAssessmentCapacityCommand(a), newAssessmentReportCommand(a), newAssessmentExportCommand(a), newAssessmentFindingsCommand(a), newAssessmentInventoryCommand(a), newAssessmentOrphansCommand(a), newAssessmentReadinessCommand(a), newAssessmentNetworkReadinessCommand(a), newAssessmentSizingCommand(a), newAssessmentPruneCommand(a), newAssessmentBackupCommand(a), newAssessmentRestoreCommand(a), newAssessmentDoctorCommand(a), newAssessmentPerfCommand(a))
+	cmd.AddCommand(newAssessmentRunCommand(a), newAssessmentListCommand(a), newAssessmentDiffCommand(a), newAssessmentSnapshotsCommand(a), newAssessmentDeleteCommand(a), newAssessmentUpdateCommand(a), newAssessmentTrendsCommand(a), newAssessmentCapacityCommand(a), newAssessmentReportCommand(a), newAssessmentExportCommand(a), newAssessmentFindingsCommand(a), newAssessmentInventoryCommand(a), newAssessmentMetadataCommand(a), newAssessmentMetadataReportCommand(a), newAssessmentOrphansCommand(a), newAssessmentReadinessCommand(a), newAssessmentNetworkReadinessCommand(a), newAssessmentSizingCommand(a), newAssessmentPruneCommand(a), newAssessmentBackupCommand(a), newAssessmentRestoreCommand(a), newAssessmentDoctorCommand(a), newAssessmentPerfCommand(a))
 	return cmd
 }
 
@@ -324,7 +324,7 @@ type exportReceipt struct {
 
 func newAssessmentExportCommand(a *App) *cobra.Command {
 	var format, file string
-	var force bool
+	var force, includeMetadata bool
 	var share shareFlags
 	cmd := &cobra.Command{Use: "export [RUN]", Short: "Export a stored assessment as RVTools XLSX or CSV", Example: `  # 25-sheet RVTools workbook from the most recent capture
   vsfleet assessment export --file estate.xlsx
@@ -404,6 +404,7 @@ func newAssessmentExportCommand(a *App) *cobra.Command {
 		var receipt exportReceipt
 		if share.enabled() {
 			opts := share.options(shareKey)
+			opts.Metadata = includeMetadata
 			plan, err := report.PlanShare(data, healthReport, opts)
 			if err != nil {
 				return err
@@ -430,10 +431,11 @@ func newAssessmentExportCommand(a *App) *cobra.Command {
 			fmt.Fprintf(a.out(), "assessment %d exported to %s with profile %s (%d bytes, sha256 %s)\n", receipt.RunID, receipt.Path, plan.Profile, receipt.Bytes, receipt.SHA256)
 			return nil
 		}
+		exportOpts := report.ExportOptions{Metadata: includeMetadata}
 		if format == "csv" {
-			receipt, err = publishRVToolsCSV(data, healthReport, file, force)
+			receipt, err = publishRVToolsCSV(data, healthReport, exportOpts, file, force)
 		} else {
-			receipt, err = publishRVToolsXLSX(data, healthReport, file, force)
+			receipt, err = publishRVToolsXLSX(data, healthReport, exportOpts, file, force)
 		}
 		if err != nil {
 			return err
@@ -455,6 +457,7 @@ func newAssessmentExportCommand(a *App) *cobra.Command {
 	cmd.Flags().StringVar(&format, "format", "rvtools", "export format: rvtools (XLSX) or csv (one file per RVTools tab)")
 	cmd.Flags().StringVar(&file, "file", "", "destination: a .xlsx file for --format rvtools, a directory for --format csv")
 	cmd.Flags().BoolVar(&force, "force", false, "replace an existing export")
+	cmd.Flags().BoolVar(&includeMetadata, "include-metadata", false, "add the vsfleetMetadata sheet: one row per tag or custom attribute value (omitted by --profile sizing-summary)")
 	share.add(cmd)
 	return cmd
 }
@@ -463,9 +466,9 @@ func newAssessmentExportCommand(a *App) *cobra.Command {
 // a sibling temp file first, then published atomically (a rename with
 // --force, otherwise a no-clobber hard link) so a failed export never leaves
 // a half-written workbook.
-func publishRVToolsXLSX(data assessment.ExportData, healthReport health.Report, file string, force bool) (exportReceipt, error) {
+func publishRVToolsXLSX(data assessment.ExportData, healthReport health.Report, opts report.ExportOptions, file string, force bool) (exportReceipt, error) {
 	return publishXLSX(data.Run.ID, file, force, func(w io.Writer) error {
-		if err := report.WriteRVTools(w, data, healthReport); err != nil {
+		if err := report.WriteRVToolsWith(w, data, healthReport, opts); err != nil {
 			return fmt.Errorf("write RVTools export: %w", err)
 		}
 		return nil
@@ -519,8 +522,8 @@ func publishXLSX(runID int64, file string, force bool, write func(io.Writer) err
 // error leaves the destination untouched; each tab is then published with
 // the same atomic-publish, no-clobber-without-force behavior as the XLSX
 // writer.
-func publishRVToolsCSV(data assessment.ExportData, healthReport health.Report, dir string, force bool) (exportReceipt, error) {
-	files, err := report.RVToolsCSV(data, healthReport)
+func publishRVToolsCSV(data assessment.ExportData, healthReport health.Report, opts report.ExportOptions, dir string, force bool) (exportReceipt, error) {
+	files, err := report.RVToolsCSVWith(data, healthReport, opts)
 	if err != nil {
 		return exportReceipt{}, fmt.Errorf("render CSV export: %w", err)
 	}

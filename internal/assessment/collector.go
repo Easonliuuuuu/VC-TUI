@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -301,7 +302,7 @@ func (c *Collector) captureContext(parent context.Context, cc *config.Context, b
 					r.VMs = append(r.VMs, Observation{VCenterID: r.VCenterID, Context: cc.Name, VM: vm})
 					snapshotCount += len(vm.Snapshots)
 				}
-				collection.TagsStatus, collection.CustomAttributesStatus = metadataStatuses(part.VMs, part.Templates)
+				applyMetadataCoverage(&collection, part.VMs, part.Templates)
 				snapshotCollection.Status = "success"
 				if snapshotCount == 0 {
 					snapshotCollection.Status = "empty"
@@ -350,7 +351,7 @@ func resourceCollection[T any](kind, vcenter, contextName string, values []T, er
 	if len(values) == 0 {
 		collection.Status = "empty"
 	}
-	collection.TagsStatus, collection.CustomAttributesStatus = metadataStatuses(values)
+	applyMetadataCoverage(&collection, values)
 	for _, value := range values {
 		payload, err := json.Marshal(value)
 		if err != nil {
@@ -379,89 +380,57 @@ func resourceCollection[T any](kind, vcenter, contextName string, values []T, er
 	return collection
 }
 
-func metadataStatuses(values ...any) (string, string) {
-	if len(values) == 0 {
-		return "unavailable", "unavailable"
-	}
-	var tagStatus, customStatus string
-	var seen bool
+// metadataCoverage summarizes each metadata source across every object in a
+// collection. Objects can disagree -- one tag definition lookup can fail while
+// the rest succeed -- so the status is tallied over all of them rather than
+// read from whichever object came first.
+func metadataCoverage(values ...any) (tags, custom vsphere.MetadataTally) {
 	var visit func(any)
 	visit = func(value any) {
-		switch v := value.(type) {
-		case []vsphere.VM:
-			for _, item := range v {
-				visit(item)
+		rv := reflect.ValueOf(value)
+		if rv.Kind() == reflect.Slice {
+			for i := 0; i < rv.Len(); i++ {
+				visit(rv.Index(i).Interface())
 			}
-		case []vsphere.Host:
-			for _, item := range v {
-				visit(item)
-			}
-		case []vsphere.Cluster:
-			for _, item := range v {
-				visit(item)
-			}
-		case []vsphere.VApp:
-			for _, item := range v {
-				visit(item)
-			}
-		case []vsphere.Datastore:
-			for _, item := range v {
-				visit(item)
-			}
-		case []vsphere.Network:
-			for _, item := range v {
-				visit(item)
-			}
-		case []vsphere.ResourcePool:
-			for _, item := range v {
-				visit(item)
-			}
-		case []vsphere.DVSwitch:
-			for _, item := range v {
-				visit(item)
-			}
-		case vsphere.VM:
-			if !seen {
-				tagStatus, customStatus, seen = v.Metadata.TagsStatus, v.Metadata.CustomAttributesStatus, true
-			}
-		case vsphere.Host:
-			if !seen {
-				tagStatus, customStatus, seen = v.Metadata.TagsStatus, v.Metadata.CustomAttributesStatus, true
-			}
-		case vsphere.Cluster:
-			if !seen {
-				tagStatus, customStatus, seen = v.Metadata.TagsStatus, v.Metadata.CustomAttributesStatus, true
-			}
-		case vsphere.VApp:
-			if !seen {
-				tagStatus, customStatus, seen = v.Metadata.TagsStatus, v.Metadata.CustomAttributesStatus, true
-			}
-		case vsphere.Datastore:
-			if !seen {
-				tagStatus, customStatus, seen = v.Metadata.TagsStatus, v.Metadata.CustomAttributesStatus, true
-			}
-		case vsphere.Network:
-			if !seen {
-				tagStatus, customStatus, seen = v.Metadata.TagsStatus, v.Metadata.CustomAttributesStatus, true
-			}
-		case vsphere.ResourcePool:
-			if !seen {
-				tagStatus, customStatus, seen = v.Metadata.TagsStatus, v.Metadata.CustomAttributesStatus, true
-			}
-		case vsphere.DVSwitch:
-			if !seen {
-				tagStatus, customStatus, seen = v.Metadata.TagsStatus, v.Metadata.CustomAttributesStatus, true
-			}
+			return
+		}
+		if m, ok := objectMetadata(value); ok {
+			tags.Add(m.TagsStatus, m.TagsError)
+			custom.Add(m.CustomAttributesStatus, m.CustomAttributesError)
 		}
 	}
 	for _, value := range values {
 		visit(value)
 	}
-	if tagStatus == "" {
-		tagStatus = "unavailable"
+	return tags, custom
+}
+
+// objectMetadata returns the metadata of a collected inventory object.
+func objectMetadata(value any) (vsphere.Metadata, bool) {
+	switch v := value.(type) {
+	case vsphere.VM:
+		return v.Metadata, true
+	case vsphere.Host:
+		return v.Metadata, true
+	case vsphere.Cluster:
+		return v.Metadata, true
+	case vsphere.VApp:
+		return v.Metadata, true
+	case vsphere.Datastore:
+		return v.Metadata, true
+	case vsphere.Network:
+		return v.Metadata, true
+	case vsphere.ResourcePool:
+		return v.Metadata, true
+	case vsphere.DVSwitch:
+		return v.Metadata, true
 	}
-	if customStatus == "" {
-		customStatus = "unavailable"
-	}
-	return tagStatus, customStatus
+	return vsphere.Metadata{}, false
+}
+
+// applyMetadataCoverage records per-source coverage on a collection.
+func applyMetadataCoverage(collection *CollectionResult, values ...any) {
+	tags, custom := metadataCoverage(values...)
+	collection.TagsStatus, collection.TagsError = tags.Result()
+	collection.CustomAttributesStatus, collection.CustomAttributesError = custom.Result()
 }

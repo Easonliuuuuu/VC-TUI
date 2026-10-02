@@ -99,14 +99,29 @@ type sheet struct {
 // every RVTools tab in tab order. WriteRVTools and RVToolsCSV both build on
 // this so the two formats render identical content on identical terms.
 func rvtoolsSheets(data assessment.ExportData, healthReport health.Report) ([]sheet, error) {
-	return rvtoolsSheetsFor(data, healthReport, false)
+	return rvtoolsSheetsFor(data, healthReport, sheetOptions{})
 }
 
-// rvtoolsSheetsFor is rvtoolsSheets with control over the opt-in license
-// worksheets. They are written only for a run that recorded license
-// collection, unless describeAll is set, which the compatibility profile uses
-// to enumerate every sheet the exporter can produce.
-func rvtoolsSheetsFor(data assessment.ExportData, healthReport health.Report, describeAll bool) ([]sheet, error) {
+// ExportOptions selects opt-in worksheets of the RVTools export.
+type ExportOptions struct {
+	// Metadata appends the vsfleetMetadata sheet: one row per tag or custom
+	// attribute value, in a fixed schema. It is opt-in because tag and
+	// attribute values are operator free text.
+	Metadata bool
+}
+
+// sheetOptions controls which opt-in worksheets are produced. describeAll is
+// what the compatibility profile uses to enumerate every sheet the exporter
+// can produce, including license sheets a run did not record.
+type sheetOptions struct {
+	describeAll bool
+	metadata    bool
+}
+
+// rvtoolsSheetsFor is rvtoolsSheets with control over the opt-in worksheets.
+// License sheets are written only for a run that recorded license collection.
+func rvtoolsSheetsFor(data assessment.ExportData, healthReport health.Report, opts sheetOptions) ([]sheet, error) {
+	describeAll := opts.describeAll
 	data = canonicalData(data)
 	if err := validateResources(data.Resources); err != nil {
 		return nil, err
@@ -142,12 +157,16 @@ func rvtoolsSheetsFor(data assessment.ExportData, healthReport health.Report, de
 	if vLicense, assignments := licenseSheets(data, describeAll); vLicense != nil {
 		all = append(all, *vLicense, *assignments)
 	}
-	return append(all,
+	all = append(all,
 		sheet{name: fileInfoSheetName, headers: fileInfoHeaders, rows: fileInfoRows(data), textCols: []int{0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11}, countCols: []int{3}},
 		sheet{name: "vHealth", headers: healthHeaders, rows: healthRows(data, healthReport)},
 		sheet{name: coverageSheetName, headers: coverageHeaders, rows: coverageRows(data, healthReport), dateCols: []int{2, 3}},
 		sheet{name: performanceSheetName, headers: performanceHeaders, rows: performanceRows(data), dateCols: performanceDateCols},
-	), nil
+	)
+	if opts.metadata || describeAll {
+		all = append(all, metadataSheet(data))
+	}
+	return all, nil
 }
 
 // WriteRVTools writes the twenty-five RVTools-compatible sheets (vFileInfo included) plus the
@@ -155,7 +174,12 @@ func rvtoolsSheetsFor(data assessment.ExportData, healthReport health.Report, de
 // report; callers evaluate it before entering the renderer. The output is normalized as a ZIP archive
 // with fixed entry order and timestamps, making repeated writes byte-identical.
 func WriteRVTools(w io.Writer, data assessment.ExportData, healthReport health.Report) error {
-	sheets, err := rvtoolsSheets(data, healthReport)
+	return WriteRVToolsWith(w, data, healthReport, ExportOptions{})
+}
+
+// WriteRVToolsWith is WriteRVTools with opt-in worksheets.
+func WriteRVToolsWith(w io.Writer, data assessment.ExportData, healthReport health.Report, opts ExportOptions) error {
+	sheets, err := rvtoolsSheetsFor(data, healthReport, sheetOptions{metadata: opts.Metadata})
 	if err != nil {
 		return err
 	}
@@ -245,7 +269,12 @@ type CSVFile struct {
 // RFC3339 in UTC, booleans are "true"/"false", numbers are unformatted, and
 // an absent value is an empty field.
 func RVToolsCSV(data assessment.ExportData, healthReport health.Report) ([]CSVFile, error) {
-	sheets, err := rvtoolsSheets(data, healthReport)
+	return RVToolsCSVWith(data, healthReport, ExportOptions{})
+}
+
+// RVToolsCSVWith is RVToolsCSV with opt-in worksheets.
+func RVToolsCSVWith(data assessment.ExportData, healthReport health.Report, opts ExportOptions) ([]CSVFile, error) {
+	sheets, err := rvtoolsSheetsFor(data, healthReport, sheetOptions{metadata: opts.Metadata})
 	if err != nil {
 		return nil, err
 	}

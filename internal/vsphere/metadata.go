@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,6 +29,50 @@ const (
 	restSessionHeader  = "vmware-api-session-id"
 	restHeaderAuthn    = "vmware-use-header-authn"
 )
+
+// restStatusError keeps the HTTP status of a failed vAPI call so a denial
+// can be told apart from a service the endpoint does not provide.
+type restStatusError struct {
+	code    int
+	message string
+}
+
+func (e *restStatusError) Error() string { return e.message }
+
+// classifyMetadataError maps a metadata read failure to a source state. A
+// privilege problem and a missing service need different remedies from a
+// transient failure, and a report must say which one it hit.
+func classifyMetadataError(err error) string {
+	if err == nil {
+		return MetadataAvailable
+	}
+	var status *restStatusError
+	if errors.As(err, &status) {
+		switch status.code {
+		case http.StatusUnauthorized, http.StatusForbidden:
+			return MetadataDenied
+		case http.StatusNotFound, http.StatusNotImplemented:
+			return MetadataUnsupported
+		}
+		return MetadataUnavailable
+	}
+	if errors.Is(err, errCustomFieldsUnsupported) {
+		return MetadataUnsupported
+	}
+	if soap.IsSoapFault(err) {
+		if _, ok := soap.ToSoapFault(err).VimFault().(types.NoPermission); ok {
+			return MetadataDenied
+		}
+	}
+	if soap.IsVimFault(err) {
+		if _, ok := soap.ToVimFault(err).(*types.NoPermission); ok {
+			return MetadataDenied
+		}
+	}
+	return MetadataUnavailable
+}
+
+var errCustomFieldsUnsupported = errors.New("vSphere custom fields manager is unavailable")
 
 type taggingClient struct {
 	client    *soap.Client
@@ -127,7 +172,7 @@ func (c *taggingClient) do(ctx context.Context, req *http.Request, out any) erro
 	return c.client.Do(ctx, req, func(res *http.Response) error {
 		if res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices {
 			detail, _ := io.ReadAll(res.Body)
-			return fmt.Errorf("%s: %s", res.Status, bytes.TrimSpace(detail))
+			return &restStatusError{code: res.StatusCode, message: fmt.Sprintf("%s: %s", res.Status, bytes.TrimSpace(detail))}
 		}
 		if out == nil || res.StatusCode == http.StatusNoContent {
 			return nil
@@ -199,7 +244,7 @@ func (c *taggingClient) getCategory(ctx context.Context, id string) (categoryInf
 func (c *Client) collectMetadata(ctx context.Context, refs []types.ManagedObjectReference, values map[types.ManagedObjectReference][]types.BaseCustomFieldValue) map[types.ManagedObjectReference]Metadata {
 	out := make(map[types.ManagedObjectReference]Metadata, len(refs))
 	for _, ref := range refs {
-		out[ref] = Metadata{Tags: []Tag{}, CustomAttributes: []CustomAttribute{}, TagsStatus: "available", CustomAttributesStatus: "available"}
+		out[ref] = Metadata{Tags: []Tag{}, CustomAttributes: []CustomAttribute{}, TagsStatus: MetadataAvailable, CustomAttributesStatus: MetadataAvailable}
 	}
 
 	defs := map[int32]types.CustomFieldDef{}
@@ -216,7 +261,7 @@ func (c *Client) collectMetadata(ctx context.Context, refs []types.ManagedObject
 			continue
 		}
 		if customErr != nil {
-			m.CustomAttributesStatus = "unavailable"
+			m.CustomAttributesStatus = classifyMetadataError(customErr)
 			m.CustomAttributesError = customErr.Error()
 		} else {
 			for _, field := range fields {
@@ -254,11 +299,10 @@ func (c *Client) collectMetadata(ctx context.Context, refs []types.ManagedObject
 
 	if c.tagger == nil {
 		for ref, m := range out {
-			m.TagsStatus = "unavailable"
 			if c.restErr != nil {
-				m.TagsError = c.restErr.Error()
+				m.TagsStatus, m.TagsError = classifyMetadataError(c.restErr), c.restErr.Error()
 			} else {
-				m.TagsError = "vSphere tagging API is unavailable"
+				m.TagsStatus, m.TagsError = MetadataUnsupported, "vSphere tagging API is unavailable"
 			}
 			out[ref] = m
 		}
@@ -267,7 +311,7 @@ func (c *Client) collectMetadata(ctx context.Context, refs []types.ManagedObject
 	attached, err := c.restTags(ctx, refs)
 	if err != nil {
 		for ref, m := range out {
-			m.TagsStatus, m.TagsError = "unavailable", err.Error()
+			m.TagsStatus, m.TagsError = classifyMetadataError(err), err.Error()
 			out[ref] = m
 		}
 		return out
@@ -281,7 +325,7 @@ func (c *Client) collectMetadata(ctx context.Context, refs []types.ManagedObject
 		for _, id := range item.TagIDs {
 			tag, err := c.tagDefinition(ctx, id)
 			if err != nil {
-				m.TagsStatus, m.TagsError = "unavailable", err.Error()
+				m.TagsStatus, m.TagsError = classifyMetadataError(err), err.Error()
 				break
 			}
 			m.Tags = append(m.Tags, tag)
@@ -357,7 +401,7 @@ func (c *Client) customFieldDefinitions(ctx context.Context) (map[int32]types.Cu
 	var fields []types.CustomFieldDef
 	var err error
 	if c.vim == nil || c.vim.Client == nil || c.vim.ServiceContent.CustomFieldsManager == nil {
-		err = fmt.Errorf("vSphere custom fields manager is unavailable")
+		err = errCustomFieldsUnsupported
 	} else {
 		var manager mo.CustomFieldsManager
 		err = property.DefaultCollector(c.vim.Client).RetrieveOne(ctx, *c.vim.ServiceContent.CustomFieldsManager, []string{"field"}, &manager)
