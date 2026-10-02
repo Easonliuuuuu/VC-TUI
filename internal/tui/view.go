@@ -95,6 +95,12 @@ func (m *Model) View() string {
 		second = m.viewTabs(m.width)
 		body = strings.Join(m.viewBrowse(), "\n")
 	}
+	// A screen with little to say (an empty history pane, say) must still
+	// fill the body, or the message and key lines ride up under it instead of
+	// sitting on the bottom row.
+	if short := m.bodyHeight() - (strings.Count(body, "\n") + 1); short > 0 {
+		body += strings.Repeat("\n", short)
+	}
 	return strings.Join([]string{
 		m.viewHeader(),
 		second,
