@@ -4,12 +4,14 @@
 
 ### Features
 
+* **assessment:** add `assessment metadata`, a fixed-schema export of stored tags and custom attributes, `assessment metadata-report` for saved TOML report definitions with membership comparison (`--base`), and an opt-in `vsfleetMetadata` export sheet handled by the sharing profiles ([#217](https://github.com/Easonliuuuuu/vsfleet/issues/217))
 * **assessment:** collect bounded, opt-in VM performance history (`assessment perf`) with a conservative sizing signal, stored apart from inventory runs and shown in `assessment report` and a `vsfleetPerformance` export sheet ([#214](https://github.com/Easonliuuuuu/vsfleet/issues/214))
 * **assessment:** attribute datastore growth and project free-space thresholds
 * **health:** add an absolute datastore free-space floor
 
 ### Bug Fixes
 
+* **assessment:** count metadata coverage over every object in a collection instead of the first one, so a partial tag failure is reported as `partial`; report metadata sources as `denied`, `unsupported` or `not_recorded` instead of folding them into `unavailable` ([#217](https://github.com/Easonliuuuuu/vsfleet/issues/217))
 * **assessment:** make `assessment perf collect -o json` exit non-zero when collection fails for every context, matching the text output
 * **assessment:** stop reporting a clean orphan scan when datastore browse evidence is missing ([#115](https://github.com/Easonliuuuuu/vsfleet/issues/115))
 * **vsphere:** make tag lookups honor the context's TLS policy and transport, so `--tls thumbprint` no longer fails the tagging endpoint against a private-CA certificate ([#190](https://github.com/Easonliuuuuu/vsfleet/issues/190))

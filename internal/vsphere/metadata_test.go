@@ -37,8 +37,76 @@ func TestCollectMetadataNormalizesCustomFieldsAndReportsTagAvailability(t *testi
 	if got.CustomAttributes[0].Name != "environment" || got.CustomAttributes[0].Value != "prod" {
 		t.Fatalf("custom attribute=%+v", got.CustomAttributes[0])
 	}
-	if got.TagsStatus != "unavailable" || got.TagsError == "" {
+	if got.TagsStatus != MetadataUnsupported || got.TagsError == "" {
 		t.Fatalf("tag availability=%+v", got)
+	}
+}
+
+// A tagging failure must say whether it was a denial, a missing service or
+// a transient error: the remedy differs, and a report must name it.
+func TestCollectMetadataClassifiesTaggingLoginFailure(t *testing.T) {
+	ref := types.ManagedObjectReference{Type: "VirtualMachine", Value: "vm-1"}
+	for _, tc := range []struct {
+		err  error
+		want string
+	}{
+		{&restStatusError{code: http.StatusForbidden, message: "403 Forbidden"}, MetadataDenied},
+		{&restStatusError{code: http.StatusUnauthorized, message: "401 Unauthorized"}, MetadataDenied},
+		{&restStatusError{code: http.StatusNotFound, message: "404 Not Found"}, MetadataUnsupported},
+		{&restStatusError{code: http.StatusServiceUnavailable, message: "503 Service Unavailable"}, MetadataUnavailable},
+		{errors.New("connection reset"), MetadataUnavailable},
+	} {
+		c := &Client{customFieldsLoaded: true, restErr: tc.err}
+		got := c.collectMetadata(context.Background(), []types.ManagedObjectReference{ref}, nil)[ref]
+		if got.TagsStatus != tc.want || got.TagsError != tc.err.Error() {
+			t.Errorf("%v: tags=%s %q, want %s", tc.err, got.TagsStatus, got.TagsError, tc.want)
+		}
+	}
+}
+
+func TestCollectMetadataClassifiesCustomFieldFailure(t *testing.T) {
+	ref := types.ManagedObjectReference{Type: "VirtualMachine", Value: "vm-1"}
+	values := map[types.ManagedObjectReference][]types.BaseCustomFieldValue{
+		ref: {&types.CustomFieldStringValue{CustomFieldValue: types.CustomFieldValue{Key: 42}, Value: "prod"}},
+	}
+	for _, tc := range []struct {
+		err  error
+		want string
+	}{
+		{errCustomFieldsUnsupported, MetadataUnsupported},
+		{errors.New("timeout"), MetadataUnavailable},
+	} {
+		c := &Client{customFieldsLoaded: true, customFieldsErr: tc.err}
+		got := c.collectMetadata(context.Background(), []types.ManagedObjectReference{ref}, values)[ref]
+		if got.CustomAttributesStatus != tc.want {
+			t.Errorf("%v: custom=%s, want %s", tc.err, got.CustomAttributesStatus, tc.want)
+		}
+	}
+}
+
+func TestMetadataTallyReportsPartialAndPrioritizesDenial(t *testing.T) {
+	var none MetadataTally
+	if status, _ := none.Result(); status != MetadataNotApplicable {
+		t.Fatalf("empty tally=%s", status)
+	}
+	var mixed MetadataTally
+	mixed.Add(MetadataAvailable, "")
+	mixed.Add(MetadataUnavailable, "get tag urn:1: 500")
+	mixed.Add(MetadataAvailable, "")
+	if status, msg := mixed.Result(); status != MetadataPartial || msg != "1 of 3 objects: get tag urn:1: 500" {
+		t.Fatalf("mixed=%s %q", status, msg)
+	}
+	var failed MetadataTally
+	failed.Add(MetadataUnavailable, "timeout")
+	failed.Add(MetadataDenied, "403")
+	failed.Add("", "")
+	if status, msg := failed.Result(); status != MetadataDenied || msg != "timeout" {
+		t.Fatalf("failed=%s %q", status, msg)
+	}
+	var old MetadataTally
+	old.Add("", "")
+	if status, _ := old.Result(); status != MetadataNotRecorded {
+		t.Fatalf("not recorded=%s", status)
 	}
 }
 

@@ -94,6 +94,9 @@ type ShareOptions struct {
 	LinkExports bool
 	// Key is the operator-supplied secret. It is never written to any output.
 	Key []byte
+	// Metadata asks for the vsfleetMetadata sheet. A profile that does not
+	// list it, such as sizing-summary, still omits it.
+	Metadata bool
 }
 
 // SharePlanColumn is one included column and how it is handled.
@@ -167,7 +170,7 @@ func prepareShare(data assessment.ExportData, healthReport health.Report, opts S
 	if opts.LinkExports && !opts.Pseudonymize {
 		return nil, fmt.Errorf("linking exports only applies with pseudonymization")
 	}
-	all, err := rvtoolsSheets(data, healthReport)
+	all, err := rvtoolsSheetsFor(data, healthReport, sheetOptions{metadata: opts.Metadata})
 	if err != nil {
 		return nil, err
 	}

@@ -840,13 +840,14 @@ func TestEveryExportedColumnIsDocumented(t *testing.T) {
 		t.Fatalf("building the compatibility profile: %v", err)
 	}
 	// The profile describes every sheet the exporter can write, including the
-	// opt-in license sheets a default export omits.
-	if len(profile) != len(licensedTabOrder) {
-		t.Fatalf("profile describes %d worksheets, export renders %d", len(profile), len(licensedTabOrder))
+	// opt-in license and metadata sheets a default export omits.
+	want := append(append([]string(nil), licensedTabOrder...), metadataSheetName)
+	if len(profile) != len(want) {
+		t.Fatalf("profile describes %d worksheets, export renders %d", len(profile), len(want))
 	}
 	for i, spec := range profile {
-		if spec.Name != licensedTabOrder[i] {
-			t.Errorf("worksheet %d is %q, want %q", i, spec.Name, licensedTabOrder[i])
+		if spec.Name != want[i] {
+			t.Errorf("worksheet %d is %q, want %q", i, spec.Name, want[i])
 		}
 		if spec.DerivesFrom == "" {
 			t.Errorf("%s: no collection named as its source", spec.Name)
@@ -869,7 +870,7 @@ func TestProfileMatchesRenderedHeaderRow(t *testing.T) {
 	when := time.Date(2024, 5, 1, 12, 0, 0, 0, time.UTC)
 	data := withSyntheticLicenses(sampleExportData(when))
 	var buf bytes.Buffer
-	if err := WriteRVTools(&buf, data, healthReport(data)); err != nil {
+	if err := WriteRVToolsWith(&buf, data, healthReport(data), ExportOptions{Metadata: true}); err != nil {
 		t.Fatalf("writing the workbook: %v", err)
 	}
 	f, err := excelize.OpenReader(bytes.NewReader(buf.Bytes()))

@@ -69,7 +69,7 @@ type SheetSpec struct {
 // row and no rows, which is the enumeration this report needs and cannot get
 // out of step with.
 func Profile() ([]SheetSpec, error) {
-	sheets, err := rvtoolsSheetsFor(assessment.ExportData{}, health.Report{}, true)
+	sheets, err := rvtoolsSheetsFor(assessment.ExportData{}, health.Report{}, sheetOptions{describeAll: true})
 	if err != nil {
 		return nil, err
 	}
@@ -78,8 +78,8 @@ func Profile() ([]SheetSpec, error) {
 		meta := sheetMeta[s.name]
 		spec := SheetSpec{
 			Name:        s.name,
-			Compatible:  s.name != coverageSheetName && s.name != performanceSheetName && s.name != licenseAssignmentSheetName,
-			Optional:    s.name == fileInfoSheetName,
+			Compatible:  s.name != coverageSheetName && s.name != performanceSheetName && s.name != licenseAssignmentSheetName && s.name != metadataSheetName,
+			Optional:    s.name == fileInfoSheetName || s.name == metadataSheetName,
 			DerivesFrom: meta.derivesFrom,
 			Note:        meta.note,
 			Columns:     make([]ColumnSpec, 0, len(s.headers)),
@@ -159,6 +159,8 @@ var sheetMeta = map[string]sheetInfo{
 		note: "Opt-in: written only for a run captured with `assessment run --include-licenses`, so a default export has no vLicense sheet. One row per license record. The Key column is kept so column positions match RVTools, but every cell is the fixed marker [redacted]: license keys are never collected into the ledger or exported. Total and Used are the aggregate cost-unit counts vSphere reports, and Used is not a count of hosts; host assignments are on vsfleetLicenseAssignment. Reported usage is an observation, not a compliance determination, an entitlement statement or a quote. When the account lacks the Global.Licenses privilege, or the server cannot answer, the sheet has no rows and vsfleetCoverage says unavailable; an empty vLicense sheet is never evidence of an unlicensed estate. Header names follow an RVTools 4.8 lab export; Cost Unit, Expiration Date and Features value formats are not yet verified against real license rows."},
 	licenseAssignmentSheetName: {derivesFrom: "the license collection",
 		note: "A vsfleet extension, not an RVTools worksheet, present only when vLicense is. One row per entity (host, cluster or the vCenter itself) that vSphere reports as holding a license, from LicenseAssignmentManager. License is the display name and Edition key the edition, never the key. If vSphere could not return assignments, this sheet has no rows and vsfleetCoverage marks it unavailable."},
+	metadataSheetName: {derivesFrom: "the VM and resource collections",
+		note: "A vsfleet extension, not an RVTools worksheet, written only with `assessment export --include-metadata`. One row per tag or custom attribute value per object, in a fixed column schema that does not change with an estate's tag categories or attributes. Every object has at least one row per source: a source that was read but holds no values is one row with an empty Field and status available, and a source that could not be read is one row naming its status, so an object without rows for a source never means \"no tags\". Rows are ordered by context, kind, object ID, source, field and value. Tag and attribute values are operator free text: the sizing-summary profile omits this sheet and full-inventory pseudonymizes names and values."},
 	coverageSheetName: {derivesFrom: "the run ledger",
 		note: "A vsfleet extension, not an RVTools worksheet. One row per worksheet per vCenter, naming what collected, what failed, and why. A partial estate is reported as partial rather than handed over as if it were whole."},
 }
@@ -317,6 +319,23 @@ var sharedColumns = map[string]ColumnSpec{
 // sheetColumns describes columns whose meaning depends on the worksheet. A
 // name here shadows the shared description for that sheet only.
 var sheetColumns = map[string]map[string]ColumnSpec{
+	metadataSheetName: {
+		"Run ID":          {Kind: KindInteger, Note: "The stored assessment the row was rendered from."},
+		"Captured at":     {Kind: KindDate, Note: "When the row's context was captured, in UTC. Rendered as a date cell in XLSX and as RFC3339 UTC in CSV."},
+		"Context":         {Kind: KindText, Note: "The configured vsfleet context the object came from."},
+		"vCenter ID":      {Kind: KindText, Empty: "when the capture did not record one", Note: "vCenter instance UUID. With Kind and Object ID it identifies the object across captures; names do not."},
+		"Kind":            {Kind: KindText, Note: "vm, template, host, cluster, resourcepool, datastore, network or dvswitch."},
+		"Object ID":       {Kind: KindText, Note: "vCenter managed object reference, unique within one vCenter."},
+		"Object name":     {Kind: KindText, Note: "Name as vCenter reported it; not unique across an estate."},
+		"Path":            {Kind: KindText, Empty: "when the object has no inventory path", Note: "Full inventory path."},
+		"Metadata source": {Kind: KindText, Note: "tag or custom_attribute."},
+		"Field ID":        {Kind: KindText, Empty: "on a row that states a source's status rather than a value", Note: "Tag category ID, or the numeric custom attribute key, which survives a rename."},
+		"Field":           {Kind: KindText, Empty: "on a row that states a source's status rather than a value", Note: "Tag category name or custom attribute name."},
+		"Value ID":        {Kind: KindText, Empty: "for a custom attribute, or a status row", Note: "Tag ID."},
+		"Value":           {Kind: KindText, Empty: "on a status row, or when a custom attribute is set to the empty string", Note: "Tag name or custom attribute value."},
+		"Source status":   {Kind: KindText, Note: "available, unavailable, denied, unsupported or not_recorded. A row with status available and an empty Field means the source was read and the object has no values; any other status means the object's values for that source are unknown."},
+		"Source error":    {Kind: KindText, Empty: "when the source was read", Note: "Why the source could not be read."},
+	},
 	"vSource": {
 		"Name":            {Kind: KindText, Empty: "when the server reports no name", Note: "AboutInfo.name: short form of the product name."},
 		"OS type":         {Kind: KindText, Empty: "when the server reports none", Note: "AboutInfo.osType, for example linux-x86 or vmnix-x86."},

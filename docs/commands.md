@@ -44,6 +44,8 @@ configuration, history database, and output options shown below.
 | `vsfleet vm decommission-check <name-or-uuid> [run]` | Review stored evidence before decommissioning a VM |
 | `vsfleet assessment ...` | Capture and compare historical observations |
 | `vsfleet assessment export --profile <name> [--pseudonymize --pseudonymize-key-file <file>] [--preview]` | Export a scoped `sizing-summary` or `full-inventory` workbook, optionally pseudonymized; see [scoped sharing profiles](assessments.md#scoped-sharing-profiles-and-pseudonymization) |
+| `vsfleet assessment metadata [run] [--kind ...] [--source tag\|custom] [--where ...] [--format csv]` | Export stored tags and custom attributes in a fixed long-format schema; see [metadata exports](assessments.md#metadata-exports-and-saved-reports) |
+| `vsfleet assessment metadata-report <definition> [run] [--base <run>]` | Run a saved tag/custom-attribute report against an assessment, optionally listing membership changes since `--base` |
 | `vsfleet import rvtools <file.xlsx>` | Import an RVTools-compatible export as a new offline assessment run |
 | `vsfleet compatibility report` | Describe every worksheet and column the export writes |
 
@@ -85,7 +87,15 @@ vsfleet assessment findings latest --where 'tag=PCI' -o json
 JSON inventory, search, and findings output includes normalized metadata,
 source status, and object/context provenance. A vCenter that does not expose a
 metadata source remains usable; scalar inventory is retained and the affected
-source is reported as unavailable.
+source is reported with its status: `unavailable` (the read failed),
+`denied` (the account lacks the privilege, or the tagging service rejected
+the session), or `unsupported` (the endpoint has no tagging service or custom
+fields manager). Objects from captures that predate metadata collection read
+as `not_recorded`. Only `available` is complete.
+
+For a fixed-schema export of every stored tag and attribute, and for saved,
+repeatable reports, see
+[metadata exports and saved reports](assessments.md#metadata-exports-and-saved-reports).
 
 Results from healthy contexts remain available when another context fails. The
 failure is reported separately with its context and diagnostic information.

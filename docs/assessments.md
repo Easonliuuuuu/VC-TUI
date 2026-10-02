@@ -662,6 +662,130 @@ export interoperability was independently implemented without RVTools source
 code or non-public documentation. RVTools is a Dell Technologies product;
 references here describe export-file interoperability only.
 
+### Metadata exports and saved reports
+
+`assessment metadata` writes every tag and custom attribute stored in an
+assessment as one row per value. The columns never change with an estate's
+tag categories or attributes, so the output loads into a database, and two
+vCenters with different categories produce the same schema:
+
+```sh
+vsfleet assessment metadata --format csv --file metadata.csv
+vsfleet assessment metadata nightly --kind vm --source tag -o json
+```
+
+| Column | Meaning |
+| --- | --- |
+| `run_id`, `captured_at` | The assessment, and when the row's context was captured (RFC3339 UTC) |
+| `context`, `vcenter_id`, `kind`, `object_id` | Object identity. `vcenter_id` + `kind` + `object_id` follows an object across captures; names are not unique |
+| `object_name`, `path` | As vCenter reported them |
+| `source` | `tag` or `custom_attribute` |
+| `field_id`, `field` | Tag category ID and name, or the numeric custom attribute key and name. The key survives a rename |
+| `value_id`, `value` | Tag ID and name, or the attribute value (`value_id` is empty) |
+| `status`, `error` | The source's state for this object, and why it could not be read |
+
+Every object has at least one row per source. A source that was read and
+holds nothing is a single row with an empty `field` and status `available`
+("verified none"). A source that could not be read is a single row naming
+its status, so an object never silently has no rows:
+
+| Status | Meaning |
+| --- | --- |
+| `available` | Read completely |
+| `unavailable` | The read failed; retrying may succeed |
+| `denied` | The account lacks the privilege, or the tagging service rejected the session (HTTP 401/403, vSphere `NoPermission`) |
+| `unsupported` | The endpoint has no tagging service or custom fields manager |
+| `not_recorded` | The capture predates metadata collection |
+
+Coverage is also reported per context, kind and source, as warnings on
+standard error and in the JSON `coverage` array. A collection's status is
+counted over every object, so one failed tag lookup shows as `partial` with a
+count by state rather than disappearing behind the first object. A failed
+collection is reported as `collection_failed`: neither its objects nor their
+metadata are known. `--fail-on-incomplete` exits 3 when anything in scope is
+not `available`.
+
+#### Saved report definitions
+
+A report definition is a TOML file. Save it as
+`<config dir>/vsfleet/reports/<name>.toml` (beside `config.toml`, so
+`VSFLEET_CONFIG` and `--config` move it too) and run it by name, or pass any
+path:
+
+```toml
+name = "pci-production"
+description = "VMs in PCI scope"
+contexts = ["prod-east", "prod-west"]   # names or vCenter IDs; omit for all
+kinds = ["vm"]                          # omit for every stored kind
+where = ["tag.Compliance=PCI", "tag.Environment=Production"]
+columns = ["context", "vcenter_id", "name", "id", "tag.Compliance", "custom.owner"]
+```
+
+```sh
+vsfleet assessment metadata-report pci-production
+vsfleet assessment metadata-report ./pci.toml nightly --format csv --file pci.csv
+vsfleet assessment metadata-report pci-production --base baseline
+```
+
+- `where` uses the [`--where` language](commands.md#inventory-and-search);
+  predicates are ANDed. Unknown keys, kinds, fields and columns are errors, so
+  a misspelt key cannot silently widen a report.
+- `columns` accepts `context`, `vcenter_id`, `kind`, `id`, `name`, `path`,
+  any scalar inventory field of the selected kinds (for example `cpu` or
+  `power_state`), `tags` (every `Category/Tag`), `tag.<Category>`,
+  `custom_attributes`, `custom.<name>` or `custom.#<key>`, and `tags_status` /
+  `custom_attributes_status`. Default: `context`, `kind`, `name`, `id`.
+  Several values in one cell are sorted and joined with `; `. A cell for a
+  source that could not be read shows its status in parentheses, for example
+  `(denied)`, never an empty value.
+- Output always names the report, the assessment ID and label, and the
+  capture time. The same definition against the same assessment always
+  produces byte-identical output.
+
+Filter semantics are three-valued. An object is a **member** when every
+predicate holds, excluded when any predicate is definitely false, and
+**undetermined** when no predicate is false but one names a metadata source
+the object's capture could not read. This matters most for negative
+predicates: with tags unreadable, `tag.Compliance!=PCI` cannot be answered,
+so the object is undetermined rather than a member. Undetermined objects are
+listed separately (`membership` column `undetermined` in CSV) and mark the
+report incomplete; `--fail-on-incomplete` then exits 3. The live and stored
+`--where` flags are unchanged: they still exclude such objects, and warn with
+the source's status.
+
+With `--base`, the report runs against both assessments and lists membership
+changes by object identity:
+
+| Change | Meaning |
+| --- | --- |
+| `added` | Not a member in the base, a member in the target |
+| `removed` | A member in the base; in the target its collection succeeded and the object is not a member (excluded or gone) |
+| `unknown` | Membership is undetermined on one side, or the object's collection failed or was not recorded in one capture |
+
+An object that vanished because its collection failed is `unknown`, never
+`removed`.
+
+#### Workbook sheet and sharing profiles
+
+`assessment export --include-metadata` appends a `vsfleetMetadata` sheet with
+the same rows. It is a vsfleet extension and opt-in: the default export and
+the RVTools-compatible sheets never gain columns from tag categories or
+attributes. Tag and attribute values are operator free text and often hold
+owner, customer or project names, so treat the metadata CSV, JSON and sheet
+as sensitive.
+
+- `sizing-summary` omits `vsfleetMetadata` even when `--include-metadata` is
+  given; the preview lists it under omitted worksheets.
+- `full-inventory` includes it when requested. With `--pseudonymize`, category
+  and attribute names (`Field`), values (`Value`) and object names are
+  replaced with free-text and name tokens, tag, category and object IDs with
+  ID tokens, the context, vCenter ID and path as on every other sheet, and
+  `Source error` is scrubbed like other system text. Equal values share a
+  token, so grouping by field or value still works, and `Object ID` uses the
+  same token as `VM ID` and `Object ID` on other sheets.
+- `assessment metadata` and `metadata-report` write unprofiled values. Use a
+  profile export when the output leaves your control.
+
 ### Scoped sharing profiles and pseudonymization
 
 Handing over a complete RVTools-style workbook gives the recipient every VM
@@ -673,7 +797,7 @@ ordinary `assessment export` is unchanged and never transformed unless
 | Profile | Contents |
 | --- | --- |
 | `sizing-summary` | `vInfo`, `vDisk`, `vSource`, `vCluster`, `vHost`, `vDatastore` and `vsfleetCoverage`, each limited to the columns listed in the allowlist below |
-| `full-inventory` | Every worksheet and column of the ordinary export, so pseudonymization can be applied to the whole inventory |
+| `full-inventory` | Every worksheet and column of the ordinary export, so pseudonymization can be applied to the whole inventory; with `--include-metadata`, also `vsfleetMetadata` (see [workbook sheet and sharing profiles](#workbook-sheet-and-sharing-profiles)) |
 
 `sizing-summary` allowlist (a column not listed is omitted, not blanked):
 

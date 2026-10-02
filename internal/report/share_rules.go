@@ -165,6 +165,22 @@ var sheetRules = map[string]colRule{
 	"vLicense/Name":         name(kindName),
 	"vPartition/Disk":       pathRule,
 	"vLicense/Key":          keep(),
+
+	// vsfleetMetadata. Category, attribute and tag names are operator free
+	// text and are pseudonymized like annotations; the same name maps to the
+	// same token, so grouping by field or value still works. Object IDs share
+	// the kindID namespace with "VM ID" and "Object ID" elsewhere, which is
+	// what links a row back to its object.
+	"vsfleetMetadata/Captured at":     keep(),
+	"vsfleetMetadata/Kind":            keep(),
+	"vsfleetMetadata/Object name":     name(kindName),
+	"vsfleetMetadata/Metadata source": keep(),
+	"vsfleetMetadata/Field ID":        id(kindID),
+	"vsfleetMetadata/Field":           text(),
+	"vsfleetMetadata/Value ID":        id(kindID),
+	"vsfleetMetadata/Value":           text(),
+	"vsfleetMetadata/Source status":   keep(),
+	"vsfleetMetadata/Source error":    scrubbed(),
 }
 
 // ruleFor resolves a column's rule and reports whether one exists.

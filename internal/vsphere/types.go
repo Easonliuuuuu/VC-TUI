@@ -66,6 +66,32 @@ type Location struct {
 	Path string `json:"path"`
 }
 
+// Metadata source states. An object records available, unavailable, denied or
+// unsupported for each source. Partial and not_applicable describe a whole
+// collection: some of its objects were readable and some were not, or it held
+// no objects to read. NotRecorded is what a reader reports for evidence that
+// carries no status at all, such as a capture taken before metadata existed.
+// Only available is complete; every other state means a predicate on that
+// source cannot be decided.
+const (
+	MetadataAvailable     = "available"
+	MetadataUnavailable   = "unavailable"
+	MetadataDenied        = "denied"
+	MetadataUnsupported   = "unsupported"
+	MetadataPartial       = "partial"
+	MetadataNotApplicable = "not_applicable"
+	MetadataNotRecorded   = "not_recorded"
+)
+
+// MetadataStatus normalizes a recorded source status, mapping the empty value
+// written by older captures to MetadataNotRecorded.
+func MetadataStatus(status string) string {
+	if status == "" {
+		return MetadataNotRecorded
+	}
+	return status
+}
+
 // Metadata is the normalized operator-owned metadata attached to an
 // inventory object. Status is kept separately for tags and custom attributes
 // because vCenter installations commonly expose one source but not the other.
@@ -909,4 +935,83 @@ func plural(n int, word string) string {
 		return "1 " + word
 	}
 	return strconv.Itoa(n) + " " + word + "s"
+}
+
+// MetadataTally accumulates one metadata source's per-object states into a
+// collection-level status: available only when every object is, partial when
+// some are, and otherwise the most actionable failure -- a privilege grant,
+// then a missing service, then a retry.
+type MetadataTally struct {
+	Total, Available int
+	counts           map[string]int
+	firstError       string
+}
+
+var metadataFailurePriority = []string{MetadataDenied, MetadataUnsupported, MetadataUnavailable, MetadataNotRecorded}
+
+// Add records one object's status for the source.
+func (t *MetadataTally) Add(status, message string) {
+	status = MetadataStatus(status)
+	t.Total++
+	if status == MetadataAvailable {
+		t.Available++
+		return
+	}
+	if t.counts == nil {
+		t.counts = map[string]int{}
+	}
+	t.counts[status]++
+	if t.firstError == "" {
+		t.firstError = message
+	}
+}
+
+// FirstError is the first failure message recorded.
+func (t MetadataTally) FirstError() string { return t.firstError }
+
+// Breakdown lists the failure states with their object counts, most
+// actionable first, e.g. "1 denied, 2 unavailable".
+func (t MetadataTally) Breakdown() string {
+	var parts []string
+	seen := map[string]bool{}
+	for _, status := range metadataFailurePriority {
+		if n := t.counts[status]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", n, strings.ReplaceAll(status, "_", " ")))
+			seen[status] = true
+		}
+	}
+	var other []string
+	for status := range t.counts {
+		if !seen[status] {
+			other = append(other, status)
+		}
+	}
+	sort.Strings(other)
+	for _, status := range other {
+		parts = append(parts, fmt.Sprintf("%d %s", t.counts[status], strings.ReplaceAll(status, "_", " ")))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// Result returns the collection-level status and a description of the gap.
+func (t MetadataTally) Result() (string, string) {
+	if t.Total == 0 {
+		return MetadataNotApplicable, ""
+	}
+	if t.Available == t.Total {
+		return MetadataAvailable, ""
+	}
+	message := t.firstError
+	if message == "" {
+		message = "source not readable"
+	}
+	if t.Available > 0 {
+		return MetadataPartial, fmt.Sprintf("%d of %d objects: %s", t.Total-t.Available, t.Total, message)
+	}
+	for _, status := range metadataFailurePriority {
+		if t.counts[status] > 0 {
+			return status, message
+		}
+	}
+	return MetadataUnavailable, message
 }

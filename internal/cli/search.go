@@ -133,15 +133,9 @@ func printSearch(a *App, res *search.Results, wide bool) {
 	for _, m := range res.Matches {
 		for _, item := range [][3]string{{"tags", m.Metadata.TagsStatus, m.Metadata.TagsError}, {"custom attributes", m.Metadata.CustomAttributesStatus, m.Metadata.CustomAttributesError}} {
 			source, status, message := item[0], item[1], item[2]
-			if status == "unavailable" {
-				if message == "" {
-					message = "source unavailable"
-				}
-				key := source + ":" + message
-				if !seen[key] {
-					fmt.Fprintf(a.errOut(), "%s metadata %s unavailable: %s\n", glyphFail, source, message)
-					seen[key] = true
-				}
+			if line, ok := metadataWarning(source, status, message); ok && !seen[line] {
+				fmt.Fprintf(a.errOut(), "%s %s\n", glyphFail, line)
+				seen[line] = true
 			}
 		}
 	}
