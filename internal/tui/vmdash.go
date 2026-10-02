@@ -44,22 +44,46 @@ type perfRange struct {
 	window   time.Duration
 	interval int
 	source   string
+	// axis is the time format for the chart's two ends: clock time on the
+	// short ranges, dates on the long ones.
+	axis string
 }
 
 var perfRanges = []perfRange{
-	{"1h", time.Hour, vsphere.RealtimePerfInterval, "live · 20 s samples"},
-	{"24h", 24 * time.Hour, 300, "5 min roll-up"},
-	{"7d", 7 * 24 * time.Hour, 1800, "30 min roll-up"},
-	{"30d", 30 * 24 * time.Hour, 7200, "2 h roll-up"},
+	{"1h", time.Hour, vsphere.RealtimePerfInterval, "live · 20 s samples", "15:04"},
+	{"24h", 24 * time.Hour, 300, "5 min roll-up", "Jan 2 15:04"},
+	{"7d", 7 * 24 * time.Hour, 1800, "30 min roll-up", "Jan 2"},
+	{"30d", 30 * 24 * time.Hour, 7200, "2 h roll-up", "Jan 2"},
 }
 
-// vmPerfEntry is one VM's charts for one range: loading, failed, or loaded.
+// maxLiveEvery caps how long an open pane waits between re-reads on the
+// long ranges, whose roll-ups land only every 30 minutes or 2 hours but do
+// not land on a schedule this side can see.
+const maxLiveEvery = 10 * time.Minute
+
+// every is how often an open pane re-reads this range: once per sample on
+// the realtime and 5-minute ranges, since nothing new can arrive sooner,
+// and at most maxLiveEvery on the others.
+func (r perfRange) every() time.Duration {
+	if d := time.Duration(r.interval) * time.Second; d < maxLiveEvery {
+		return d
+	}
+	return maxLiveEvery
+}
+
+// vmPerfEntry is one VM's charts for one range. A re-read keeps the last
+// good series on screen while it runs, and if it fails the old charts stay
+// up with the error beside them rather than being replaced by it.
 type vmPerfEntry struct {
+	gen uint64
+	// loading is true while a read is in flight.
 	loading bool
-	gen     uint64
+	// hasData says set holds a successful read, taken at asOf.
+	hasData bool
 	set     perf.SeriesSet
-	err     error
 	asOf    time.Time
+	// err is the most recent read's failure, cleared by the next success.
+	err error
 }
 
 type vmPerfMsg struct {
@@ -69,6 +93,11 @@ type vmPerfMsg struct {
 	err  error
 	asOf time.Time
 }
+
+// vmPerfTickMsg is the live-refresh timer for an open VM pane. token ties
+// it to the chain that armed it: opening another VM or range arms a new
+// chain, and a tick from an older one is dropped.
+type vmPerfTickMsg struct{ token uint64 }
 
 // now is the instant ages in the interface are measured from: the backend's
 // own clock when it pins one (the demo estate), the wall clock otherwise.
@@ -85,11 +114,41 @@ func (m *Model) perfRange() perfRange {
 
 func vmPerfKey(r row, rng perfRange) string { return r.key + "|" + rng.label }
 
-// ensureVMPerf starts reading the detail row's charts for the current range,
-// unless they are already loaded or loading. force re-reads them anyway —
-// the refresh key. Rows that are not VMs, and backends without the live
-// query, return nil: the pane says why in place of the charts.
+// liveRefresh reports whether an open pane re-reads its charts on its own.
+// It follows background inventory refresh: Options.RefreshInterval < 0
+// turns both off, leaving everything exactly as last read.
+func (m *Model) liveRefresh() bool { return m.refreshInterval > 0 }
+
+// ensureVMPerf makes sure the detail row's charts for the current range are
+// loaded or loading, and (re)arms the live-refresh timer for what is now on
+// screen. force re-reads them anyway — the refresh key. Rows that are not
+// VMs, and backends without the live query, return nil: the pane says why
+// in place of the charts.
 func (m *Model) ensureVMPerf(force bool) tea.Cmd {
+	load := m.loadVMPerf(force)
+	if load == nil && !m.showingVMPerf() {
+		return nil
+	}
+	return tea.Batch(load, m.armVMPerfTick())
+}
+
+// showingVMPerf reports whether a VM's charts are on screen right now.
+func (m *Model) showingVMPerf() bool {
+	if m.mode != modeDetail && m.mode != modeVAppVMDetail {
+		return false
+	}
+	r, ok := m.detailRow()
+	if !ok || r.vm == nil {
+		return false
+	}
+	_, ok = m.backend.(vmPerfBackend)
+	return ok
+}
+
+// loadVMPerf starts a read of the detail row's charts for the current range
+// unless one is in flight, or a good one is fresh: younger than the range's
+// refresh interval while live refresh is on, any age while it is off.
+func (m *Model) loadVMPerf(force bool) tea.Cmd {
 	r, ok := m.detailRow()
 	if !ok || r.vm == nil {
 		return nil
@@ -104,15 +163,25 @@ func (m *Model) ensureVMPerf(force bool) tea.Cmd {
 	}
 	rng := m.perfRange()
 	k := vmPerfKey(r, rng)
-	if e := m.vmPerf[k]; e != nil && !force && (e.loading || e.err == nil) {
+	e := m.vmPerf[k]
+	if e != nil && e.loading {
 		return nil
+	}
+	if e != nil && !force && e.hasData && e.err == nil {
+		if !m.liveRefresh() || m.now().Sub(e.asOf) < rng.every() {
+			return nil
+		}
 	}
 	if m.vmPerf == nil {
 		m.vmPerf = map[string]*vmPerfEntry{}
 	}
+	if e == nil {
+		e = &vmPerfEntry{}
+		m.vmPerf[k] = e
+	}
 	m.vmPerfGen++
-	gen := m.vmPerfGen
-	m.vmPerf[k] = &vmPerfEntry{loading: true, gen: gen}
+	e.gen, e.loading = m.vmPerfGen, true
+	gen := e.gen
 	ctx, cc, vm, now := m.ctx, st.cc, *r.vm, m.now()
 	return func() tea.Msg {
 		set, err := b.VMPerfSeries(ctx, cc, vm, rng.window, rng.interval, now)
@@ -125,7 +194,58 @@ func (m *Model) applyVMPerf(msg vmPerfMsg) {
 	if e == nil || e.gen != msg.gen {
 		return
 	}
-	*e = vmPerfEntry{gen: msg.gen, set: msg.set, err: msg.err, asOf: msg.asOf}
+	e.loading = false
+	e.err = msg.err
+	if msg.err == nil {
+		e.set, e.asOf, e.hasData = msg.set, msg.asOf, true
+	}
+}
+
+// armVMPerfTick starts a new live-refresh chain for the pane on screen,
+// orphaning any earlier one. Each tick arms the next rather than a repeating
+// ticker, the same way scheduleRefresh does, and a read still in flight when
+// a tick lands is left to finish rather than doubled.
+func (m *Model) armVMPerfTick() tea.Cmd {
+	if !m.liveRefresh() || !m.showingVMPerf() {
+		return nil
+	}
+	m.vmPerfLive = true
+	return m.nextVMPerfTick()
+}
+
+// nextVMPerfTick schedules the next tick of the current chain.
+func (m *Model) nextVMPerfTick() tea.Cmd {
+	m.vmPerfTick++
+	token := m.vmPerfTick
+	after := m.vmPerfAfter
+	if after == nil {
+		after = tea.Tick
+	}
+	return after(m.perfRange().every(), func(time.Time) tea.Msg { return vmPerfTickMsg{token: token} })
+}
+
+// resumeVMPerf restarts live refresh when a key has brought a VM pane back
+// on screen — closing help, or returning from the timeline — after its
+// chain ended. A cached read that went stale meanwhile is re-read.
+func (m *Model) resumeVMPerf() tea.Cmd {
+	if m.vmPerfLive || !m.liveRefresh() || !m.showingVMPerf() {
+		return nil
+	}
+	return tea.Batch(m.loadVMPerf(false), m.armVMPerfTick())
+}
+
+// applyVMPerfTick re-reads the open pane's charts and arms the next tick.
+// A tick from an orphaned chain, or one that lands after the pane closed,
+// ends there: reopening a pane arms a fresh chain.
+func (m *Model) applyVMPerfTick(msg vmPerfTickMsg) tea.Cmd {
+	if msg.token != m.vmPerfTick {
+		return nil
+	}
+	if !m.showingVMPerf() {
+		m.vmPerfLive = false
+		return nil
+	}
+	return tea.Batch(m.loadVMPerf(true), m.nextVMPerfTick())
 }
 
 // shiftPerfRange moves to a shorter (delta < 0) or longer range and starts
@@ -390,21 +510,29 @@ func (m *Model) vmDashLines(r row, w int) []string {
 	}
 	e := m.vmPerf[vmPerfKey(r, rng)]
 	source := rng.source
-	if e != nil && !e.loading && e.err == nil {
+	if e != nil && e.hasData {
 		source += " · as of " + e.asOf.Local().Format("15:04:05")
 		if up, ok := lastValue(e.set, perf.SysUptime); ok {
 			source = "up " + ageWords(time.Duration(up)*time.Second) + " · " + source
 		}
+		if !m.liveRefresh() {
+			source = strings.Replace(source, "live · ", "", 1)
+		}
 	}
 	lines := []string{pageLine, joinEnds(rangeLine, t.dim.Render(source), w), ""}
 	switch {
-	case e == nil || e.loading:
+	case e == nil || (!e.hasData && e.loading):
 		return append(lines, t.dim.Render("loading performance…"))
-	case e.err != nil:
+	case !e.hasData:
 		for _, l := range wrap("Performance unavailable: "+e.err.Error(), w) {
 			lines = append(lines, t.warn.Render(l))
 		}
 		return lines
+	case e.err != nil:
+		// A re-read failed: keep the last good charts, say they are old.
+		for _, l := range wrap("Refresh failed, showing the read from "+e.asOf.Local().Format("15:04:05")+": "+e.err.Error(), w) {
+			lines = append(lines, t.warn.Render(l))
+		}
 	}
 	d := dash{m: m, vm: *r.vm, set: e.set, rng: rng, w: w}
 	switch page {
@@ -611,15 +739,15 @@ func (d dash) overview() []string {
 	m, w := d.m, d.w
 	t := m.theme
 	var out []string
-	out = append(out, m.chart(d.cpuUsage(), d.rng, w)...)
-	out = append(out, m.chart(d.memPct("Memory active", perf.MemActive), d.rng, w)...)
+	out = append(out, d.chart(d.cpuUsage())...)
+	out = append(out, d.chart(d.memPct("Memory active", perf.MemActive))...)
 	disk := d.diskThroughput()
 	lat := d.diskLatency()
 	disk.unit = "read + write · latency " + d.peakText(lat)
 	if st, ok := statsOf(lat.values); ok && st.peak >= lat.warnAt {
 		disk.unit += " " + glyphCheckWarn
 	}
-	out = append(out, m.chart(disk, d.rng, w)...)
+	out = append(out, d.chart(disk)...)
 	out = append(out, t.header.Render("CONTENTION"))
 	out = append(out, m.metricRow(d.cpuReady(), w), m.metricRow(d.cpuCostop(), w))
 	if d.limitless() {
@@ -637,12 +765,12 @@ func (d dash) overview() []string {
 func (d dash) cpuPage() []string {
 	var out []string
 	for _, mt := range []metric{d.cpuUsage(), d.cpuReady(), d.cpuCostop()} {
-		out = append(out, d.m.chart(mt, d.rng, d.w)...)
+		out = append(out, d.chart(mt)...)
 	}
 	if d.limitless() {
 		out = append(out, d.m.noteRow("CPU limited", "no CPU limit set", d.w), "")
 	} else {
-		out = append(out, d.m.chart(d.cpuLimited(), d.rng, d.w)...)
+		out = append(out, d.chart(d.cpuLimited())...)
 	}
 	return append(out, d.signalLines()...)
 }
@@ -650,7 +778,7 @@ func (d dash) cpuPage() []string {
 func (d dash) memoryPage() []string {
 	var out []string
 	for _, mt := range []metric{d.memPct("Memory active", perf.MemActive), d.memPct("Memory consumed", perf.MemConsumed), d.memBalloon(), d.memSwapin()} {
-		out = append(out, d.m.chart(mt, d.rng, d.w)...)
+		out = append(out, d.chart(mt)...)
 	}
 	if s, ok := d.set.Get(perf.MemSwapped); ok && s.Summary.Peak != nil {
 		out = append(out, d.m.theme.dim.Render(fmt.Sprintf("swapped out at peak %s, which can be old pages rather than current pressure", fmtMiB(*s.Summary.Peak))))
@@ -661,7 +789,7 @@ func (d dash) memoryPage() []string {
 func (d dash) diskPage() []string {
 	var out []string
 	for _, mt := range []metric{d.disk("Read", perf.DiskRead), d.disk("Write", perf.DiskWrite), d.diskLatency(), d.diskIOPS()} {
-		out = append(out, d.m.chart(mt, d.rng, d.w)...)
+		out = append(out, d.chart(mt)...)
 	}
 	return out
 }
@@ -669,7 +797,7 @@ func (d dash) diskPage() []string {
 func (d dash) networkPage() []string {
 	var out []string
 	for _, mt := range []metric{d.net("Received", perf.NetReceived), d.net("Transmitted", perf.NetTransmitted), d.netDropped()} {
-		out = append(out, d.m.chart(mt, d.rng, d.w)...)
+		out = append(out, d.chart(mt)...)
 	}
 	return out
 }
@@ -753,8 +881,10 @@ func (mt metric) top(st seriesStats) float64 {
 }
 
 // chart draws one metric as a chartRows-tall block chart under a title line
-// carrying its statistics, with the range's ends beneath.
-func (m *Model) chart(mt metric, rng perfRange, w int) []string {
+// carrying its statistics, with the window's ends beneath it as clock times
+// or dates.
+func (d dash) chart(mt metric) []string {
+	m, w := d.m, d.w
 	t := m.theme
 	left := t.title.Render(mt.name)
 	if mt.unit != "" {
@@ -770,7 +900,17 @@ func (m *Model) chart(mt metric, rng perfRange, w int) []string {
 	st, ok := statsOf(mt.values)
 	out := []string{m.chartTitle(mt, st, ok, w)}
 	out = append(out, m.blockChart(mt.values, w, chartRows, mt.top(st), mt.warnAt)...)
-	return append(out, joinEnds(t.faint.Render("-"+rng.label), t.faint.Render("now"), w), "")
+	return append(out, d.axis(len(mt.values)), "")
+}
+
+// axis labels a chart's two ends with the window's start and end. When
+// there are fewer samples than columns the chart is drawn against the right
+// edge, so the start label moves in to sit under the first sample.
+func (d dash) axis(samples int) string {
+	t := d.m.theme
+	format := func(at time.Time) string { return at.Local().Format(d.rng.axis) }
+	lead := max(0, d.w-samples)
+	return strings.Repeat(" ", lead) + joinEnds(t.faint.Render(format(d.set.WindowStart)), t.faint.Render(format(d.set.WindowEnd)), d.w-lead)
 }
 
 // chartTitle fits a chart's name, unit and statistics on one line. When

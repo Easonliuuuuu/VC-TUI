@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/easonliuuuuu/vsfleet/internal/config"
@@ -68,7 +69,7 @@ func TestVMDetailPutsChartsBesideTheProperties(t *testing.T) {
 	m.height = 60
 	press(t, m, "enter")
 	out := m.View()
-	for _, want := range []string{"[0 Overview]", "[1h]", "CPU usage", "Memory active", "Disk", "CONTENTION", "CPU ready", "Co-stop", "NETWORK", "Dropped", "Sizing signal", "live · 20 s samples"} {
+	for _, want := range []string{"[0 Overview]", "[1h]", "CPU usage", "Memory active", "Disk", "CONTENTION", "CPU ready", "Co-stop", "NETWORK", "Dropped", "Sizing signal", "20 s samples"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("dashboard is missing %q:\n%s", want, ansi.Strip(out))
 		}
@@ -161,15 +162,144 @@ func TestSupersededVMPerfReplyIsDropped(t *testing.T) {
 	m := newTestModel(t, b.fakeBackend, Options{Current: "prod"})
 	m.backend = b
 	press(t, m, "enter")
-	stale := m.ensureVMPerf(true)
-	fresh := m.ensureVMPerf(true)
-	staleMsg := stale().(vmPerfMsg)
-	staleMsg.err = errors.New("stale")
-	drive(t, m, fresh)
-	m.applyVMPerf(staleMsg)
 	r, _ := m.detailRow()
-	if e := m.vmPerf[vmPerfKey(r, m.perfRange())]; e == nil || e.err != nil {
-		t.Fatalf("entry = %+v; a reply superseded by a refresh must not replace the newer one", e)
+	e := m.vmPerf[vmPerfKey(r, m.perfRange())]
+	old := e.gen
+	first := m.loadVMPerf(true)
+	if again := m.loadVMPerf(true); again != nil {
+		t.Fatal("a read in flight must not be doubled")
+	}
+	drive(t, m, first)
+	m.applyVMPerf(vmPerfMsg{key: vmPerfKey(r, m.perfRange()), gen: old, err: errors.New("stale")})
+	if e.err != nil || !e.hasData {
+		t.Fatalf("entry = %+v; a reply from an earlier read must not replace the newer one", e)
+	}
+}
+
+// liveModel is a model with live refresh on and its timer captured, so a
+// test can fire ticks by hand instead of waiting on a real one.
+func liveModel(t *testing.T, b *perfFakeBackend) (*Model, *[]func(time.Time) tea.Msg, *[]time.Duration) {
+	t.Helper()
+	m := newTestModel(t, b.fakeBackend, Options{Current: "prod"})
+	m.backend = b
+	m.refreshInterval = DefaultRefreshInterval
+	var fires []func(time.Time) tea.Msg
+	var delays []time.Duration
+	m.vmPerfAfter = func(d time.Duration, fn func(time.Time) tea.Msg) tea.Cmd {
+		fires, delays = append(fires, fn), append(delays, d)
+		return nil
+	}
+	return m, &fires, &delays
+}
+
+func fire(t *testing.T, m *Model, fires *[]func(time.Time) tea.Msg, i int) {
+	t.Helper()
+	drive(t, m, discard(m.Update((*fires)[i](time.Time{}))))
+}
+
+func TestLiveRefreshRereadsTheOpenPaneOnTheRangeInterval(t *testing.T) {
+	b := perfHealthy()
+	m, fires, delays := liveModel(t, b)
+	press(t, m, "enter")
+	if len(*fires) != 1 || (*delays)[0] != 20*time.Second || len(b.calls) != 1 {
+		t.Fatalf("opening armed %d ticks (%v) after %d reads; want one 20s tick after one read", len(*fires), *delays, len(b.calls))
+	}
+	fire(t, m, fires, 0)
+	if len(b.calls) != 2 || len(*fires) != 2 {
+		t.Fatalf("a tick should re-read and arm the next: %d reads, %d ticks", len(b.calls), len(*fires))
+	}
+	press(t, m, ">")
+	if last := (*delays)[len(*delays)-1]; last != 5*time.Minute {
+		t.Fatalf("24h range ticks every %s; want 5m", last)
+	}
+	fire(t, m, fires, 1)
+	if len(b.calls) != 3 {
+		t.Fatalf("a tick from the chain the range change replaced must be dropped: %d reads", len(b.calls))
+	}
+}
+
+func TestLiveRefreshStopsWhenThePaneCloses(t *testing.T) {
+	b := perfHealthy()
+	m, fires, _ := liveModel(t, b)
+	press(t, m, "enter", "esc")
+	fire(t, m, fires, 0)
+	if len(b.calls) != 1 || len(*fires) != 1 {
+		t.Fatalf("after esc a tick read %d times and armed %d ticks; want it to end the chain", len(b.calls), len(*fires))
+	}
+}
+
+func TestLiveRefreshResumesWhenThePaneComesBack(t *testing.T) {
+	b := perfHealthy()
+	m, fires, _ := liveModel(t, b)
+	press(t, m, "enter", "?")
+	fire(t, m, fires, 0)
+	if m.vmPerfLive {
+		t.Fatal("a tick under the help overlay should end the chain")
+	}
+	press(t, m, "?")
+	if !m.vmPerfLive || len(*fires) != 2 {
+		t.Fatalf("closing help should restart live refresh: live=%v, ticks=%d", m.vmPerfLive, len(*fires))
+	}
+}
+
+func TestLiveRefreshIsOffWhenBackgroundRefreshIs(t *testing.T) {
+	b := perfHealthy()
+	m := newTestModel(t, b.fakeBackend, Options{Current: "prod"})
+	m.backend = b
+	armed := 0
+	m.vmPerfAfter = func(time.Duration, func(time.Time) tea.Msg) tea.Cmd { armed++; return nil }
+	press(t, m, "enter")
+	if armed != 0 {
+		t.Fatalf("RefreshInterval < 0 must leave the pane as last read, armed %d ticks", armed)
+	}
+	if strings.Contains(ansi.Strip(m.View()), "live ·") {
+		t.Error("a pane that does not refresh should not call itself live")
+	}
+}
+
+func TestFailedRefreshKeepsTheLastGoodCharts(t *testing.T) {
+	b := perfHealthy()
+	m, fires, _ := liveModel(t, b)
+	press(t, m, "enter")
+	b.err = errors.New("connection reset")
+	fire(t, m, fires, 0)
+	out := ansi.Strip(m.View())
+	if !strings.Contains(out, "Refresh failed, showing the read from") || !strings.Contains(out, "CPU usage") {
+		t.Fatalf("a failed re-read should keep the charts and say they are old:\n%s", out)
+	}
+	b.err = nil
+	fire(t, m, fires, 1)
+	if strings.Contains(ansi.Strip(m.View()), "Refresh failed") {
+		t.Error("the next good read should clear the warning")
+	}
+}
+
+func TestReturningToAStaleCachedRangeRereadsIt(t *testing.T) {
+	b := perfHealthy()
+	m, _, _ := liveModel(t, b)
+	press(t, m, "enter")
+	r, _ := m.detailRow()
+	m.vmPerf[vmPerfKey(r, perfRanges[0])].asOf = dashNow.Add(-time.Minute)
+	press(t, m, ">", "<")
+	if len(b.calls) != 3 {
+		t.Fatalf("calls = %d; a cached 1h read older than 20s should be re-read on return", len(b.calls))
+	}
+}
+
+func TestChartAxisShowsClockTimes(t *testing.T) {
+	b := perfHealthy()
+	m := newTestModel(t, b.fakeBackend, Options{Current: "prod"})
+	m.backend = b
+	press(t, m, "enter")
+	start := dashNow.Add(-time.Hour).Local().Format("15:04")
+	end := dashNow.Local().Format("15:04")
+	if _, l := lineWith(m.View(), start); !strings.Contains(l, end) || strings.Contains(l, "-1h") {
+		t.Fatalf("axis line = %q; want %s at the start and %s at the end", l, start, end)
+	}
+	press(t, m, ">", ">")
+	week := dashNow.Add(-7 * 24 * time.Hour).Local().Format("Jan 2")
+	if _, l := lineWith(m.View(), week); l == "" {
+		t.Fatalf("the 7d axis should start on %s:\n%s", week, ansi.Strip(m.View()))
 	}
 }
 

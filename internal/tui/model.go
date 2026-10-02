@@ -452,7 +452,9 @@ type Options struct {
 	Sort string
 	// RefreshInterval is how often inventory is re-read in the background.
 	// Zero means DefaultRefreshInterval; negative means never, leaving the
-	// table exactly as last read until someone asks for more.
+	// table exactly as last read until someone asks for more. It also
+	// switches the open VM pane's live chart refresh, which runs on each
+	// range's own interval rather than this one.
 	RefreshInterval time.Duration
 	// Credentials answers "prompt" credential references raised by
 	// background loads with a masked overlay instead of a second stdin
@@ -710,6 +712,15 @@ type Model struct {
 	vmPerf       map[string]*vmPerfEntry
 	vmPerfGen    uint64
 	perfRangeIdx int
+	// vmPerfTick is the token of the live-refresh chain for the open VM
+	// pane; vmPerfAfter schedules its ticks, tea.Tick when nil. Tests
+	// replace it so a timer never blocks the synchronous harness.
+	vmPerfTick  uint64
+	vmPerfAfter func(time.Duration, func(time.Time) tea.Msg) tea.Cmd
+	// vmPerfLive is true while a live-refresh chain is running. A chain
+	// ends when its tick finds no VM pane on screen; resumeVMPerf starts a
+	// new one when a key brings the pane back.
+	vmPerfLive bool
 	// perfPage indexes perfPages: the overview, or one area's full charts.
 	// Like the range it survives moving between VMs.
 	perfPage int
@@ -1514,6 +1525,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyVMPerf(msg)
 		return m, nil
 
+	case vmPerfTickMsg:
+		return m, m.applyVMPerfTick(msg)
+
 	case dsFindMsg:
 		return m, m.applyDSFind(msg)
 
@@ -1699,7 +1713,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.applyFormDelete(msg)
 
 	case tea.KeyMsg:
-		return m, m.handleKey(msg)
+		return m, tea.Batch(m.handleKey(msg), m.resumeVMPerf())
 	}
 	return m, nil
 }
