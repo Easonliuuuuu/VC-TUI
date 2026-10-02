@@ -78,15 +78,29 @@ health rules and are not stored or exported.
 | `<` / `>` (or `,` / `.`) | Shorter / longer range: 1h of 20-second realtime samples, then 24h, 7d, and 30d of vSphere's 5-minute, 30-minute, and 2-hour roll-ups |
 | `r` | Re-read the current range |
 
-The charts come from one read-only `QueryPerf` request for the opened VM,
-made when the pane opens or the range changes. That request reads more
-counters than `assessment perf` does, but the dashboard's counters are kept
-separate, so estate-wide collection and its stored summaries are unchanged.
-Disk and network counters are requested for every device and added up when
-the vCenter offers no VM-level total. Results are kept for the session, so
-moving between VMs, pages, or ranges and back does not ask the vCenter again.
-The page and range stay the same as you move between VMs with `←`/`→`, so you
-can compare VMs over one window.
+The charts come from one read-only `QueryPerf` request for the opened VM.
+That request reads more counters than `assessment perf` does, but the
+dashboard's counters are kept separate, so estate-wide collection and its
+stored summaries are unchanged. Disk and network counters are requested for
+every device and added up when the vCenter offers no VM-level total. Nothing
+is read for VMs whose pane is not open. The page and range stay the same as
+you move between VMs with `←`/`→`, so you can compare VMs over one window.
+
+While a VM's pane is on screen its charts refresh themselves. The 1h range
+re-reads every 20 seconds and the 24h range every 5 minutes, which is as
+often as new samples can arrive. The 7d and 30d ranges re-read every 10
+minutes. A refresh keeps the current charts up until the new read lands. If
+it fails, the last good charts stay with a warning naming when they were
+read. Refreshing stops when you leave the pane and resumes when you come
+back. A cached read older than its range's interval is re-read on return.
+Setting the background refresh interval to a negative value turns this off
+along with inventory refresh, and the header then drops the word "live".
+
+Each chart's ends show the window's start and end: clock times on the 1h
+range, date and time on 24h, and dates on 7d and 30d. The header's "as of"
+time is when the shown read was taken. vCenter only publishes a roll-up once
+its interval closes, so the newest part of the longer ranges usually trails
+the clock by 5–30 minutes.
 
 The 1h range reads every counter. The longer ranges only have what the
 vCenter's statistics level keeps, so a counter that is not collected shows
