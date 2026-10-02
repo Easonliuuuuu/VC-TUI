@@ -1,4 +1,4 @@
-vsfleet  history  ·  Changes   ←/→ switch
+vsfleet  history  ·  Changes   tab/⇧tab switch
 ────────────────────────────────────────────────────────────
   RUNS     #1   #2   #3   #4   #5  
   pick                     b    T  

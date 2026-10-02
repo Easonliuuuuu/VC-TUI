@@ -155,7 +155,7 @@ func (m *Model) viewChangesHeader() string {
 	// this header, so the header no longer restates "target #N" — a figure
 	// the bar already shows by label, date, and coverage instead of a bare ID.
 	label := "history  ·  " + labels[pane]
-	return t.title.Render("vsfleet") + "  " + t.accent.Render(label) + t.dim.Render("   ←/→ switch")
+	return t.title.Render("vsfleet") + "  " + t.accent.Render(label) + t.dim.Render("   tab/⇧tab switch")
 }
 
 func (m *Model) viewHistoryTimelineHeader() string {
