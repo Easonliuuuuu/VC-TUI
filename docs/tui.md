@@ -24,9 +24,15 @@ quiet background refresh.
 ## VM detail dashboard
 
 A VM's detail pane is a small dashboard. Its properties keep the field
-cursor and actions described below, and the fields a health rule judges show
-that rule's verdict after their value, using the same default thresholds as
-the History health pane:
+cursor and actions described below.
+
+Long property values wrap beneath their labels, including DNS names and
+inventory paths without spaces. The field cursor selects the whole wrapped
+value; actions and copying use the full original value. Use `PgUp`/`PgDown`
+to read values taller than the visible pane.
+
+The fields a health rule judges show that rule's verdict after their value,
+using the same default thresholds as the History health pane:
 
 | Field | `✓` | `▲` |
 |---|---|---|
@@ -42,6 +48,10 @@ Beside the properties, or below them on a terminal narrower than 100
 columns, is a chart column with five pages. Press `0`–`4` to switch pages.
 The page tabs show their digits, and every page draws from the same read, so
 switching pages asks the vCenter nothing.
+
+Opening an action menu widens the property column and rewraps its values.
+If the menu leaves too little room for readable charts, the charts move
+below the properties. Closing the menu restores the original layout.
 
 | Key | Page | Shows |
 |---|---|---|

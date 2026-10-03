@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -98,6 +99,204 @@ func TestVMDetailStacksChartsOnANarrowTerminal(t *testing.T) {
 		if w := ansi.StringWidth(l); w > 80 {
 			t.Errorf("line is %d cells wide on an 80 column terminal: %q", w, l)
 		}
+	}
+}
+
+func TestVMDetailWrapsFullPropertyValues(t *testing.T) {
+	for _, width := range []int{60, 80, 99, 100, 140} {
+		t.Run(fmt.Sprint(width), func(t *testing.T) {
+			b := twoHealthy()
+			vm := &b.inventories["prod"].VMs[0]
+			vm.GuestOS = "Synthetic Enterprise Linux with a very long operating system description (64-bit)"
+			vm.GuestHostName = strings.Repeat("synthetic", 12) + ".example.invalid"
+			vm.Path = "/synthetic/" + strings.Repeat("nested-folder/", 12) + "vm"
+			vm.Folder = strings.Repeat("測試", 20)
+			m := newTestModel(t, b, Options{Current: "prod"})
+			m.width = width
+			press(t, m, "enter")
+			r, _ := m.detailRow()
+			lines, spans := m.vmPropertyLines(r, false)
+			for _, line := range lines {
+				if ansi.StringWidth(line) > m.vmPropertyWidth() {
+					t.Fatalf("property overflows at width %d: %q", width, ansi.Strip(line))
+				}
+			}
+			for i, f := range r.detail {
+				if f.label != "Guest OS" && f.label != "DNS name" && f.label != "Inventory path" && f.label != "Folder" {
+					continue
+				}
+				span := spans[i+2]
+				var chunks []string
+				for _, line := range lines[span.start : span.end+1] {
+					chunks = append(chunks, ansi.Strip(ansi.Cut(line, 2+labelColumnPad, m.vmPropertyWidth())))
+				}
+				compact := func(s string) string { return strings.Join(strings.Fields(s), "") }
+				if got := compact(strings.Join(chunks, "")); got != compact(f.value) {
+					t.Errorf("%s lost content: got %q, want %q", f.label, got, compact(f.value))
+				}
+			}
+		})
+	}
+}
+
+func TestVMDetailWrappedFieldNavigationAndActions(t *testing.T) {
+	b := twoHealthy()
+	b.inventories["prod"].VMs[0].GuestOS = strings.Repeat("Synthetic OS description ", 8)
+	b.inventories["prod"].VMs[0].GuestHostName = strings.Repeat("synthetic", 12) + ".example.invalid"
+	m := newTestModel(t, b, Options{Current: "prod"})
+	m.width, m.height = 100, 20
+	press(t, m, "enter")
+	r, _ := m.detailRow()
+	for _, width := range []int{100, 60, 140} {
+		m.Update(tea.WindowSizeMsg{Width: width, Height: 20})
+		if m.detailCursor > 0 {
+			_, spans := m.vmPropertyLines(r, false)
+			span := spans[m.detailCursor]
+			if span.start < m.detailY || span.end >= m.detailY+m.bodyHeight() {
+				t.Fatalf("resize hid the focused field at width %d", width)
+			}
+		}
+		m.detailCursor = 0
+		for i := 0; i < len(r.detail); i++ {
+			if r.detail[i].label != "DNS name" {
+				continue
+			}
+			for m.detailCursor < i+2 {
+				press(t, m, "down")
+			}
+			_, spans := m.vmPropertyLines(r, false)
+			span := spans[m.detailCursor]
+			if span.start < m.detailY || span.end >= m.detailY+m.bodyHeight() {
+				t.Fatalf("wrapped DNS field %+v outside viewport at %d (offset %d)", span, width, m.detailY)
+			}
+			press(t, m, "enter")
+			if m.actions == nil {
+				t.Fatal("wrapped DNS field should open its action menu")
+			}
+			lines, menuSpans := m.vmPropertyLines(r, true)
+			popup := ansi.Strip(strings.Join(m.actionListLines(), "\n"))
+			start := menuSpans[m.detailCursor].end + 1
+			if got := ansi.Strip(strings.Join(lines[start:start+len(m.actionListLines())], "\n")); got != popup {
+				t.Fatalf("popup did not follow the full wrapped value: %q", got)
+			}
+			for j := 0; j < len(m.actions.items); j++ {
+				selected := start + 1 + m.actions.cursor
+				if selected < m.detailY || selected >= m.detailY+m.bodyHeight() {
+					t.Fatalf("selected action is outside the viewport at width %d", width)
+				}
+				press(t, m, "down")
+			}
+			for _, action := range m.actions.items {
+				if action.label == "Copy value" {
+					handoff := &fakeHandoff{}
+					m.handoff = handoff
+					if cmd := action.run(m); cmd != nil {
+						cmd()
+					}
+					if len(handoff.copied) != 1 || handoff.copied[0] != r.detail[i].value {
+						t.Errorf("copied %v, want full value %q", handoff.copied, r.detail[i].value)
+					}
+				}
+			}
+			press(t, m, "esc")
+		}
+	}
+}
+
+func TestVMActionMenuReflowsThePropertyColumn(t *testing.T) {
+	for _, width := range []int{100, 140, 200} {
+		t.Run(fmt.Sprint(width), func(t *testing.T) {
+			b := perfHealthy()
+			b.inventories["prod"].VMs[0].GuestOS = strings.Repeat("synthetic", 4)
+			m := newTestModel(t, b.fakeBackend, Options{Current: "prod"})
+			m.backend = b
+			m.width, m.height = width, 60
+			press(t, m, "enter")
+			r, _ := m.detailRow()
+			before := strings.Join(m.vmDetailLines(r, true), "\n")
+			_, beforeSpans := m.vmPropertyLines(r, false)
+			guestIdx := 4        // Guest OS follows vCenter and Power state.
+			press(t, m, "enter") // The VM header's SSH/action menu.
+			if m.actions == nil {
+				t.Fatal("VM header should open the action menu")
+			}
+			menuWidth := 0
+			for _, line := range m.actionListLines() {
+				menuWidth = max(menuWidth, ansi.StringWidth(line))
+			}
+			if menuWidth <= dashLeftWidth {
+				t.Fatal("fixture needs a menu wider than the default property column")
+			}
+			if m.vmPropertyWidth() < menuWidth {
+				t.Fatalf("properties still wrap at %d cells while the menu uses %d", m.vmPropertyWidth(), menuWidth)
+			}
+			leftW, split := m.vmDetailLayout()
+			if split && width-leftW-ansi.StringWidth(dashRule) < dashChartMinWidth {
+				t.Fatal("action menu leaves too little space for readable charts")
+			}
+			firstLine := ansi.Strip(m.vmDetailLines(r, true)[0])
+			if split {
+				if ansi.Cut(firstLine, leftW, leftW+ansi.StringWidth(dashRule)) != dashRule {
+					t.Fatal("chart divider and property wrapping must use the same width")
+				}
+			} else if strings.Contains(firstLine, "[0 Overview]") {
+				t.Fatal("charts should stack below the properties when the menu fills the terminal")
+			}
+			_, spans := m.vmPropertyLines(r, false)
+			if spans[guestIdx].end-spans[guestIdx].start >= beforeSpans[guestIdx].end-beforeSpans[guestIdx].start {
+				t.Fatal("Guest OS should use the extra width while the menu is open")
+			}
+			for _, line := range m.vmDetailLines(r, true) {
+				if ansi.StringWidth(line) > width {
+					t.Fatalf("menu pushes the dashboard past the terminal edge: %q", ansi.Strip(line))
+				}
+			}
+			press(t, m, "esc")
+			if got := strings.Join(m.vmDetailLines(r, true), "\n"); got != before {
+				t.Fatal("closing the menu should restore the original dashboard layout")
+			}
+		})
+	}
+}
+
+func TestVMOverviewNetworkSparklinesHaveAGutter(t *testing.T) {
+	b := perfHealthy()
+	m := newTestModel(t, b.fakeBackend, Options{Current: "prod"})
+	m.backend = b
+	press(t, m, "enter")
+	r, _ := m.detailRow()
+	out := ansi.Strip(strings.Join(m.vmDashLines(r, 87), "\n"))
+	rx, _ := lineWith(out, "Received")
+	tx, _ := lineWith(out, "Transmitted")
+	dropped, _ := lineWith(out, "Dropped")
+	lines := strings.Split(out, "\n")
+	if rx < 0 || tx != rx+2 || dropped != tx+2 || lines[rx+1] != "" || lines[tx+1] != "" {
+		t.Fatalf("network sparklines need a blank row between them:\n%s", out)
+	}
+}
+
+func TestVMDetailCanPageThroughAValueTallerThanThePane(t *testing.T) {
+	b := twoHealthy()
+	b.inventories["prod"].VMs[0].GuestOS = strings.Repeat("Synthetic long OS description ", 25) + "END-OF-VALUE"
+	b.inventories["prod"].VMs[0].GuestState = "syntheticGuestState"
+	m := newTestModel(t, b, Options{Current: "prod"})
+	m.width, m.height = 100, 20
+	press(t, m, "enter", "down", "down", "down")
+	r, _ := m.detailRow()
+	_, spans := m.vmPropertyLines(r, false)
+	span := spans[m.detailCursor]
+	if span.end-span.start < m.bodyHeight() || m.detailY != span.start {
+		t.Fatalf("tall selected value should start at the viewport top: span=%+v offset=%d", span, m.detailY)
+	}
+	for m.detailY+m.bodyHeight() <= span.end {
+		press(t, m, "pgdown")
+	}
+	if !strings.Contains(ansi.Strip(m.View()), "END-OF-VALUE") {
+		t.Fatal("paging should reveal the end of the wrapped value")
+	}
+	press(t, m, "down")
+	if m.detailCursor != 5 || !strings.Contains(ansi.Strip(m.View()), "▸ Guest state") {
+		t.Fatal("Down should advance to the next logical field after paging")
 	}
 }
 

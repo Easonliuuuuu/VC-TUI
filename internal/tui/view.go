@@ -212,6 +212,9 @@ func (m *Model) viewMessage() string {
 	if m.message == "" {
 		return ""
 	}
+	if m.messageInventory && (m.mode != modeBrowse || m.credPrompt != nil || m.sshPrompt != nil) {
+		return ""
+	}
 	style := t.dim
 	if m.messageBad {
 		style = t.bad

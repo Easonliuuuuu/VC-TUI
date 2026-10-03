@@ -36,5 +36,5 @@ vsfleet  history  ·  Changes   tab/⇧tab switch
                                                      │                                                                                      
                                                      │                                                                                      
                                                      │                                                                                      
-prod-vc · 1000 VMs, 16 templates, 56 hosts, 6 clusters, 24 vApps, 36 datastores, 30 networks
+
 ←/→ move end  b baseline  t target  c clip to shared coverage  1-4 impact  tab next pane  esc back  q quit

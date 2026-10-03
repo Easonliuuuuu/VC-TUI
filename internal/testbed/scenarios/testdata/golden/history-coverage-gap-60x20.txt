@@ -16,5 +16,5 @@ vsfleet  history  ·  Changes   tab/⇧tab switch
   IMPACT  OBJECT                       vCENTER WHAT MOVED   
 ▎blocks  old-api-22                   prod-vc vanished     
 ▎blocks  old-batch-17                 prod-vc vanished     
-prod-vc · 1000 VMs, 16 templates, 56 hosts, 6 clusters, 24 …
+
 ←/→ move end  b baseline  t target  c clip to shared covera…

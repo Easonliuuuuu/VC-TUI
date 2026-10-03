@@ -26,10 +26,11 @@ const (
 	// dashSplitWidth is the narrowest terminal that gets the side-by-side
 	// layout: a property column of dashLeftWidth plus a chart column wide
 	// enough for a readable hour of realtime samples.
-	dashSplitWidth = 100
-	dashLeftWidth  = 50
-	dashRule       = " │ "
-	chartRows      = 4
+	dashSplitWidth    = 100
+	dashLeftWidth     = 50
+	dashChartMinWidth = 47
+	dashRule          = " │ "
+	chartRows         = 4
 
 	glyphCheckOK   = "✓"
 	glyphCheckWarn = "▲"
@@ -421,43 +422,15 @@ func (m *Model) markSuffix(mk fieldMark) string {
 // vmDetailLines is the whole VM dashboard before scrolling. withActions
 // splices the open action popup under its line, as viewDetailRow always has.
 func (m *Model) vmDetailLines(r row, withActions bool) []string {
-	split := m.width >= dashSplitWidth
-	leftW := m.width
-	if split {
-		leftW = dashLeftWidth
-	}
-	marks := vmFieldMarks(*r.vm, m.now())
-	left := []string{truncate(m.detailHeaderLine(r), leftW), ""}
-	for i, f := range r.detail {
-		suffix := ""
-		if mk, ok := marks[f.label]; ok {
-			suffix = m.markSuffix(mk)
-		}
-		valueW := max(1, leftW-2-labelColumnPad-ansi.StringWidth(suffix))
-		f.value = ansi.Truncate(f.value, valueW, "…")
-		left = append(left, m.detailFieldLine(2+i, f)+suffix)
-	}
+	leftW, split := m.vmDetailLayout()
+	left, _ := m.vmPropertyLines(r, withActions)
 	t := m.theme
-	for _, n := range r.notes {
-		left = append(left, "", t.label.Render("  "+n.label))
-		for _, l := range wrap(n.value, leftW-4) {
-			left = append(left, "  "+t.value.Render(l))
-		}
-	}
-	if withActions && m.actions != nil {
-		left = spliceLines(left, m.detailCursor, m.actionListLines())
-	}
 	if !split {
 		out := append(left, "")
 		for _, l := range m.vmDashLines(r, m.width-4) {
 			out = append(out, "  "+l)
 		}
 		return out
-	}
-	// An open action popup can be wider than the property column; widen the
-	// column under it rather than clip the popup, for as long as it is open.
-	for _, l := range left {
-		leftW = max(leftW, ansi.StringWidth(l))
 	}
 	rightW := m.width - leftW - ansi.StringWidth(dashRule)
 	right := m.vmDashLines(r, rightW)
@@ -475,6 +448,109 @@ func (m *Model) vmDetailLines(r row, withActions bool) []string {
 		out[i] = pad(l, leftW, false) + rule + rr
 	}
 	return out
+}
+
+func (m *Model) vmPropertyWidth() int {
+	width, _ := m.vmDetailLayout()
+	return width
+}
+
+// Choose the column width before rendering properties so wrapping and the
+// chart divider use the same budget. A wide popup can temporarily require
+// the stacked layout to keep the charts readable.
+func (m *Model) vmDetailLayout() (int, bool) {
+	if m.width < dashSplitWidth {
+		return m.width, false
+	}
+	leftW := dashLeftWidth
+	if m.actions != nil {
+		for _, line := range m.actionListLines() {
+			leftW = max(leftW, ansi.StringWidth(line))
+		}
+	}
+	if m.width-leftW-ansi.StringWidth(dashRule) < dashChartMinWidth {
+		return m.width, false
+	}
+	return leftW, true
+}
+
+// detailSpan maps a logical field cursor to its rendered lines, including
+// wrapped continuations. Field actions still receive the original value.
+type detailSpan struct{ start, end int }
+
+func (m *Model) vmPropertyLines(r row, withActions bool) ([]string, []detailSpan) {
+	leftW := m.vmPropertyWidth()
+	t := m.theme
+	marks := vmFieldMarks(*r.vm, m.now())
+	left := []string{truncate(m.detailHeaderLine(r), leftW), ""}
+	spans := make([]detailSpan, 2+len(r.detail))
+	if withActions && m.actions != nil && m.detailCursor == 0 {
+		left = spliceLines(left, 0, m.actionListLines())
+	}
+	for i, f := range r.detail {
+		idx := 2 + i
+		spans[idx].start = len(left)
+		suffix := ""
+		if mk, ok := marks[f.label]; ok {
+			suffix = m.markSuffix(mk)
+		}
+		labelW := min(labelColumnPad, max(0, leftW-3))
+		valueW := max(1, leftW-2-labelW-ansi.StringWidth(suffix))
+		value := t.value.Render(f.value)
+		for j, part := range strings.Split(ansi.Wrap(value, valueW, ""), "\n") {
+			label := strings.Repeat(" ", labelW)
+			mark := ""
+			if j == 0 {
+				label = pad(f.label, labelW, false)
+				mark = suffix
+			}
+			prefix := "  "
+			if idx == m.detailCursor {
+				if j == 0 {
+					prefix = "▸ "
+				}
+				left = append(left, t.focused.Render(prefix+label+ansi.Strip(part))+mark)
+			} else {
+				left = append(left, prefix+t.label.Render(label)+part+mark)
+			}
+		}
+		spans[idx].end = len(left) - 1
+		if withActions && m.actions != nil && idx == m.detailCursor {
+			left = append(left, m.actionListLines()...)
+		}
+	}
+	for _, n := range r.notes {
+		left = append(left, "", t.label.Render("  "+n.label))
+		for _, l := range strings.Split(ansi.Wrap(n.value, max(1, leftW-4), ""), "\n") {
+			left = append(left, "  "+t.value.Render(l))
+		}
+	}
+	return left, spans
+}
+
+// Keep the selected action visible even when its wrapped field fills the
+// viewport. Closing the popup returns to the field itself.
+func (m *Model) scrollVMActionIntoView() {
+	r, ok := m.detailRow()
+	if !ok || r.vm == nil || m.bodyHeight() <= 0 {
+		return
+	}
+	if m.actions == nil {
+		m.scrollDetailIntoView(len(detailFocusable(r)))
+		return
+	}
+	lines, spans := m.vmPropertyLines(r, false)
+	if m.detailCursor < 0 || m.detailCursor >= len(spans) {
+		return
+	}
+	selected := spans[m.detailCursor].end + 2 + m.actions.cursor
+	if selected < m.detailY {
+		m.detailY = selected
+	}
+	if selected >= m.detailY+m.bodyHeight() {
+		m.detailY = selected - m.bodyHeight() + 1
+	}
+	m.detailY = clamp(m.detailY, 0, max(0, len(lines)+len(m.actionListLines())-m.bodyHeight()))
 }
 
 // perfPages are the chart column's pages: an overview of everything, then
@@ -757,7 +833,7 @@ func (d dash) overview() []string {
 	}
 	out = append(out, m.metricRow(d.memBalloon(), w), m.metricRow(d.memSwapin(), w))
 	out = append(out, t.header.Render("NETWORK"))
-	out = append(out, m.metricRow(d.net("Received", perf.NetReceived), w), m.metricRow(d.net("Transmitted", perf.NetTransmitted), w), m.metricRow(d.netDropped(), w))
+	out = append(out, m.metricRow(d.net("Received", perf.NetReceived), w), "", m.metricRow(d.net("Transmitted", perf.NetTransmitted), w), "", m.metricRow(d.netDropped(), w))
 	out = append(out, "")
 	return append(out, d.signalLines()...)
 }
