@@ -761,7 +761,7 @@ type Model struct {
 	// demo labels the header as sample data; see Options.Demo.
 	demo bool
 
-	// detailCursor is which line of the open detail pane the field cursor is
+	// detailCursor is which logical field of the detail pane the cursor is
 	// on — index 0 is the object's own header, everything else maps onto
 	// r.detail through detailFocusable. It is reachable from modeDetail and
 	// modeVAppVMDetail. detailY remains the pane's scroll offset, now derived
@@ -811,7 +811,9 @@ type Model struct {
 	width, height int
 	message       string
 	messageBad    bool
-	quitting      bool
+	// Successful inventory counts describe the browse screen only.
+	messageInventory bool
+	quitting         bool
 }
 
 // New builds the interface over a backend.
@@ -1496,6 +1498,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.clampCursor()
+		if m.mode == modeDetail || m.mode == modeVAppVMDetail {
+			if r, ok := m.detailRow(); ok && r.vm != nil {
+				m.scrollVMActionIntoView()
+			}
+		}
 		return m, nil
 
 	case spinner.TickMsg:
@@ -2135,11 +2142,12 @@ func (m *Model) finishLoad(st *contextState) tea.Cmd {
 	case quiet:
 		// Nothing to say: the table simply became current.
 	default:
-		note := ""
 		if n := len(st.inv.Errors); n > 0 {
-			note = fmt.Sprintf(" (%d listing error(s), see tabs)", n)
+			m.setMessage(fmt.Sprintf("%s · %d listing error(s), see tabs", st.cc.Name, n), false)
+		} else {
+			m.setMessage(st.cc.Name+" · "+st.inv.Counts(), false)
+			m.messageInventory = true
 		}
-		m.setMessage(st.cc.Name+" · "+st.inv.Counts()+note, false)
 	}
 	m.clampCursor()
 	if m.busy() {
@@ -2164,6 +2172,7 @@ func phaseForLoadError(err error) contextPhase {
 func (m *Model) setMessage(s string, bad bool) {
 	m.message = s
 	m.messageBad = bad
+	m.messageInventory = false
 }
 
 // canCapture reports whether the History hub can start a new capture. A
@@ -2910,8 +2919,8 @@ func (m *Model) handleDetailKey(msg tea.KeyMsg) tea.Cmd {
 	return nil
 }
 
-// detailFocusable reports, for each of the physical lines viewDetailRow
-// renders before any notes, whether the field cursor may stop there: the
+// detailFocusable reports, for each logical field before any notes,
+// whether the field cursor may stop there: the
 // object header (index 0) always can, index 1 is always the blank line
 // beneath it and never can, and a field line can unless humanize.Dash
 // blanked its value — there is nothing there to act on. Notes are excluded
@@ -2973,11 +2982,19 @@ func (m *Model) scrollDetailIntoView(n int) {
 	if h <= 0 {
 		return
 	}
-	if m.detailCursor < m.detailY {
-		m.detailY = m.detailCursor
+	start, end := m.detailCursor, m.detailCursor
+	if r, ok := m.detailRow(); ok && r.vm != nil {
+		lines, spans := m.vmPropertyLines(r, false)
+		if m.detailCursor >= 0 && m.detailCursor < len(spans) {
+			start, end = spans[m.detailCursor].start, spans[m.detailCursor].end
+		}
+		n = len(lines)
 	}
-	if m.detailCursor >= m.detailY+h {
-		m.detailY = m.detailCursor - h + 1
+	if end >= m.detailY+h {
+		m.detailY = end - h + 1
+	}
+	if start < m.detailY {
+		m.detailY = start
 	}
 	m.detailY = clamp(m.detailY, 0, max(0, n-h))
 }

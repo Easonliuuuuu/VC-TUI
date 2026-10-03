@@ -705,6 +705,7 @@ func (m *Model) openFieldActions() tea.Cmd {
 		return m.runAction(items[0])
 	default:
 		m.actions = &actionList{items: items}
+		m.scrollVMActionIntoView()
 		return nil
 	}
 }
@@ -727,5 +728,6 @@ func (m *Model) handleActionsKey(msg tea.KeyMsg) tea.Cmd {
 			return m.runAction(al.items[al.cursor])
 		}
 	}
+	m.scrollVMActionIntoView()
 	return nil
 }
