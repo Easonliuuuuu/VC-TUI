@@ -3,8 +3,11 @@ package rvimport
 import (
 	"archive/zip"
 	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -16,6 +19,100 @@ import (
 	"github.com/easonliuuuuu/vsfleet/internal/assessment"
 	"github.com/easonliuuuuu/vsfleet/internal/vsphere"
 )
+
+// This workbook is built independently of vsfleet's exporter, using the
+// RVTools 4.8 dvPort spellings reported in #267. All inventory is synthetic.
+func TestSyntheticRVTools48DVPortIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		objectID   bool
+		key        bool
+		wantID     string
+		wantKey    string
+		wantStatus string
+	}{
+		{name: "object ID without Key", objectID: true, wantID: "dvportgroup-1006", wantKey: "dvportgroup-1006", wantStatus: "success"},
+		{name: "explicit Key takes precedence", objectID: true, key: true, wantID: "dvportgroup-1006", wantKey: "explicit-key", wantStatus: "success"},
+		{name: "Key without object ID", key: true, wantKey: "explicit-key", wantStatus: "success"},
+		{name: "neither identity column", wantStatus: "unavailable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const endpoint = "vc-synthetic.example"
+			f := excelize.NewFile()
+			t.Cleanup(func() { _ = f.Close() })
+			headers := []any{"Port", "Switch", "Type", "# Ports", "VLAN", "Allow Promiscuous", "VI SDK Server", "VI SDK UUID"}
+			port := []any{"Synthetic frontend", "Synthetic DVS", "earlyBinding", 8, "120", "false", endpoint, "synthetic-vc-uuid"}
+			if tc.objectID {
+				headers = append(headers, "Object ID")
+				port = append(port, "dvportgroup-1006")
+			}
+			if tc.key {
+				headers = append(headers, "Key")
+				port = append(port, "explicit-key")
+			}
+			for _, sheet := range []struct {
+				name string
+				rows [][]any
+			}{
+				{sheetVInfo, [][]any{
+					{"VM", "VM ID", "CPUs", "Memory", "VI SDK Server", "VI SDK UUID"},
+					{"Synthetic VM", "vm-1001", 2, 4096, endpoint, "synthetic-vc-uuid"},
+				}},
+				{sheetDVSwitch, [][]any{
+					{"Switch", "Object ID", "VI SDK Server", "VI SDK UUID"},
+					{"Synthetic DVS", "dvs-1005", endpoint, "synthetic-vc-uuid"},
+				}},
+				{sheetDVPort, [][]any{headers, port}},
+			} {
+				if _, err := f.NewSheet(sheet.name); err != nil {
+					t.Fatal(err)
+				}
+				for i, row := range sheet.rows {
+					if err := f.SetSheetRow(sheet.name, fmt.Sprintf("A%d", i+1), &row); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			path := filepath.Join(t.TempDir(), "synthetic-rvtools-4.8.xlsx")
+			if err := f.SaveAs(path); err != nil {
+				t.Fatal(err)
+			}
+			result, run, store := importFixture(t, openFixture(t, path), Options{CapturedAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)})
+			if col := collectionOf(t, store, run.ID, endpoint, kindDVSwitch); col.Status != tc.wantStatus {
+				t.Fatalf("dvswitch coverage = %+v, want %s", col, tc.wantStatus)
+			}
+			resources, err := store.Resources(context.Background(), run.ID, kindDVSwitch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.wantStatus == "unavailable" {
+				if !hasGap(result.Report, kindDVSwitch) || len(resources) != 0 || result.Report.Contexts[0].DVSwitchCount != 0 {
+					t.Fatalf("missing identity must be unavailable: report=%+v resources=%+v", result.Report, resources)
+				}
+				return
+			}
+			if hasGap(result.Report, kindDVSwitch) || result.Report.Contexts[0].DVSwitchCount != 1 || len(resources) != 1 {
+				t.Fatalf("want one covered distributed switch: report=%+v resources=%+v", result.Report, resources)
+			}
+			var sw vsphere.DVSwitch
+			if err := json.Unmarshal(resources[0].Payload, &sw); err != nil {
+				t.Fatal(err)
+			}
+			if sw.ID != "dvs-1005" || sw.Name != "Synthetic DVS" || len(sw.PortGroups) != 1 {
+				t.Fatalf("persisted switch = %+v, want the synthetic switch and port group", sw)
+			}
+			pg := sw.PortGroups[0]
+			if pg.ID != tc.wantID || pg.Key != tc.wantKey || pg.Name != "Synthetic frontend" || pg.Switch != sw.Name || pg.VLAN != "120" || pg.NumPorts != 8 || pg.Promiscuous == nil || *pg.Promiscuous {
+				t.Errorf("persisted port group = %+v, want ID %q and Key %q with its configuration preserved", pg, tc.wantID, tc.wantKey)
+			}
+			for _, sheet := range result.Report.Sheets {
+				if sheet.Name == sheetDVPort && !tc.key && contains(sheet.MissingColumns, "Key") {
+					t.Errorf("dvPort reports Key missing despite its Object ID fallback: %+v", sheet)
+				}
+			}
+		})
+	}
+}
 
 // This fixture is synthesized from header spellings observed in the #206
 // report. It is not a real RVTools workbook and does not claim real-workbook
