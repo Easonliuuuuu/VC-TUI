@@ -49,6 +49,7 @@ var definitions = []Definition{
 	{Name: "add-context-no-secret", Profile: "connected", Purpose: "context configuration contains references but no password"},
 	{Name: "datastore-browser", Profile: "presentation", Purpose: "directory and recursive-find navigation preserve datastore state"},
 	{Name: "resize", Profile: "presentation", Purpose: "bounded terminal sizes render safely and preserve selection"},
+	{Name: "vm-dashboard", Profile: "presentation", Purpose: "every VM chart page and range stays inside the terminal at each size"},
 }
 
 // Definitions returns the catalogue in display order.
@@ -148,6 +149,13 @@ func Run(ctx context.Context, name string, opts RunOptions) (result Result, runE
 	case "datastore-browser":
 		// The browser-specific state machine is covered by focused tests; the
 		// scenario records the stable inventory screen for the catalogue.
+	case "vm-dashboard":
+		if err := drive(m, send(m, tea.KeyMsg{Type: tea.KeyEnter})); err != nil {
+			return Result{}, fmt.Errorf("open VM detail: %w", err)
+		}
+		if err := walkVMDashboard(m); err != nil {
+			return Result{}, err
+		}
 	case "resize":
 		for _, size := range [][2]int{{60, 20}, {100, 30}, {140, 40}} {
 			if err := drive(m, send(m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})); err != nil {
@@ -183,11 +191,69 @@ func Run(ctx context.Context, name string, opts RunOptions) (result Result, runE
 
 func isCriticalScreen(name string) bool {
 	switch name {
-	case "overview", "credential-cancel", "history-coverage-gap", "datastore-browser":
+	case "overview", "credential-cancel", "history-coverage-gap", "datastore-browser", "vm-dashboard":
 		return true
 	default:
 		return false
 	}
+}
+
+// walkVMDashboard visits every chart page and every range at each golden
+// size and fails on the first frame wider or taller than the terminal: the
+// regression class the dashboard's wrapping fixes addressed. It leaves the
+// pane on the overview page and the 1h range, the state the goldens record.
+func walkVMDashboard(m *tui.Model) error {
+	pages := []string{"Overview", "CPU", "Memory", "Disk", "Network"}
+	for _, size := range [][2]int{{60, 20}, {100, 30}, {140, 40}} {
+		if err := drive(m, send(m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})); err != nil {
+			return fmt.Errorf("vm-dashboard resize %dx%d: %w", size[0], size[1], err)
+		}
+		for i, page := range pages {
+			if err := press(m, strconv.Itoa(i)); err != nil {
+				return fmt.Errorf("vm-dashboard page %d: %w", i, err)
+			}
+			for step, key := range []string{"", ">", ">", ">", "<", "<", "<"} {
+				if key != "" {
+					if err := press(m, key); err != nil {
+						return fmt.Errorf("vm-dashboard range key %q: %w", key, err)
+					}
+				}
+				view := m.View()
+				where := fmt.Sprintf("%s page, range step %d, at %dx%d", page, step, size[0], size[1])
+				if err := boundedFrame(view, size[0], size[1]); err != nil {
+					return fmt.Errorf("vm-dashboard %s: %w", where, err)
+				}
+				// The selected tab must stay identifiable. At exactly 100
+				// columns the strip is one cell wider than the chart column
+				// and the last tab's name is truncated, so match its prefix.
+				if size[0] >= 100 && !strings.Contains(ansi.Strip(view), fmt.Sprintf("[%d ", i)) {
+					return fmt.Errorf("vm-dashboard %s does not mark its page tab", where)
+				}
+			}
+		}
+		if err := press(m, "0"); err != nil {
+			return err
+		}
+	}
+	if observation := m.Observe(); observation.Mode != "detail" {
+		return fmt.Errorf("vm-dashboard walk left the detail pane (mode %q)", observation.Mode)
+	}
+	return nil
+}
+
+// boundedFrame reports a rendered frame that would wrap or scroll the
+// terminal it was drawn for.
+func boundedFrame(view string, width, height int) error {
+	lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
+	if len(lines) > height {
+		return fmt.Errorf("frame has %d lines for a %d-line terminal", len(lines), height)
+	}
+	for n, line := range lines {
+		if w := ansi.StringWidth(line); w > width {
+			return fmt.Errorf("line %d is %d cells wide for a %d-column terminal: %q", n+1, w, width, ansi.Strip(line))
+		}
+	}
+	return nil
 }
 
 func goldenPath(name string, width, height int) string {
@@ -234,6 +300,15 @@ func assertResult(result Result) error {
 	case "history-coverage-gap":
 		if result.Observation.Mode != "history" && !strings.Contains(result.View, "HISTORY") {
 			return fmt.Errorf("scenario %s did not enter History", result.Name)
+		}
+	case "vm-dashboard":
+		if result.Observation.Mode != "detail" {
+			return fmt.Errorf("scenario %s left the VM detail pane (mode %q)", result.Name, result.Observation.Mode)
+		}
+		for _, want := range []string{"[0 Overview]", "[1h]", "CPU usage"} {
+			if !strings.Contains(result.View, want) {
+				return fmt.Errorf("scenario %s is missing %q from the dashboard", result.Name, want)
+			}
 		}
 	case "credential-cancel":
 		if result.Observation.Prompt {

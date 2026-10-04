@@ -20,7 +20,7 @@ spec:
               type: RuntimeDefault
           containers:
             - name: vsfleet
-              image: ghcr.io/easonliuuuuu/vsfleet:v0.5.0
+              image: ghcr.io/easonliuuuuu/vsfleet:v0.6.1 # x-release-please-version
               imagePullPolicy: IfNotPresent
               args: ["--all-contexts", "-o", "json", "assessment", "run", "--label", "nightly"]
               env:

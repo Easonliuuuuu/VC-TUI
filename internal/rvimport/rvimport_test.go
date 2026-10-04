@@ -22,7 +22,7 @@ import (
 // RVTools writer (the one thing this test can treat as ground truth for what
 // a real workbook's headers look like), and returns the path to the file so
 // the importer under test can read it back exactly as a user would.
-func writeFixtureWorkbook(t *testing.T, mutate func(*assessment.ExportData)) string {
+func writeFixtureWorkbook(t testing.TB, mutate func(*assessment.ExportData)) string {
 	t.Helper()
 	data := assessment.ExportData{
 		Run: assessment.Run{ID: 1, StartedAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)},
@@ -93,7 +93,7 @@ type writerAdapter struct{ b *strings.Builder }
 
 func (w *writerAdapter) Write(p []byte) (int, error) { return w.b.Write(p) }
 
-func hostResource(t *testing.T, context, vcenter string, h vsphere.Host) assessment.ResourceObservation {
+func hostResource(t testing.TB, context, vcenter string, h vsphere.Host) assessment.ResourceObservation {
 	t.Helper()
 	payload, err := json.Marshal(h)
 	if err != nil {
@@ -102,7 +102,7 @@ func hostResource(t *testing.T, context, vcenter string, h vsphere.Host) assessm
 	return assessment.ResourceObservation{Context: context, VCenterID: vcenter, Kind: "host", ID: h.ID, Name: h.Name, Payload: payload}
 }
 
-func clusterResource(t *testing.T, context, vcenter string, c vsphere.Cluster) assessment.ResourceObservation {
+func clusterResource(t testing.TB, context, vcenter string, c vsphere.Cluster) assessment.ResourceObservation {
 	t.Helper()
 	payload, err := json.Marshal(c)
 	if err != nil {
@@ -111,7 +111,7 @@ func clusterResource(t *testing.T, context, vcenter string, c vsphere.Cluster) a
 	return assessment.ResourceObservation{Context: context, VCenterID: vcenter, Kind: "cluster", ID: c.ID, Name: c.Name, Payload: payload}
 }
 
-func datastoreResource(t *testing.T, context, vcenter string, d vsphere.Datastore) assessment.ResourceObservation {
+func datastoreResource(t testing.TB, context, vcenter string, d vsphere.Datastore) assessment.ResourceObservation {
 	t.Helper()
 	payload, err := json.Marshal(d)
 	if err != nil {

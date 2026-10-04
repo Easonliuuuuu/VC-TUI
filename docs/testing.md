@@ -2,7 +2,9 @@
 
 vsfleet has complementary test tiers. Each tier answers a different question,
 so passing one is not evidence that the others are unnecessary. The synthetic
-lab and scenario harness are described in [testbed.md](testbed.md).
+lab and scenario harness are described in [testbed.md](testbed.md), and
+[test-catalog.md](test-catalog.md) lists every suite, scenario, journey, and
+fuzz target with the situation it simulates.
 
 ## Synthetic TUI scenarios
 
@@ -16,7 +18,7 @@ scripts/testbed test partial-failure
 ```
 
 The scenario layer asserts user-visible semantics, model observations, and
-read-only/credential-safety invariants. Four stable screens also have
+read-only/credential-safety invariants. Five stable screens also have
 ANSI-normalized render contracts at `60x20`, `100x30`, and `140x40`. Goldens
 are changed only with the explicit `--update-goldens` flag.
 
@@ -31,17 +33,29 @@ endpoints, and isolated on-disk state:
 scripts/testbed pty --results-dir /tmp/vsfleet-pty
 ```
 
-The eight journeys launch inventory and quit, prove SSH failure restoration and
+The nine journeys launch inventory and quit, prove SSH failure restoration and
 Ctrl-C cancellation, cancel a credential prompt and continue, browse and
 recursively search a datastore, traverse and leave every History pane, resize
-from `60x20` to `140x40`, and interrupt an active capture. They assert semantic
+from `60x20` to `140x40`, page through the VM performance dashboard and quit
+with a query in flight, and interrupt an active capture. They assert semantic
 output and clean exit behavior, not complete terminal byte snapshots. On
 failure, CI uploads redacted process output, an ANSI-normalized transcript, an
 event log, result metadata, and the isolated testbed state.
 
-Native TUI fuzz seeds run with the normal Go suite; longer fuzz campaigns are
-scheduled separately. Neither the headless scenarios nor PTY tests prove
+Fuzz seeds for the TUI and for the configuration, SSH config, `--where`, and
+RVTools import parsers run with the normal Go suite; `fuzz.yml` runs a
+five-minute campaign per target every week. Neither the headless scenarios nor PTY tests prove
 behavior against a real vSphere deployment.
+
+## Release checks
+
+`scripts/check-release-pins.sh` runs in the Linux `build` job and fails when
+the goreleaser base-image annotation drifts from the `Dockerfile` digest, or
+when a pinned image version in the docs or the shipped CronJob differs from
+the released version. The `release-snapshot` job runs the release goreleaser
+configuration with `--snapshot --skip=publish,sign` and smoke-tests the
+resulting binaries and image. It is heavy (six cross-compiles plus two image
+builds), so leave it to CI rather than running it on a small workstation.
 
 ## Unit and package tests
 
@@ -115,7 +129,7 @@ go build -o /tmp/vsfleet-vcsim ./cmd/vsfleet-vcsim
 VSFLEET_VCSIM_BIN=/tmp/vsfleet-vcsim \
 VSFLEET_VCSIM_REQUIRED=1 \
 VSFLEET_VCSIM_LOG_DIR=/tmp/vsfleet-vcsim-logs \
-go test -tags integration -race ./tests/... -timeout 20m
+go test -tags integration -race -run '^TestVCSIM' ./tests/... -timeout 20m
 ```
 
 ### Fixture catalogue

@@ -237,6 +237,38 @@ func TestPTYJourneys(t *testing.T) {
 		s.expectExitZero()
 	})
 
+	t.Run("VM dashboard pages, ranges, resize, and quit mid-query", func(t *testing.T) {
+		s := startSession(t, "vm-dashboard", 30, 120)
+		s.authenticate()
+		// Virtual machines are the default kind, so enter opens the first VM.
+		mark := s.mark()
+		s.send("open first VM detail", "\r")
+		s.waitFor(mark, "[0 Overview]", "[1h]", "CPU usage")
+		mark = s.mark()
+		s.send("open disk chart page", "3")
+		s.waitFor(mark, "[3 Disk]")
+		mark = s.mark()
+		s.send("step to the 24h range", ">")
+		s.waitFor(mark, "[24h]", "5 min roll-up")
+		// At 60 columns the charts move below the properties, past the
+		// bottom of a 20-row terminal; the pane header must still repaint.
+		mark = s.mark()
+		s.resize(20, 60)
+		s.waitFor(mark, "Virtual machine")
+		mark = s.mark()
+		s.resize(40, 140)
+		s.waitFor(mark, "[3 Disk]", "[24h]")
+		// Stepping to a range not yet loaded issues its query in the same
+		// update that lights the tab, so quit lands while that query is very
+		// likely still in flight. Keys go one per write: bubbletea reads
+		// back-to-back runes as a single multi-rune key.
+		mark = s.mark()
+		s.send("step to the unloaded 7d range", ">")
+		s.waitFor(mark, "[7d]")
+		s.send("quit while the 7d query runs", "q")
+		s.expectExitZero()
+	})
+
 	t.Run("ctrl-c cancels active background work", func(t *testing.T) {
 		s := startSession(t, "ctrl-c-background", 30, 100)
 		s.waitFor(0, "credentials required")

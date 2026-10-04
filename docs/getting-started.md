@@ -40,7 +40,7 @@ amd64 and arm64:
 docker run --rm ghcr.io/easonliuuuuu/vsfleet:latest compatibility report --sheet vInfo -o json
 ```
 
-Use a version tag such as `v0.5.0` for repeatable deployments, or pin the
+Use a version tag such as <!-- x-release-please-start-version -->`v0.6.1`<!-- x-release-please-end --> for repeatable deployments, or pin the
 image digest in production. The image runs as an unprivileged user and is
 designed for unattended commands, assessments, and exports. It does not
 include a shell, browser, SSH client, OS keyring, or `exec:` credential helper,
