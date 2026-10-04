@@ -498,6 +498,13 @@ func (t sheetTable) missingCritical() []string {
 	var out []string
 	for _, h := range criticalColumns[t.name] {
 		if !t.has(h) {
+			if t.name == sheetDVPort && h == "Key" {
+				// RVTools omits Key; a dvportgroup's Object ID is its key.
+				if t.has("Object ID") {
+					continue
+				}
+				h = "Key or Object ID"
+			}
 			out = append(out, h)
 		}
 	}
@@ -1726,14 +1733,20 @@ func dvSwitchFromRow(t sheetTable, row []string, contextName string) vsphere.DVS
 }
 
 func dvPortFromRow(t sheetTable, row []string, switchName string) vsphere.DVPortGroup {
+	id := t.cell(row, "Object ID")
+	key := id
+	if t.has("Key") {
+		// Keep an explicit Key authoritative in vsfleet-compatible exports.
+		key = t.cell(row, "Key")
+	}
 	failback := parseOptBool(t.cell(row, "Failback"))
 	if t.hasSourceHeader("Rolling Order") && failback != nil {
 		inverted := !*failback
 		failback = &inverted
 	}
 	return vsphere.DVPortGroup{
-		ID:                t.cell(row, "Object ID"),
-		Key:               t.cell(row, "Key"),
+		ID:                id,
+		Key:               key,
 		Name:              t.cell(row, "Port group"),
 		Switch:            switchName,
 		Type:              t.cell(row, "Type"),
