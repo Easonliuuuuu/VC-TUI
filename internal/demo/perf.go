@@ -72,6 +72,26 @@ func (b *Backend) VMPerfSeries(_ context.Context, cc *config.Context, vm vsphere
 	return set, nil
 }
 
+// VMsPerfSeries implements the TUI's vApp chart extension: each VM's
+// synthetic series, exactly as VMPerfSeries draws it alone.
+func (b *Backend) VMsPerfSeries(ctx context.Context, cc *config.Context, vms []vsphere.VM, window time.Duration, interval int, now time.Time) ([]vsphere.VMSeriesResult, error) {
+	if len(vms) > vsphere.MaxVMsPerfSeries {
+		return nil, fmt.Errorf("%d VMs is more than the %d one chart read covers", len(vms), vsphere.MaxVMsPerfSeries)
+	}
+	out := make([]vsphere.VMSeriesResult, len(vms))
+	for i, vm := range vms {
+		set, err := b.VMPerfSeries(ctx, cc, vm, window, interval, now)
+		if err != nil && i == 0 {
+			// A context the demo has no estate for fails every VM alike.
+			if _, ok := b.estates[cc.Name]; !ok {
+				return nil, err
+			}
+		}
+		out[i] = vsphere.VMSeriesResult{VM: vm, Set: set, Err: err}
+	}
+	return out, nil
+}
+
 // demoSample is one raw sample in the counter's vSphere unit: CPU usage in
 // hundredths of a percent; ready, co-stop and limited in summed
 // milliseconds; memory in KB; throughput in KBps; latency in ms; commands
@@ -137,6 +157,9 @@ func demoSample(m perf.Metric, p demoProfile, vm vsphere.VM, interval int, seed 
 		return int64(41*86400 - (n-1-i)*interval)
 	case perf.CPUUsage:
 		return int64(math.Max(0, math.Min(100, cpuPct)) * 100)
+	case perf.CPUUsageMHz:
+		// The demo hosts' cores run at 2.4 GHz.
+		return int64(math.Max(0, math.Min(100, cpuPct)) / 100 * 2400 * float64(max(vm.CPU, 1)))
 	case perf.CPUReady:
 		return perVCPU(readyPct)
 	case perf.MemActive:

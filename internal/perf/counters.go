@@ -90,10 +90,10 @@ func Normalize(c Counter, raw int64, intervalSeconds int, vcpu int32) (value flo
 	case MemActive, MemConsumed, MemBalloon, MemSwapped:
 		// vSphere reports these memory counters in KB.
 		return float64(raw) / 1024, true
-	case MemSwapinRate, DiskRead, DiskWrite, NetReceived, NetTransmitted,
+	case CPUUsageMHz, MemSwapinRate, DiskRead, DiskWrite, NetReceived, NetTransmitted,
 		DiskMaxLatency, DiskReadIOPS, DiskWriteIOPS, NetDroppedRx, NetDroppedTx, SysUptime:
-		// Already in the normalised unit: KBps, milliseconds, commands per
-		// second, packets per interval, or seconds.
+		// Already in the normalised unit: MHz, KBps, milliseconds, commands
+		// per second, packets per interval, or seconds.
 		return float64(raw), true
 	}
 	return 0, false

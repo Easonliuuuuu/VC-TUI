@@ -2,6 +2,7 @@ package vsphere
 
 import (
 	"context"
+	"errors"
 	"math"
 	"strings"
 	"testing"
@@ -142,5 +143,108 @@ func TestVMPerfSeriesSumsDevicesWhenTheAggregateIsMissing(t *testing.T) {
 	written, _ := set.Get(perf.DiskWrite)
 	if written.Values[2] != 300 {
 		t.Fatalf("disk write = %v; an aggregate instance must be used as is, not summed again", written.Values[2])
+	}
+}
+
+func steadyPerf(f *fakePerf) {
+	f.data = func(_ string, _ int32, n int) []int64 {
+		out := make([]int64, n)
+		for i := range out {
+			out[i] = 1000
+		}
+		return out
+	}
+}
+
+func groupVMs(n int) []VM {
+	vms := make([]VM, n)
+	for i := range vms {
+		vms[i] = VM{ID: "vm-" + string(rune('a'+i)), Name: "member", CPU: 2, MemoryMB: 4096}
+	}
+	return vms
+}
+
+func TestVMsPerfSeriesKeepsHistoricalBatchesUnderTheMetricCap(t *testing.T) {
+	f := newFakePerf()
+	steadyPerf(f)
+	var sizes []int
+	f.fault = func(specs []types.PerfQuerySpec) error {
+		metrics := 0
+		for _, s := range specs {
+			metrics += len(s.MetricId)
+		}
+		if metrics > DefaultMaxQueryMetrics {
+			t.Errorf("one historical request asked for %d metrics, over vCenter's default cap of %d", metrics, DefaultMaxQueryMetrics)
+		}
+		sizes = append(sizes, len(specs))
+		return nil
+	}
+	out, err := collectVMsSeries(context.Background(), f, groupVMs(7), 24*time.Hour, 300, perfNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sizes) != 3 || sizes[0] != 3 || sizes[1] != 3 || sizes[2] != 1 {
+		t.Fatalf("batches = %v; want 3, 3, 1", sizes)
+	}
+	for i, r := range out {
+		if r.Err != nil || r.VM.ID != groupVMs(7)[i].ID {
+			t.Fatalf("result %d = %+v", i, r)
+		}
+		if cpu, ok := r.Set.Get(perf.CPUUsage); !ok || len(cpu.Values) != 288 {
+			t.Fatalf("result %d cpu = %+v", i, cpu)
+		}
+	}
+}
+
+func TestVMsPerfSeriesReadsRealtimeInOneRequest(t *testing.T) {
+	f := newFakePerf()
+	steadyPerf(f)
+	if _, err := collectVMsSeries(context.Background(), f, groupVMs(7), time.Hour, RealtimePerfInterval, perfNow); err != nil {
+		t.Fatal(err)
+	}
+	if f.requests != 1 {
+		t.Fatalf("realtime read took %d requests; the metric cap does not apply to it", f.requests)
+	}
+}
+
+func TestVMsPerfSeriesRetriesAFailedBatchOneVMAtATime(t *testing.T) {
+	f := newFakePerf()
+	steadyPerf(f)
+	f.fault = func(specs []types.PerfQuerySpec) error {
+		for _, s := range specs {
+			if s.Entity.Value == "vm-b" {
+				return errors.New("vm-b is gone")
+			}
+		}
+		return nil
+	}
+	out, err := collectVMsSeries(context.Background(), f, groupVMs(3), 24*time.Hour, 300, perfNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out[0].Err != nil || out[2].Err != nil {
+		t.Fatalf("one VM's failure cost the others their charts: %v, %v", out[0].Err, out[2].Err)
+	}
+	if out[1].Err == nil || !strings.Contains(out[1].Err.Error(), "vm-b is gone") {
+		t.Fatalf("vm-b err = %v", out[1].Err)
+	}
+	if f.requests != 4 {
+		t.Fatalf("requests = %d; want the batch then each VM alone", f.requests)
+	}
+}
+
+func TestVMsPerfSeriesStopsAtAPermissionDenial(t *testing.T) {
+	f := newFakePerf()
+	f.fault = func([]types.PerfQuerySpec) error { return soap.WrapVimFault(&types.NoPermission{}) }
+	_, err := collectVMsSeries(context.Background(), f, groupVMs(6), 24*time.Hour, 300, perfNow)
+	if err == nil || !strings.Contains(err.Error(), "permission denied") || f.requests != 1 {
+		t.Fatalf("err = %v after %d requests; want one named denial", err, f.requests)
+	}
+}
+
+func TestVMsPerfSeriesRefusesAnUnboundedGroup(t *testing.T) {
+	f := newFakePerf()
+	if _, err := collectVMsSeries(context.Background(), f, make([]VM, MaxVMsPerfSeries+1), time.Hour, RealtimePerfInterval, perfNow); err == nil || f.requests != 0 {
+		t.Fatalf("err = %v after %d requests; want a refusal before any query", err, f.requests)
 	}
 }

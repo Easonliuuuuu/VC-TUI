@@ -1,12 +1,13 @@
 package perf
 
-// Metrics read only for the VM detail dashboard. They are kept out of
+// Metrics read only for the VM and vApp dashboards. They are kept out of
 // Counters on purpose: Counters drives estate-wide `assessment perf`
 // collection, whose batches are sized against vCenter's default limit of 64
 // metrics per query and whose stored summaries feed the sizing signal.
-// DashboardCounters is read for one VM at a time, where that limit is not
-// in reach.
+// DashboardCounters is read for one VM, or a vApp's members in batches small
+// enough for that limit.
 const (
+	CPUUsageMHz    Metric = "cpu.usagemhz"
 	CPUCostop      Metric = "cpu.costop"
 	CPUMaxLimited  Metric = "cpu.maxlimited"
 	MemSwapinRate  Metric = "mem.swapinRate"
@@ -23,6 +24,7 @@ const (
 )
 
 const (
+	UnitMHz     Unit = "MHz"
 	UnitKBps    Unit = "KBps"
 	UnitMs      Unit = "ms"
 	UnitPerSec  Unit = "per-second"
@@ -33,6 +35,7 @@ const (
 // DashboardCounters is Counters plus the extra counters the VM detail
 // dashboard draws, in a stable order.
 var DashboardCounters = append(append([]Counter(nil), Counters...),
+	Counter{CPUUsageMHz, "cpu", "usagemhz", "average", UnitMHz, "interval average of VM CPU usage in MHz, which adds across VMs and compares with a resource pool's or vApp's CPU limit"},
 	Counter{CPUCostop, "cpu", "costop", "summation", UnitPercent, "interval sum of co-stop milliseconds, converted to the average percentage of the interval a single vCPU waited for its siblings to be co-scheduled"},
 	Counter{CPUMaxLimited, "cpu", "maxlimited", "summation", UnitPercent, "interval sum of milliseconds the VM was ready but held back by its CPU limit, converted to a per-vCPU percentage"},
 	Counter{MemSwapinRate, "mem", "swapinRate", "average", UnitKBps, "interval average rate memory was read back in from the host swap file"},
