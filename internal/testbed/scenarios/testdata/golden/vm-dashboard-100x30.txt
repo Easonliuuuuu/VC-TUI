@@ -1,0 +1,30 @@
+vsfleet  DEMO · SAMPLE DATA  ◆ prod-vc  ·  1 connected
+────────────────────────────────────────────────────────────────────────────────────────────────────
+▸ ad-dc-01   Virtual machine · prod-vc             │ [0 Overview] 1 CPU  2 Memory  3 Disk  4 Networ…
+                                                   │ [1h] 24h  7d  30d 
+  vCenter             prod-vc                      │ 
+  Power state         on                           │ CPU usage  % of 2 vCPU   avg 37.3% · peak 50.4%
+  Guest OS            Microsoft Windows Server     │                                                
+                      2022 (64-bit)                │                                                
+  Guest state         running                      │ ▅▅▅▆▆▆▅▄▃▁  ▁▂▃▃▃▂▂▁▂▄▆▇▇█▇▇▆▆▆▇███▇▆▄▃▂▂▃▃▃▃▂▁
+  VMware Tools        guestToolsN  ▲ not installed │ ███████████████████████████████████████████████
+                      otRunning                    │ 23:00                                     00:00
+  Tools version       -                            │ 
+  IP address          -                            │ Memory active  % of 8G   avg 34.7% · peak 41.2%
+  DNS name            -                            │                                                
+  CPU                 2 vCPU                       │                                                
+  Memory              8G                           │ ▄▄▄▄▄▄▄▃▂▂▁▁▂▂▂▂▂▂▂▂▂▃▄▄▅▅▅▄▄▄▄▅▅▅▅▅▄▃▃▂▂▂▃▃▂▂▁
+  Committed storage   40.0G                        │ ███████████████████████████████████████████████
+  Snapshots           none  ✓                      │ 23:00                                     00:00
+  Guest disks         -                            │ 
+  Host                esxi-mgmt-02                 │ Disk  read + write · latency 5 ms
+  Cluster             mgmt                         │                                  ▂▄▆███▇▅▃▁   ▁
+  Datacenter          Taipei                       │ ▁                     ▂▄▆▆▆▆▅▄▄▅▇███████████▇██
+  Folder              /Infrastructure/Core         │ █▇▄▂    ▁▂▄▄▄▄▃▁   ▂▄██████████████████████████
+  Datastores          local-esxi-mgmt-01           │ ████▇▆▆▇█████████▇█████████████████████████████
+  Inventory path      /Taipei/vm/Infrastructure/Co │ 23:00                                     00:00
+                      re/ad-dc-01                  │ 
+  Managed object      prod-vc-vm-906               │ CONTENTION
+                                                   │ CPU ready     ▁▁▁▁▂▁       0.4%     peak 1.9% ✓
+
+↑/k up  ↓/j down  enter open  </> range  h timeline  esc back  ? help  q quit

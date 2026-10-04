@@ -8,7 +8,12 @@
   "bump-patch-for-minor-pre-major": true,
   "packages": {
     ".": {
-      "component": "vsfleet"
+      "component": "vsfleet",
+      "extra-files": [
+        "deploy/kubernetes/cronjob.yaml",
+        "docs/containers.md",
+        "docs/getting-started.md"
+      ]
     }
   }
 }

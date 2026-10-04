@@ -1,0 +1,20 @@
+vsfleet  DEMO · SAMPLE DATA  ◆ prod-vc  ·  1 connected
+────────────────────────────────────────────────────────────
+▸ ad-dc-01   Virtual machine · prod-vc
+
+  vCenter             prod-vc
+  Power state         on
+  Guest OS            Microsoft Windows Server 2022 (64-bit)
+  Guest state         running
+  VMware Tools        guestToolsNotRunning  ▲ not installed
+  Tools version       -
+  IP address          -
+  DNS name            -
+  CPU                 2 vCPU
+  Memory              8G
+  Committed storage   40.0G
+  Snapshots           none  ✓
+  Guest disks         -
+  Host                esxi-mgmt-02
+
+↑/k up  ↓/j down  enter open  </> range  h timeline  esc ba…

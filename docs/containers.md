@@ -14,16 +14,18 @@ a one-time registry setting and is intentionally outside the release workflow.
 
 Each release publishes:
 
-- an immutable version tag such as `v0.5.0`;
-- a rolling minor tag such as `v0.5`; and
+- an immutable version tag such as <!-- x-release-please-start-version -->`v0.6.1`<!-- x-release-please-end -->;
+- a rolling minor tag, the version without its patch number; and
 - `latest` for stable releases only.
 
 Prereleases receive only their exact version tag. There is no floating `v0`
 tag while the project is pre-1.0. Pin an immutable version or digest in
 production:
 
+<!-- x-release-please-start-version -->
+
 ```sh
-docker pull ghcr.io/easonliuuuuu/vsfleet:v0.5.0
+docker pull ghcr.io/easonliuuuuu/vsfleet:v0.6.1
 docker pull ghcr.io/easonliuuuuu/vsfleet@sha256:<manifest-digest>
 ```
 
@@ -60,7 +62,7 @@ docker run --rm \
   --mount type=bind,src="$PWD/vsfleet-data",dst=/data \
   --env VSFLEET_CONFIG=/config/config.toml \
   --env VSFLEET_HISTORY_DB=/data/history.db \
-  ghcr.io/easonliuuuuu/vsfleet:v0.5.0 \
+  ghcr.io/easonliuuuuu/vsfleet:v0.6.1 \
   assessment run --all-contexts --label nightly
 ```
 
@@ -81,7 +83,7 @@ docker run --rm \
   --mount type=bind,src="$PWD/config.toml",dst=/config/config.toml,readonly \
   --mount type=bind,src="$PWD/exports",dst=/exports \
   --env VSFLEET_CONFIG=/config/config.toml \
-  ghcr.io/easonliuuuuu/vsfleet:v0.5.0 \
+  ghcr.io/easonliuuuuu/vsfleet:v0.6.1 \
   assessment export --format csv --file /exports
 ```
 
@@ -94,7 +96,7 @@ For a vCenter signed by a private CA, mount a PEM bundle and set
 docker run --rm \
   --mount type=bind,src="$PWD/ca.pem",dst=/etc/vsfleet/ca.pem,readonly \
   --env SSL_CERT_FILE=/etc/vsfleet/ca.pem \
-  ghcr.io/easonliuuuuu/vsfleet:v0.5.0 context list
+  ghcr.io/easonliuuuuu/vsfleet:v0.6.1 context list
 ```
 
 The alternative `thumbprint` and `insecure` TLS policies remain available in
@@ -145,10 +147,12 @@ carry a BuildKit-generated SBOM. Verify a version tag with the release workflow
 identity:
 
 ```sh
-cosign verify ghcr.io/easonliuuuuu/vsfleet:v0.5.0 \
+cosign verify ghcr.io/easonliuuuuu/vsfleet:v0.6.1 \
   --certificate-identity-regexp '^https://github.com/Easonliuuuuu/vsfleet/.github/workflows/release.yml@refs/heads/main$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
+
+<!-- x-release-please-end -->
 
 ## Runtime limitations
 

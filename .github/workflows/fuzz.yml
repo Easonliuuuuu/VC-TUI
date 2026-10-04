@@ -1,0 +1,52 @@
+name: Fuzz
+
+on:
+  schedule:
+    - cron: "17 3 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.26"
+
+jobs:
+  fuzz:
+    name: Fuzz ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # TUI state machine: arbitrary keys and resizes, reordered async
+          # replies, and render bounds.
+          - { package: ./internal/tui, target: FuzzTUIKeyResizeNeverPanics }
+          - { package: ./internal/tui, target: FuzzStaleMessagesCannotReplaceNewerState }
+          - { package: ./internal/tui, target: FuzzRenderIsBoundedAndDeterministic }
+          # Parsers for input that comes from outside vsfleet: imported
+          # RVTools workbooks, hand-edited configuration, ~/.ssh/config, and
+          # --where expressions.
+          - { package: ./internal/rvimport, target: FuzzParseWorkbook }
+          - { package: ./internal/config, target: FuzzLoadSaveRoundTrip }
+          - { package: ./internal/config, target: FuzzNormalizeThumbprintIsIdempotent }
+          - { package: ./internal/sshalias, target: FuzzDiscover }
+          - { package: ./internal/query, target: FuzzParseAndEvaluate }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+      - name: Fuzz ${{ matrix.target }}
+        run: go test ${{ matrix.package }} -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime 5m
+      # A failing input is written under the package's testdata/fuzz. Commit
+      # it there to keep it as a permanent regression seed.
+      - name: Upload failing input
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-${{ matrix.target }}
+          path: ${{ matrix.package }}/testdata/fuzz/${{ matrix.target }}
+          if-no-files-found: ignore

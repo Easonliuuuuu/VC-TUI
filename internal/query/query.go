@@ -205,6 +205,9 @@ func parseOne(expression string) (Predicate, error) {
 	default:
 		p.Field = lower
 	}
+	if (p.Field == "tag" || p.Field == "custom") && strings.Contains(field, ".") && strings.TrimSpace(p.Qualifier) == "" {
+		return Predicate{}, fmt.Errorf("%s query requires a name after %q", p.Field, p.Field+".")
+	}
 	if p.Field == "tag" && p.Qualifier == "" && p.Operator != "=" && p.Operator != "!=" {
 		return Predicate{}, fmt.Errorf("tag queries support only = and !=")
 	}
