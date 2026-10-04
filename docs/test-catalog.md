@@ -18,7 +18,7 @@ proves](#what-nothing-here-proves) lists the gaps.
 | [Multi-vCenter integration](#multi-vcenter-vcsim-integration) | `go test -tags integration -run '^TestVCSIM' ./tests/...` | `integration-vcsim` | every push and PR | several independent vCenter processes, one of which can be killed |
 | [TUI scenarios](#tui-scenarios) | `scripts/testbed test` | `tui-scenarios` (Linux, macOS, Windows) | every push and PR | the TUI model driven key by key, with render goldens |
 | [PTY journeys](#pty-journeys) | `scripts/testbed pty` | `tui-pty` (Linux) | every push and PR | the real testbed binary in a real terminal |
-| [Fuzzing](#fuzz-targets) | seeds: `go test ./...`; campaigns: `go test -fuzz` | seeds in `build`; campaigns in `fuzz.yml` | seeds always; 5 min per target weekly | arbitrary keys, messages, files, and expressions |
+| [Fuzzing](#fuzz-targets) | seeds: `go test ./...`; campaigns: `go test -fuzz` | seeds in `build`; campaigns in `fuzz.yml` | seeds always; 5 min per target nightly, 1 min on PRs that touch fuzzing | arbitrary keys, messages, files, and expressions |
 | [Kubernetes end-to-end](#kubernetes-end-to-end) | `scripts/test-kubernetes.sh` | `kubernetes-e2e` | every push and PR | the shipped CronJob in a kind cluster against two vcsim Services |
 | [Release snapshot](#release-snapshot-and-pins) | `goreleaser release --snapshot` | `release-snapshot` | every push and PR | the full release build without publishing |
 | [Release pins](#release-snapshot-and-pins) | `scripts/check-release-pins.sh` | `build` (Linux) | every push and PR | drift between Dockerfile, goreleaser, docs, and the CronJob |
@@ -149,8 +149,11 @@ single multi-rune key, so `"rq"` matches neither reload nor quit.
 
 ## Fuzz targets
 
-Seed inputs run as ordinary tests in every `go test ./...`. The weekly
-`fuzz.yml` workflow runs each target for 5 minutes in parallel. A failing
+Seed inputs run as ordinary tests in every `go test ./...`. The nightly
+`fuzz.yml` workflow runs each target for 5 minutes in parallel. A pull request
+that changes a fuzz target, its seeds, or the workflow gets a 1-minute run per
+target, and **Actions → Fuzz → Run workflow** starts one by hand with any
+duration. A failing
 input lands in the package's `testdata/fuzz/<Target>/`; commit it there and it
 becomes a permanent regression test.
 

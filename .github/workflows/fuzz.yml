@@ -2,20 +2,36 @@ name: Fuzz
 
 on:
   schedule:
-    - cron: "17 3 * * 0"
+    - cron: "17 3 * * *"
   workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: Time to fuzz each target, up to 1h (Go duration, e.g. 5m or 30s)
+        default: 5m
+  # A change to a fuzz target, its seeds, or this workflow gets a short
+  # campaign before merge instead of waiting for the night.
+  pull_request:
+    paths:
+      - .github/workflows/fuzz.yml
+      - "**/fuzz_test.go"
+      - "**/testdata/fuzz/**"
 
 permissions:
   contents: read
 
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   GO_VERSION: "1.26"
+  FUZZTIME: ${{ github.event_name == 'pull_request' && '1m' || inputs.fuzztime || '5m' }}
 
 jobs:
   fuzz:
     name: Fuzz ${{ matrix.target }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
@@ -40,7 +56,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           check-latest: true
       - name: Fuzz ${{ matrix.target }}
-        run: go test ${{ matrix.package }} -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime 5m
+        run: go test ${{ matrix.package }} -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime "$FUZZTIME"
       # A failing input is written under the package's testdata/fuzz. Commit
       # it there to keep it as a permanent regression seed.
       - name: Upload failing input
