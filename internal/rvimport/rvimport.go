@@ -529,9 +529,11 @@ func (t sheetTable) probe() {
 		// Only per-VM worksheets identify a VM; host and infrastructure
 		// worksheets identify their own objects by Object ID.
 		vmKeys(t, nil)
-	case sheetVSwitch, sheetVPort, sheetVHBA, sheetVNIC, sheetVSCVMK, sheetVMultiPath:
+	case sheetVSwitch, sheetVPort, sheetVHBA, sheetVNIC, sheetVSCVMK:
 		t.cell(nil, "Object ID") // the host join column
 		t.cell(nil, "Host")
+	case sheetVMultiPath:
+		t.cell(nil, "Host") // RVTools' Object ID identifies the datastore
 	}
 	scratchVM, scratchHost := &vsphere.VM{}, &vsphere.Host{}
 	switch t.name {
@@ -993,6 +995,8 @@ func Parse(f *excelize.File, opts Options) (*Result, error) {
 	// from some sheets, so a row without it may join by host name only when one
 	// vHost row in this workbook matches within the same vCenter UUID (and any
 	// supplied datacenter/cluster further narrows the match).
+	// vMultiPath always joins by name: RVTools puts the datastore's ID in
+	// Object ID, while vsfleet exports the host's ID in that same column.
 	hostSub := func(sheet string, apply func(sheetTable, []string, *vsphere.Host)) {
 		t, ok := tables[sheet]
 		if !ok {
@@ -1004,7 +1008,10 @@ func Parse(f *excelize.File, opts Options) (*Result, error) {
 				continue
 			}
 			ctxKey, _, _, vcenterID, ok := rowContext(t, row)
-			id := t.cell(row, "Object ID")
+			id := ""
+			if sheet != sheetVMultiPath {
+				id = t.cell(row, "Object ID")
+			}
 			if !ok {
 				warn("%s: row has no vCenter context; skipped", sheet)
 				continue
@@ -1650,6 +1657,44 @@ func applyVMKRow(t sheetTable, row []string, host *vsphere.Host) {
 }
 
 func applyMultipathRow(t sheetTable, row []string, host *vsphere.Host) {
+	// vsfleet exports one host/LUN row with aggregate counts. RVTools exports
+	// datastore-backed disks with up to eight individual path/state pairs.
+	// Preserve the aggregate format when present; otherwise count only the
+	// paths actually supplied, without inventing locality or working status.
+	if !t.has("LUN") && t.has("Disk") {
+		mp := vsphere.HostMultipath{
+			LUN:        t.cell(row, "Display name"),
+			DevicePath: t.cell(row, "Disk"),
+			Policy:     t.cell(row, "Policy"),
+		}
+		if mp.LUN == "" {
+			mp.LUN = mp.DevicePath
+		}
+		for i := 1; i <= 8; i++ {
+			pathHeader := fmt.Sprintf("Path %d", i)
+			stateHeader := pathHeader + " state"
+			state := ""
+			if t.has(stateHeader) {
+				state = t.cell(row, stateHeader)
+			}
+			if !t.has(pathHeader) || t.cell(row, pathHeader) == "" {
+				continue
+			}
+			mp.PathCount++
+			switch strings.ToLower(state) {
+			case "active":
+				mp.Active++
+			case "standby":
+				mp.Standby++
+			case "dead":
+				mp.Dead++
+			case "disabled":
+				mp.Disabled++
+			}
+		}
+		host.Multipaths = append(host.Multipaths, mp)
+		return
+	}
 	host.Multipaths = append(host.Multipaths, vsphere.HostMultipath{
 		LUN:          t.cell(row, "LUN"),
 		DevicePath:   t.cell(row, "Device path"),

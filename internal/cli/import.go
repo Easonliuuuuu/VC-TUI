@@ -59,9 +59,11 @@ unavailable collection — the same explicit gap a live capture records for a
 denied query — never as an empty one. A workbook with no vHost worksheet is not
 an estate with no hosts. Resource pools and networks are always recorded
 unavailable: vRP carries no pool membership and RVTools has no network
-identity to import. vCD/vUSB attach to VMs; vHBA, vNIC, vSwitch, vPort,
-vSC+VMK and vMultiPath attach to a host only when a same-workbook host object
-ID or a unique name within the same vCenter resolves the row.
+identity to import. vCD/vUSB attach to VMs; vHBA, vNIC, vSwitch, vPort and
+vSC+VMK attach to a host only when a same-workbook host object ID or a unique
+name within the same vCenter resolves the row. vMultiPath always resolves a
+unique Host name through vHost within the same vCenter: RVTools' Object ID
+on that sheet identifies the datastore.
 
 vCenter identity is reconstructed from the workbook's own "vsfleet Context" or
 "VI SDK Server" column: two contexts with an identically named VM stay two

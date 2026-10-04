@@ -194,7 +194,8 @@ workbook with extra or reordered columns still imports:
 | `vCPU`, `vMemory` | VM CPU and memory, when `vInfo` lacks the column; a disagreement with `vInfo` is warned about and `vInfo` wins |
 | `vDisk`, `vNetwork`, `vTools`, `vPartition`, `vSnapshot` | per-VM disks, NICs, Tools state, guest filesystems and snapshots |
 | `vHost`, `vCluster`, `vDatastore` | the host, cluster and datastore collections |
-| `vSwitch`, `vPort`, `vHBA`, `vNIC`, `vSC+VMK` / `vSC_VMK`, `vMultiPath` | host configuration, joined by `Object ID` or a unique host name scoped to the same vCenter in the workbook |
+| `vSwitch`, `vPort`, `vHBA`, `vNIC`, `vSC+VMK` / `vSC_VMK` | host configuration, joined by `Object ID` or a unique host name scoped to the same vCenter in the workbook |
+| `vMultiPath` | host multipaths, joined by a unique `Host` name scoped to the same vCenter in the workbook; `Object ID` is not used for the host join |
 | `dvSwitch`, `dvPort` | distributed switches and their port groups |
 | `vCD`, `vUSB` | per-VM CD-ROM and USB devices |
 | `vMetaData` | capture time, when its timestamp can be interpreted |
@@ -207,6 +208,20 @@ example, `vDisk` accepts `Shared Bus`/`SharedBus`; `dvSwitch` accepts
 `Port`/`Port group`, `Switch`/`DVS`, `Allow Promiscuous`/`Promiscuous mode`,
 `Policy`/`Teaming policy`, and `Rolling Order`/`Failback`. Rolling Order is
 converted to the corresponding failback value.
+
+RVTools' `vMultiPath` identifies a datastore in `Object ID`, so hosts are
+resolved through `vHost` by `Host` and `VI SDK UUID`, narrowed by `Datacenter`
+and `Cluster` when supplied. Missing or ambiguous hosts are warned about and
+their rows skipped. This name join also applies to vsfleet's own exports.
+RVTools lists datastore-backed disks; vsfleet exports every collected host/LUN,
+so their row counts can differ. The importer maps RVTools' `Display name`
+(falling back to `Disk`) to the LUN label, preserves `Disk` as the device
+identifier, and counts the supplied `Path 1` through `Path 8` and their states.
+Those counts cover only the listed paths; the workbook cannot establish paths
+beyond its eight slots, disk locality, or which paths the policy marks as
+working. Locality remains unknown and no working-path count is inferred.
+vsfleet's aggregate path counts, locality and working-path columns are
+preserved when importing its own format.
 
 ### Missing evidence is never good news
 
