@@ -537,7 +537,7 @@ var sheetColumns = map[string]map[string]ColumnSpec{
 	},
 	"vSC_VMK": {
 		"Device":          {Kind: KindText, Note: "VMkernel or service-console device, for example vmk0."},
-		"Port group":      {Kind: KindText, Empty: "when the adapter is connected to a distributed or opaque network"},
+		"Port Group":      {Kind: KindText, Empty: "when the adapter is connected to a distributed or opaque network"},
 		"Mac Address":     {Kind: KindText, Empty: "when vSphere does not report a MAC address"},
 		"MTU":             {Kind: KindInteger, Unit: "bytes"},
 		"TSO":             {Kind: KindBoolean, Empty: "when vSphere does not report TCP segmentation offload state"},

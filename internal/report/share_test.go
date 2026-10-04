@@ -168,6 +168,17 @@ func TestSharedPreservesJoinsAndDuplicateNames(t *testing.T) {
 	}
 }
 
+func TestSharedVMKernelPortGroupPreservesNetworkJoin(t *testing.T) {
+	out := writeShareBytes(t, shareEstate(), ShareOptions{Profile: ProfileFullInventory, Pseudonymize: true, Key: testShareKey})
+	vmk, ports := sheetRowsOf(t, out, "vSC_VMK"), sheetRowsOf(t, out, "vPort")
+	if vmk[0][1] != "Port Group" {
+		t.Fatalf("VMkernel port group header=%q, want Port Group", vmk[0][1])
+	}
+	if got := vmk[1][1]; !strings.HasPrefix(got, "net-") || got != ports[1][0] {
+		t.Fatalf("VMkernel port group %q does not join to pseudonymized vPort %q", got, ports[1][0])
+	}
+}
+
 func TestSharedFailsClosed(t *testing.T) {
 	data := shareEstate()
 	var buf bytes.Buffer

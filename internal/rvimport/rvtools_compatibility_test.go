@@ -192,6 +192,42 @@ func TestSyntheticRVTools48HeadersAndMetadata(t *testing.T) {
 	}
 }
 
+func TestParseVMKernelPortGroupHeaderSpellings(t *testing.T) {
+	for _, sheet := range []string{"vSC_VMK", sheetVSCVMK} {
+		for _, header := range []string{"Port Group", "Port group"} {
+			t.Run(sheet+"/"+header, func(t *testing.T) {
+				path := writeFixtureWorkbook(t, func(data *assessment.ExportData) {
+					editHost(t, data, "host-a1", func(h *vsphere.Host) {
+						h.VMKs = []vsphere.HostVMKernel{{Device: "vmk0", PortGroup: "Synthetic Management Network"}}
+					})
+				})
+				f := openFixture(t, path)
+				setHeader(t, f, "vSC_VMK", []string{"Port Group"}, header)
+				if sheet != "vSC_VMK" {
+					if err := f.SetSheetName("vSC_VMK", sheet); err != nil {
+						t.Fatal(err)
+					}
+				}
+				result, err := Parse(f, Options{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, c := range result.contexts {
+					for _, h := range c.hosts {
+						if c.name == "alpha" && h.ID == "host-a1" {
+							if len(h.VMKs) != 1 || h.VMKs[0].Device != "vmk0" || h.VMKs[0].PortGroup != "Synthetic Management Network" {
+								t.Fatalf("VMkernel adapter was not preserved: %+v", h.VMKs)
+							}
+							return
+						}
+					}
+				}
+				t.Fatal("synthetic host was not imported")
+			})
+		}
+	}
+}
+
 func setHeader(t *testing.T, f *excelize.File, sheet string, candidates []string, replacement string) {
 	t.Helper()
 	rows, err := f.GetRows(sheet)
