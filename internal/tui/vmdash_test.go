@@ -795,3 +795,20 @@ func TestChartTitleGivesUpDetailBeforeThePeak(t *testing.T) {
 		t.Errorf("at 40 columns the unit should go before the peak: %q", got)
 	}
 }
+
+// A title whose statistics fit with one column to spare, but not the two
+// joinEnds keeps between the ends, used to lose its statistics altogether.
+func TestChartTitleKeepsStatisticsAtEveryWidth(t *testing.T) {
+	m := newTestModel(t, twoHealthy(), Options{Current: "prod"})
+	values := make([]float64, 60)
+	for i := range values {
+		values[i] = 1000
+	}
+	mt := metric{name: "CPU usage", unit: "2 of 2 members · limit 1.0GHz", values: values, format: fmtMHz, warnAt: 950}
+	st, ok := statsOf(values)
+	for w := 40; w <= 120; w++ {
+		if got := ansi.Strip(m.chartTitle(mt, st, ok, w)); !strings.Contains(got, "peak") {
+			t.Fatalf("at %d columns the title lost its statistics: %q", w, got)
+		}
+	}
+}

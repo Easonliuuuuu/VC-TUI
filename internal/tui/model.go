@@ -724,6 +724,12 @@ type Model struct {
 	// perfPage indexes perfPages: the overview, or one area's full charts.
 	// Like the range it survives moving between VMs.
 	perfPage int
+	// vappPerf caches the vApp workspace's member charts by vApp and range,
+	// the way vmPerf does for one VM; it shares vmPerfGen, the range and the
+	// live-refresh chain with the VM pane. vappBusiest sorts the members by
+	// peak CPU instead of start order.
+	vappPerf    map[string]*vappPerfEntry
+	vappBusiest bool
 	// ds holds the read-only datastore file browser while it is open. Like
 	// vapp it is kept apart from the browse cursor, and unlike everything
 	// else on this struct it is the one view whose contents come from a live
@@ -1530,6 +1536,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case vmPerfMsg:
 		m.applyVMPerf(msg)
+		return m, nil
+
+	case vappPerfMsg:
+		m.applyVAppPerf(msg)
 		return m, nil
 
 	case vmPerfTickMsg:

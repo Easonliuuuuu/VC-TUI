@@ -17,7 +17,7 @@ vsfleet  DEMO · SAMPLE DATA  ◆ prod-vc  ·  1 connected
   Committed storage   40.0G                        │ ███████████████████████████████████████████████
   Snapshots           none  ✓                      │ 23:00                                     00:00
   Guest disks         -                            │ 
-  Host                esxi-mgmt-02                 │ Disk  read + write · latency 5 ms
+  Host                esxi-mgmt-02                 │ Disk               avg 866 KB/s · peak 1.5 MB/s
   Cluster             mgmt                         │                                  ▂▄▆███▇▅▃▁   ▁
   Datacenter          Taipei                       │ ▁                     ▂▄▆▆▆▆▅▄▄▅▇███████████▇██
   Folder              /Infrastructure/Core         │ █▇▄▂    ▁▂▄▄▄▄▃▁   ▂▄██████████████████████████

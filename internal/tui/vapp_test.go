@@ -193,10 +193,17 @@ func TestVAppWorkspace_NoDuplicateResolvedChild(t *testing.T) {
 }
 
 // vappWithAllocation gives prod's vApp a second member, a CPU limit and a
-// startup order that starts db-01 before app-01.
+// startup order that starts db-01 before app-01, and opens it.
 func vappWithAllocation(t *testing.T) *Model {
 	t.Helper()
 	b := twoHealthy()
+	withAllocatedVApp(b)
+	m := newTestModel(t, b, Options{Current: "prod"})
+	press(t, m, "7", "enter")
+	return m
+}
+
+func withAllocatedVApp(b *fakeBackend) {
 	inv := *b.inventories["prod"]
 	inv.VMs = append(inv.VMs, vsphere.VM{
 		Location: vsphere.Location{Context: "prod", Datacenter: "Taipei", Path: "/Taipei/vm/db-01"},
@@ -217,9 +224,6 @@ func vappWithAllocation(t *testing.T) *Model {
 	}
 	inv.VApps = []vsphere.VApp{app}
 	b.inventories["prod"] = &inv
-	m := newTestModel(t, b, Options{Current: "prod"})
-	press(t, m, "7", "enter")
-	return m
 }
 
 func TestVAppWorkspaceShowsAllocationAndStartupOrder(t *testing.T) {

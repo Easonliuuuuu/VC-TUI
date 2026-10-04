@@ -53,6 +53,7 @@ const (
 	vappMemberTypeWidth                = 7
 	vappMemberStateWidth               = 12
 	vappMemberStartWidth               = 5
+	vappMemberPerfWidth                = 7
 	vappMemberCPUWidth                 = 5
 	vappMemberMemoryWidth              = 7
 	vappMemberHostWidth                = 18
@@ -64,7 +65,7 @@ func (m *Model) openVApp(r row) tea.Cmd {
 	m.vappVM = nil
 	m.detailCursor, m.detailY = 0, 0
 	m.mode = modeVAppDetail
-	return nil
+	return m.ensureVMPerf(false)
 }
 
 func (m *Model) activeVApp() (*vsphere.VApp, *contextState, bool) {
@@ -172,6 +173,9 @@ func (m *Model) vappMembersFrom(v *vsphere.VApp, inv *vsphere.Inventory, depth i
 		}
 		return vmMembers[i].name < vmMembers[j].name
 	})
+	if m.vappBusiest {
+		m.sortBusiest(vmMembers)
+	}
 	out = append(out, vmMembers...)
 
 	pools := resourcePools(v, depth)
@@ -426,7 +430,9 @@ func resourcePools(v *vsphere.VApp, depth int) []vappMember {
 	return out
 }
 
-func vappMemberColumns(withContext bool) []column {
+// vappMemberColumns are the members table's columns. withPerf adds each
+// member's peak CPU, ready and limited time over the chart range.
+func vappMemberColumns(withContext, withPerf bool) []column {
 	cols := []column{
 		{title: "TYPE", width: vappMemberTypeWidth},
 		{title: "NAME"},
@@ -434,8 +440,15 @@ func vappMemberColumns(withContext bool) []column {
 		{title: "START", width: vappMemberStartWidth, right: true},
 		{title: "CPU", width: vappMemberCPUWidth, right: true},
 		{title: "MEM", width: vappMemberMemoryWidth, right: true},
-		{title: "HOST", width: vappMemberHostWidth},
 	}
+	if withPerf {
+		cols = append(cols,
+			column{title: "CPU PK", width: vappMemberPerfWidth + 1, right: true},
+			column{title: "READY", width: vappMemberPerfWidth, right: true},
+			column{title: "LIMITED", width: vappMemberPerfWidth, right: true},
+		)
+	}
+	cols = append(cols, column{title: "HOST", width: vappMemberHostWidth})
 	if withContext {
 		cols = append([]column{{title: "VCENTER", width: 14}}, cols...)
 	}
@@ -461,17 +474,25 @@ func (m *Model) viewVAppDetail() []string {
 	for _, f := range vappAllocationFields(root) {
 		lines = append(lines, truncate("  "+t.label.Render(pad(f[0], labelColumnPad, false))+t.value.Render(f[1]), m.width))
 	}
-	lines = append(lines,
-		"",
-		t.header.Render("Members"),
-	)
-
 	members := m.vappMembers(root, st.inv)
 	if m.vapp == nil {
 		return lines
 	}
+	_, withPerf := m.backend.(vmsPerfBackend)
+	if perfLines := m.vappPerfLines(root, st.inv, m.width); len(perfLines) > 0 {
+		lines = append(append(lines, ""), perfLines...)
+	}
+	order := "start order"
+	if m.vappBusiest {
+		order = "busiest first"
+	}
+	membersHeader := t.header.Render("Members")
+	if withPerf {
+		membersHeader = joinEnds(membersHeader, t.dim.Render("sorted by "+order+" · peaks over "+m.perfRange().label), m.width)
+	}
+	lines = append(lines, "", membersHeader)
 	m.vapp.cursor = clamp(m.vapp.cursor, 0, max(0, len(members)-1))
-	cols := vappMemberColumns(false)
+	cols := vappMemberColumns(false, withPerf)
 	widths := layoutColumns(cols, m.width-glyphGutter)
 	head := make([]string, 0, len(cols))
 	for i, c := range cols {
@@ -529,7 +550,14 @@ func (m *Model) renderVAppMember(member vappMember, cols []column, widths []int,
 	case vappMemberPool:
 		kind = "POOL"
 	}
-	cells := []string{kind, name, member.state, humanize.Dash(member.start), member.cpu, member.memory, member.host}
+	cells := []string{kind, name, member.state, humanize.Dash(member.start), member.cpu, member.memory}
+	for _, c := range cols {
+		if c.title == "CPU PK" {
+			cells = append(cells, m.vappMemberPerfCells(member)...)
+			break
+		}
+	}
+	cells = append(cells, member.host)
 	if len(cols) > len(cells) {
 		cells = append([]string{member.context}, cells...)
 	}
@@ -567,6 +595,7 @@ func (m *Model) handleVAppDetailKey(msg tea.KeyMsg) tea.Cmd {
 		if len(m.vapp.roots) > 1 {
 			m.vapp.roots = m.vapp.roots[:len(m.vapp.roots)-1]
 			m.vapp.cursor, m.vapp.offset = 0, 0
+			return m.ensureVMPerf(false)
 		} else {
 			m.clearVAppWorkspace()
 			m.mode = modeBrowse
@@ -592,7 +621,7 @@ func (m *Model) handleVAppDetailKey(msg tea.KeyMsg) tea.Cmd {
 			m.vapp.roots = append(m.vapp.roots, member.key)
 			m.vapp.cursor, m.vapp.offset = 0, 0
 			m.detailCursor = 0
-			return nil
+			return m.ensureVMPerf(false)
 		}
 		if member.kind == vsphere.KindVM && member.openable && member.vm != nil {
 			r := vmRow(*member.vm, false)
@@ -601,6 +630,17 @@ func (m *Model) handleVAppDetailKey(msg tea.KeyMsg) tea.Cmd {
 			m.detailCursor, m.detailY = 0, 0
 			m.mode = modeVAppVMDetail
 			return m.ensureVMPerf(false)
+		}
+	case key.Matches(msg, m.keys.ShorterRange):
+		return m.shiftPerfRange(-1)
+	case key.Matches(msg, m.keys.LongerRange):
+		return m.shiftPerfRange(1)
+	case key.Matches(msg, m.keys.Reload):
+		return m.ensureVMPerf(true)
+	case key.Matches(msg, m.keys.VAppSort):
+		if _, ok := m.backend.(vmsPerfBackend); ok {
+			m.vappBusiest = !m.vappBusiest
+			m.vapp.cursor, m.vapp.offset = 0, 0
 		}
 	}
 	return nil
@@ -625,6 +665,7 @@ func (m *Model) handleVAppVMDetailKey(msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, m.keys.Back):
 		m.vappVM = nil
 		m.mode = modeVAppDetail
+		return m.ensureVMPerf(false)
 	case key.Matches(msg, m.keys.Timeline):
 		if m.assessment == nil {
 			return nil
