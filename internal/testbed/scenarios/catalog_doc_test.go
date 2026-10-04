@@ -12,7 +12,7 @@ import (
 var fuzzFunc = regexp.MustCompile(`(?m)^func (Fuzz\w+)\(`)
 
 // TestCatalogueDocumentsEveryScenarioAndFuzzTarget keeps docs/test-catalog.md
-// and the weekly fuzz workflow in step with the code: a scenario or fuzz
+// and the nightly fuzz workflow in step with the code: a scenario or fuzz
 // target added without a catalogue row, or a fuzz target the workflow never
 // runs, fails here.
 func TestCatalogueDocumentsEveryScenarioAndFuzzTarget(t *testing.T) {

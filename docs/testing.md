@@ -44,7 +44,8 @@ event log, result metadata, and the isolated testbed state.
 
 Fuzz seeds for the TUI and for the configuration, SSH config, `--where`, and
 RVTools import parsers run with the normal Go suite; `fuzz.yml` runs a
-five-minute campaign per target every week. Neither the headless scenarios nor PTY tests prove
+five-minute campaign per target every night, a one-minute campaign on pull
+requests that touch fuzzing, and on demand from the Actions tab. Neither the headless scenarios nor PTY tests prove
 behavior against a real vSphere deployment.
 
 ## Release checks
