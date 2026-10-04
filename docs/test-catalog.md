@@ -191,7 +191,9 @@ ownership, and Service DNS names.
 ## Release snapshot and pins
 
 `release-snapshot` runs `goreleaser release --snapshot --skip=publish,sign`
-with the same Go version and goreleaser configuration as `release.yml`. It
+with the same Go version and goreleaser configuration as `release.yml`,
+except that the multi-platform `index,` annotation prefix is stripped because
+buildx rejects it on the per-platform images a snapshot loads. It
 checks that an archive exists for each of the six OS/architecture pairs, then
 runs `--version` on the Linux binary and `--version`/`--help` in the amd64
 container image. A broken `.goreleaser.yaml`, `Dockerfile`, or cross-compile

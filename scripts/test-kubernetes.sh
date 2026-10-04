@@ -62,6 +62,23 @@ wait_failed() {
   kubectl -n "$namespace" wait --for=condition=failed "job/$1" --timeout=3m
 }
 
+# A rolled-out Deployment can still be unreachable through its Service until
+# the EndpointSlice marks the pod ready; until then kube-proxy refuses
+# connections to the Service IP.
+wait_for_ready_endpoints() {
+  local service="$1"
+  local ready=0
+  for _ in {1..60}; do
+    ready="$(kubectl -n "$namespace" get endpointslices -l "kubernetes.io/service-name=$service" -o json | jq '[.items[].endpoints[]? | select(.conditions.ready == true)] | length')"
+    if [[ "$ready" != "0" ]]; then
+      return 0
+    fi
+    sleep 2
+  done
+  printf 'service %s has no ready endpoint after 2m\n' "$service" >&2
+  return 1
+}
+
 wait_for_no_ready_endpoints() {
   local service="$1"
   local ready=1
@@ -97,6 +114,8 @@ kubectl -n "$namespace" create secret generic vsfleet-credentials --from-literal
 kubectl -n "$namespace" apply -f "$repo_root/tests/kubernetes/vcsim.yaml"
 kubectl -n "$namespace" rollout status deployment/vsfleet-vcsim-prod --timeout=2m
 kubectl -n "$namespace" rollout status deployment/vsfleet-vcsim-edge --timeout=2m
+wait_for_ready_endpoints vsfleet-vcsim-prod
+wait_for_ready_endpoints vsfleet-vcsim-edge
 
 kubectl -n "$namespace" apply -f "$repo_root/deploy/kubernetes/cronjob.yaml"
 kubectl -n "$namespace" patch cronjob vsfleet-assessment --type merge -p '{"spec":{"suspend":true}}'
