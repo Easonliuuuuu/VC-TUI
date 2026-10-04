@@ -114,6 +114,7 @@ func TestWriteRVToolsIsDeterministicAndComplete(t *testing.T) {
 		"vHBA":     {"F1": "Pci"},
 		"vSwitch":  {"C1": "Free Ports", "F1": "Promiscuous Mode", "G1": "Mac Changes", "H1": "Forged Transmits", "I1": "Traffic Shaping"},
 		"vPort":    {"A1": "Port Group", "D1": "Promiscuous Mode", "E1": "Mac Changes", "F1": "Forged Transmits"},
+		"vSC_VMK":  {"B1": "Port Group"},
 		"dvSwitch": {"A1": "Switch", "C1": "Max Ports"},
 		"dvPort":   {"A1": "Port", "B1": "Switch", "I1": "Allow Promiscuous", "J1": "Mac Changes", "K1": "Forged Transmits", "L1": "Policy", "M1": "Notify Switch", "N1": "Rolling Order", "O1": "In Traffic Shaping", "P1": "Out Traffic Shaping", "S1": "Active Uplink", "T1": "Standby Uplink"},
 		"vCluster": {"C1": "numEffectiveHosts"},
@@ -308,6 +309,11 @@ func TestRVToolsCSVMatchesXLSXAndIsDeterministic(t *testing.T) {
 	vUSB := readCSV(t, byName["vUSB.csv"])
 	if got := vUSB[1]; got[0] != "app" || got[5] != "false" || got[8] != "hid, storage" || got[9] != "full, high" {
 		t.Fatalf("vUSB.csv row=%v", got)
+	}
+
+	vmk := readCSV(t, byName["vSC_VMK.csv"])
+	if vmk[0][1] != "Port Group" || vmk[1][1] != "Management Network" {
+		t.Fatalf("vSC_VMK.csv port group header/value=%q/%q", vmk[0][1], vmk[1][1])
 	}
 
 	vSnapshot := readCSV(t, byName["vSnapshot.csv"])

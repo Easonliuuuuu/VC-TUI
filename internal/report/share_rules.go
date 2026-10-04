@@ -116,7 +116,7 @@ var columnRules = map[string]colRule{
 	"Port": name(kindNetwork), "Key": id(kindID), "Uplink": topo(), "Allow Promiscuous": keep(),
 	"Policy": keep(), "Notify Switch": keep(), "Rolling Order": keep(), "In Traffic Shaping": keep(),
 	"Out Traffic Shaping": keep(), "Blocked": keep(), "Auto expand": keep(), "Active Uplink": topo(),
-	"Standby Uplink": topo(), "Logical switch UUID": id(kindUUID), "Segment ID": topo(), "Port group": name(kindNetwork),
+	"Standby Uplink": topo(), "Logical switch UUID": id(kindUUID), "Segment ID": topo(),
 	"TSO": keep(), "Netstack": keep(), "DHCP": keep(), "IP Address": ipRule, "Subnet mask": topo(),
 	"Service console": keep(), "LUN": id(kindID), "Device path": pathRule, "Local disk": keep(), "Path count": keep(),
 	"Active paths": keep(), "Standby paths": keep(), "Dead paths": keep(), "Disabled paths": keep(), "Working paths": keep(),
