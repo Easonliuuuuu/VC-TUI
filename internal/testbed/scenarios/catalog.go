@@ -223,10 +223,7 @@ func walkVMDashboard(m *tui.Model) error {
 				if err := boundedFrame(view, size[0], size[1]); err != nil {
 					return fmt.Errorf("vm-dashboard %s: %w", where, err)
 				}
-				// The selected tab must stay identifiable. At exactly 100
-				// columns the strip is one cell wider than the chart column
-				// and the last tab's name is truncated, so match its prefix.
-				if size[0] >= 100 && !strings.Contains(ansi.Strip(view), fmt.Sprintf("[%d ", i)) {
+				if size[0] >= 100 && !strings.Contains(ansi.Strip(view), fmt.Sprintf("[%d %s]", i, page)) {
 					return fmt.Errorf("vm-dashboard %s does not mark its page tab", where)
 				}
 			}

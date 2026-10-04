@@ -559,8 +559,80 @@ func TestVMDetailDrawsFieldMarks(t *testing.T) {
 	m := newTestModel(t, b.fakeBackend, Options{Current: "prod"})
 	m.backend = b
 	press(t, m, "enter")
-	if _, l := lineWith(m.View(), "Snapshots"); !strings.Contains(l, glyphCheckWarn+" 41d old") {
-		t.Fatalf("snapshot line = %q; want the age warning measured from the backend clock", l)
+	r, _ := m.detailRow()
+	lines, spans := m.vmPropertyLines(r, false)
+	for i, f := range r.detail {
+		if f.label != "Snapshots" {
+			continue
+		}
+		field := ansi.Strip(strings.Join(lines[spans[i+2].start:spans[i+2].end+1], "\n"))
+		if !strings.HasSuffix(strings.TrimRight(field, " "), glyphCheckWarn+" 41d old") {
+			t.Fatalf("snapshot field = %q; want the age warning measured from the backend clock after the value", field)
+		}
+		if !strings.Contains(strings.Join(strings.Fields(field), ""), "oldestpre-patch") {
+			t.Fatalf("snapshot field = %q; the value lost content", field)
+		}
+	}
+}
+
+func TestVMDetailMarkFollowsTheWholeValue(t *testing.T) {
+	b := perfHealthy()
+	vm := &b.inventories["prod"].VMs[0]
+	vm.PowerState = "poweredOn"
+	vm.ToolsState = "guestToolsNotRunning"
+	m := newTestModel(t, b.fakeBackend, Options{Current: "prod"})
+	m.backend = b
+	press(t, m, "enter")
+	for _, width := range []int{60, 100, 140} {
+		m.Update(tea.WindowSizeMsg{Width: width, Height: 60})
+		r, _ := m.detailRow()
+		lines, spans := m.vmPropertyLines(r, false)
+		for i, f := range r.detail {
+			if f.label != "VMware Tools" {
+				continue
+			}
+			field := lines[spans[i+2].start : spans[i+2].end+1]
+			if !strings.Contains(ansi.Strip(field[0]), "guestToolsNotRunning") {
+				t.Fatalf("width %d: the value was broken mid-word: %q", width, ansi.Strip(strings.Join(field, "\n")))
+			}
+			last := ansi.Strip(field[len(field)-1])
+			if !strings.Contains(last, glyphCheckWarn+" not running") {
+				t.Fatalf("width %d: the mark should follow the value, got %q", width, ansi.Strip(strings.Join(field, "\n")))
+			}
+			for _, line := range field {
+				if ansi.StringWidth(line) > m.vmPropertyWidth() {
+					t.Fatalf("width %d: %q overflows the property column", width, ansi.Strip(line))
+				}
+			}
+		}
+	}
+}
+
+func TestVMDashboardPageTabsFitTheChartColumn(t *testing.T) {
+	for _, width := range []int{60, 100, 101, 140} {
+		m := newTestModel(t, twoHealthy(), Options{})
+		for page, name := range perfPages {
+			for _, w := range []int{47, 48, 30, 15} {
+				tabs := ansi.Strip(m.perfPageTabs(page, w))
+				if ansi.StringWidth(tabs) > w {
+					t.Fatalf("tabs %q are wider than %d", tabs, w)
+				}
+				if w >= 30 && !strings.Contains(tabs, fmt.Sprintf("[%d %s]", page, name)) {
+					t.Fatalf("width %d: selected tab %q lost its name in %q", w, name, tabs)
+				}
+			}
+		}
+		b := perfHealthy()
+		m = newTestModel(t, b.fakeBackend, Options{Current: "prod"})
+		m.backend = b
+		press(t, m, "enter")
+		m.Update(tea.WindowSizeMsg{Width: width, Height: 60})
+		for page, name := range perfPages {
+			press(t, m, fmt.Sprint(page))
+			if out := ansi.Strip(m.View()); !strings.Contains(out, fmt.Sprintf("[%d %s]", page, name)) {
+				t.Fatalf("at %d columns the selected %s tab is not shown whole", width, name)
+			}
+		}
 	}
 }
 

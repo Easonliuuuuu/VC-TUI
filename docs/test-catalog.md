@@ -122,7 +122,7 @@ only with `--update-goldens`, and review the diff.
 | `add-context-no-secret` | connected | boots the loopback lab with in-memory keyring references | a context is selected over the production backend. The harness does not yet inspect the saved configuration for a password; `TestContextopsSave*` and `TestFormPreservesANonInteractiveCredential` cover that | no |
 | `datastore-browser` | presentation | initial load only | records the stable inventory screen. Browse and find navigation are covered by unit tests and the PTY journey | yes |
 | `resize` | presentation | resize through `60x20`, `100x30`, `140x40` | inventory still renders and selection is kept | no |
-| `vm-dashboard` | presentation | open the first VM, then visit chart pages `0`–`4` and step ranges `1h`→`30d`→`1h` at each size | every frame fits the terminal's width and height, the selected page tab stays identifiable, and the pane stays in detail mode | yes |
+| `vm-dashboard` | presentation | open the first VM, then visit chart pages `0`–`4` and step ranges `1h`→`30d`→`1h` at each size | every frame fits the terminal's width and height, the selected page tab is shown whole, and the pane stays in detail mode | yes |
 
 ## PTY journeys
 

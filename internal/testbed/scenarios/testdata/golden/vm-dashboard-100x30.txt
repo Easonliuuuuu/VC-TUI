@@ -1,14 +1,14 @@
 vsfleet  DEMO · SAMPLE DATA  ◆ prod-vc  ·  1 connected
 ────────────────────────────────────────────────────────────────────────────────────────────────────
-▸ ad-dc-01   Virtual machine · prod-vc             │ [0 Overview] 1 CPU  2 Memory  3 Disk  4 Networ…
+▸ ad-dc-01   Virtual machine · prod-vc             │ [0 Overview] 1 CPU  2 Memory  3 Disk  4 Network
                                                    │ [1h] 24h  7d  30d 
   vCenter             prod-vc                      │ 
   Power state         on                           │ CPU usage  % of 2 vCPU   avg 37.3% · peak 50.4%
   Guest OS            Microsoft Windows Server     │                                                
                       2022 (64-bit)                │                                                
   Guest state         running                      │ ▅▅▅▆▆▆▅▄▃▁  ▁▂▃▃▃▂▂▁▂▄▆▇▇█▇▇▆▆▆▇███▇▆▄▃▂▂▃▃▃▃▂▁
-  VMware Tools        guestToolsN  ▲ not installed │ ███████████████████████████████████████████████
-                      otRunning                    │ 23:00                                     00:00
+  VMware Tools        guestToolsNotRunning         │ ███████████████████████████████████████████████
+                      ▲ not installed              │ 23:00                                     00:00
   Tools version       -                            │ 
   IP address          -                            │ Memory active  % of 8G   avg 34.7% · peak 41.2%
   DNS name            -                            │                                                

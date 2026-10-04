@@ -474,6 +474,15 @@ func (m *Model) vmDetailLayout() (int, bool) {
 	return leftW, true
 }
 
+// widest is the display width of the widest line.
+func widest(lines []string) int {
+	w := 0
+	for _, l := range lines {
+		w = max(w, ansi.StringWidth(l))
+	}
+	return w
+}
+
 // detailSpan maps a logical field cursor to its rendered lines, including
 // wrapped continuations. Field actions still receive the original value.
 type detailSpan struct{ start, end int }
@@ -495,13 +504,31 @@ func (m *Model) vmPropertyLines(r row, withActions bool) ([]string, []detailSpan
 			suffix = m.markSuffix(mk)
 		}
 		labelW := min(labelColumnPad, max(0, leftW-3))
-		valueW := max(1, leftW-2-labelW-ansi.StringWidth(suffix))
+		valueW := max(1, leftW-2-labelW)
 		value := t.value.Render(f.value)
-		for j, part := range strings.Split(ansi.Wrap(value, valueW, ""), "\n") {
+		// The mark follows the value's last line. If it does not fit there,
+		// re-wrap the value narrower at word boundaries to make room; if
+		// that would break a word (as reserving the mark's width on every
+		// line used to do to "guestToolsNotRunning"), the mark gets a line
+		// of its own instead.
+		parts := strings.Split(ansi.Wrap(value, valueW, ""), "\n")
+		markAt := len(parts) - 1
+		if markW := ansi.StringWidth(suffix); suffix != "" && ansi.StringWidth(parts[markAt])+markW > valueW {
+			if narrow := strings.Split(ansi.Wordwrap(value, valueW-markW, ""), "\n"); valueW > markW && widest(narrow) <= valueW-markW {
+				parts, markAt = narrow, len(narrow)-1
+			} else {
+				suffix = ansi.Truncate(strings.TrimLeft(suffix, " "), valueW, "…")
+				parts = append(parts, "")
+				markAt++
+			}
+		}
+		for j, part := range parts {
 			label := strings.Repeat(" ", labelW)
 			mark := ""
 			if j == 0 {
 				label = pad(f.label, labelW, false)
+			}
+			if j == markAt {
 				mark = suffix
 			}
 			prefix := "  "
@@ -557,20 +584,49 @@ func (m *Model) scrollVMActionIntoView() {
 // one focused page per area, chosen with 0–4.
 var perfPages = []string{"Overview", "CPU", "Memory", "Disk", "Network"}
 
+// perfPageTabs is the chart column's page strip, w cells wide. When every
+// tab does not fit (the chart column is narrowest just above the split
+// width), it first drops the padding outside the end tabs, then shortens the
+// unselected tabs to their digits. The selected tab always keeps its name.
+func (m *Model) perfPageTabs(page, w int) string {
+	t := m.theme
+	render := func(trimEnds, digitsOnly bool) string {
+		var b strings.Builder
+		for i, name := range perfPages {
+			label := fmt.Sprintf("%d %s", i, name)
+			if i == page {
+				b.WriteString(t.accent.Render("[" + label + "]"))
+				continue
+			}
+			if digitsOnly {
+				label = fmt.Sprint(i)
+			}
+			left, right := " ", " "
+			if trimEnds && i == 0 {
+				left = ""
+			}
+			if trimEnds && i == len(perfPages)-1 {
+				right = ""
+			}
+			b.WriteString(t.dim.Render(left + label + right))
+		}
+		return b.String()
+	}
+	line := render(false, false)
+	if ansi.StringWidth(line) > w {
+		line = render(true, false)
+	}
+	if ansi.StringWidth(line) > w {
+		line = render(true, true)
+	}
+	return truncate(line, w)
+}
+
 // vmDashLines is the chart column, w cells wide.
 func (m *Model) vmDashLines(r row, w int) []string {
 	t := m.theme
 	rng := m.perfRange()
 	page := clamp(m.perfPage, 0, len(perfPages)-1)
-	var pages []string
-	for i, name := range perfPages {
-		label := fmt.Sprintf("%d %s", i, name)
-		if i == page {
-			pages = append(pages, t.accent.Render("["+label+"]"))
-		} else {
-			pages = append(pages, t.dim.Render(" "+label+" "))
-		}
-	}
 	var ranges []string
 	for _, pr := range perfRanges {
 		if pr.label == rng.label {
@@ -579,7 +635,7 @@ func (m *Model) vmDashLines(r row, w int) []string {
 			ranges = append(ranges, t.dim.Render(" "+pr.label+" "))
 		}
 	}
-	pageLine := truncate(strings.Join(pages, ""), w)
+	pageLine := m.perfPageTabs(page, w)
 	rangeLine := strings.Join(ranges, "")
 	if _, ok := m.backend.(vmPerfBackend); !ok {
 		return []string{pageLine, rangeLine, "", t.dim.Render("Performance charts need a live vCenter connection.")}
