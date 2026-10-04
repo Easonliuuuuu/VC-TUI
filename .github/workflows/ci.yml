@@ -164,11 +164,17 @@ jobs:
 
       - uses: docker/setup-buildx-action@v4
 
+      # A snapshot builds and loads one image per platform, and buildx
+      # refuses index annotations on a single-platform export. Everything
+      # else in this copy is the release configuration unchanged.
+      - name: Derive the snapshot configuration
+        run: sed 's/"index,manifest:/"manifest:/' .goreleaser.yaml > "${RUNNER_TEMP}/goreleaser-snapshot.yaml"
+
       - name: Build every release artifact without publishing
         uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
-          args: release --snapshot --clean --skip=publish,sign
+          args: release --snapshot --clean --skip=publish,sign --config ${{ runner.temp }}/goreleaser-snapshot.yaml
         env:
           # The Homebrew cask templates this token even when nothing is pushed.
           TAP_GITHUB_TOKEN: snapshot-unused
