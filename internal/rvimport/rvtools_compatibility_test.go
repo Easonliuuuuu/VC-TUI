@@ -1,6 +1,11 @@
 package rvimport
 
 import (
+	"archive/zip"
+	"bytes"
+	"fmt"
+	"io"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -91,12 +96,20 @@ func TestSyntheticRVTools48HeadersAndMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	for cell, value := range map[string]string{
-		"A1": "RVTools Version", "B1": "Creation Date/Time", "C1": "Server",
-		"A2": "4.8.1.4", "B2": "9/28/2026 11:12:23 AM", "C2": "vc-alpha.example",
+		"A1": "RVTools major version", "B1": "RVTools version", "C1": "xlsx creation datetime", "D1": "Server",
+		"A2": "4.8", "B2": "4.8.1.4", "D2": "192.0.2.10",
 	} {
 		if err := f.SetCellValue(sheetVMetaData, cell, value); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// Reproduce the 4.8.1.4 metadata layout reported in #269. The Excel
+	// display format hides seconds and uses a two-digit year.
+	if err := f.SetCellValue(sheetVMetaData, "C2", time.Date(2026, 9, 29, 17, 19, 20, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := f.GetCellValue(sheetVMetaData, "C2"); err != nil || got != "9/29/26 17:19" {
+		t.Fatalf("formatted metadata = %q (%v), want 9/29/26 17:19", got, err)
 	}
 	if err := f.SetDocProps(&excelize.DocProperties{Created: "2020-01-02T03:04:05Z"}); err != nil {
 		t.Fatal(err)
@@ -110,7 +123,7 @@ func TestSyntheticRVTools48HeadersAndMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse synthetic RVTools 4.8 headers: %v", err)
 	}
-	if !result.Report.CapturedAt.Equal(time.Date(2026, 9, 28, 18, 12, 23, 0, time.UTC)) || result.Report.CapturedAtSource != "vMetaData worksheet" {
+	if !result.Report.CapturedAt.Equal(time.Date(2026, 9, 30, 0, 19, 20, 0, time.UTC)) || result.Report.CapturedAtSource != "vMetaData worksheet" {
 		t.Errorf("captured at = %v (%s), want the zoned vMetaData time", result.Report.CapturedAt, result.Report.CapturedAtSource)
 	}
 	withoutZone, err := Parse(f, Options{})
@@ -190,6 +203,161 @@ func TestSyntheticRVTools48HeadersAndMetadata(t *testing.T) {
 	if !contains(legacy.Report.RecognizedSheets, sheetVSCVMK) {
 		t.Errorf("legacy %s sheet not recognized: %v", sheetVSCVMK, legacy.Report.RecognizedSheets)
 	}
+}
+
+// These are synthetic XLSX cells matching the metadata encodings reported
+// in #269, plus Excel's alternate date system and ISO date storage.
+func TestMetadataCaptureTimePreservesRawDates(t *testing.T) {
+	zone, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name      string
+		date1904  bool
+		keyValue  bool
+		dateTyped bool
+		iso       bool
+		offset    bool
+	}{
+		{name: "numeric 1900"},
+		{name: "numeric 1904", date1904: true},
+		{name: "RVTools date-typed serial", dateTyped: true},
+		{name: "date-typed serial 1904", dateTyped: true, date1904: true},
+		{name: "key-value serial", keyValue: true, dateTyped: true},
+		{name: "ISO date", dateTyped: true, iso: true},
+		{name: "key-value ISO date", keyValue: true, dateTyped: true, iso: true},
+		{name: "ISO date with offset", dateTyped: true, iso: true, offset: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := excelize.NewFile()
+			defer f.Close()
+			if err := f.SetSheetName("Sheet1", sheetVInfo); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.SetSheetRow(sheetVInfo, "A1", &[]any{"VM", "VM ID", "VI SDK Server"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.SetSheetRow(sheetVInfo, "A2", &[]any{"Synthetic VM", "vm-synthetic", "192.0.2.10"}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.NewSheet(sheetVMetaData); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.SetWorkbookProps(&excelize.WorkbookPropsOptions{Date1904: &tc.date1904}); err != nil {
+				t.Fatal(err)
+			}
+			cell := "C2"
+			if tc.keyValue {
+				if err := f.SetSheetRow(sheetVMetaData, "A1", &[]any{"Property", "Value"}); err != nil {
+					t.Fatal(err)
+				}
+				if err := f.SetCellValue(sheetVMetaData, "A2", "xlsx creation datetime"); err != nil {
+					t.Fatal(err)
+				}
+				cell = "B2"
+			} else {
+				if err := f.SetSheetRow(sheetVMetaData, "A1", &[]any{"RVTools major version", "RVTools version", "xlsx creation datetime", "Server"}); err != nil {
+					t.Fatal(err)
+				}
+				if err := f.SetSheetRow(sheetVMetaData, "A2", &[]any{"4.8", "4.8.1.4", "", "192.0.2.10"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := f.SetCellValue(sheetVMetaData, cell, time.Date(2026, 9, 29, 17, 19, 20, 0, time.UTC)); err != nil {
+				t.Fatal(err)
+			}
+			raw, err := f.GetCellValue(sheetVMetaData, cell, excelize.Options{RawCellValue: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.iso {
+				raw = "2026-09-29T17:19:20"
+			}
+			if tc.offset {
+				raw += "-07:00"
+			}
+			if tc.dateTyped {
+				style, err := f.GetCellStyle(sheetVMetaData, cell)
+				if err != nil {
+					t.Fatal(err)
+				}
+				f = withMetadataDateCell(t, f, cell, style, raw)
+				if typ, err := f.GetCellType(sheetVMetaData, cell); err != nil || typ != excelize.CellTypeDate {
+					t.Fatalf("metadata cell type = %v (%v), want date", typ, err)
+				}
+			}
+			result, err := Parse(f, Options{Timezone: zone})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := time.Date(2026, 9, 30, 0, 19, 20, 0, time.UTC)
+			if !result.Report.CapturedAt.Equal(want) || result.Report.CapturedAtSource != "vMetaData worksheet" {
+				t.Fatalf("captured at = %v (%s), want %v from vMetaData", result.Report.CapturedAt, result.Report.CapturedAtSource, want)
+			}
+			withoutZone, err := Parse(f, Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.offset {
+				if !withoutZone.Report.CapturedAt.Equal(want) || withoutZone.Report.CapturedAtSource != "vMetaData worksheet" {
+					t.Fatalf("explicit timestamp offset was not honored: %+v", withoutZone.Report)
+				}
+			} else if withoutZone.Report.CapturedAtSource == "vMetaData worksheet" || !containsSubstring(withoutZone.Report.Warnings, "pass --timezone") {
+				t.Fatalf("timezone-free metadata was guessed or not explained: %+v", withoutZone.Report)
+			}
+		})
+	}
+}
+
+// excelize writes time.Time as a numeric cell. Rewrite the serialized cell
+// to t="d" to exercise the exact date cell type reported by RVTools.
+func withMetadataDateCell(t *testing.T, f *excelize.File, cell string, style int, raw string) *excelize.File {
+	t.Helper()
+	buf, err := f.WriteToBuffer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	writer := zip.NewWriter(&out)
+	for _, part := range reader.File {
+		r, err := part.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := io.ReadAll(r)
+		r.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if part.Name == "xl/worksheets/sheet2.xml" {
+			pattern := regexp.MustCompile(`<c r="` + cell + `"[^>]*>.*?</c>`)
+			if !pattern.Match(body) {
+				t.Fatalf("metadata XML has no %s cell", cell)
+			}
+			body = pattern.ReplaceAll(body, []byte(fmt.Sprintf(`<c r="%s" s="%d" t="d"><v>%s</v></c>`, cell, style, raw)))
+		}
+		w, err := writer.Create(part.Name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write(body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	result, err := excelize.OpenReader(bytes.NewReader(out.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = result.Close() })
+	return result
 }
 
 func TestParseVMKernelPortGroupHeaderSpellings(t *testing.T) {

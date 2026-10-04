@@ -422,6 +422,7 @@ type sheetTable struct {
 	rawIndex   map[string]int
 	rows       [][]string
 	track      *colTrack
+	date1904   bool // workbook epoch for raw metadata date serials
 }
 
 func newSheetTable(name, sourceName string, rows [][]string) sheetTable {
@@ -754,7 +755,15 @@ func Parse(f *excelize.File, opts Options) (*Result, error) {
 		if err != nil {
 			return nil, err
 		}
-		tables[canonical] = newSheetTable(canonical, name, rows)
+		table := newSheetTable(canonical, name, rows)
+		if canonical == sheetVMetaData {
+			props, err := f.GetWorkbookProps()
+			if err != nil {
+				return nil, fmt.Errorf("read workbook date system: %w", err)
+			}
+			table.date1904 = props.Date1904 != nil && *props.Date1904
+		}
+		tables[canonical] = table
 		recognized = append(recognized, name)
 	}
 	sort.Strings(ignored)
@@ -1193,7 +1202,10 @@ func hasString(values []string, want string) bool {
 // readRows reads one worksheet, refusing one large enough to be an allocation
 // attack rather than an estate.
 func readRows(f *excelize.File, name string) ([][]string, error) {
-	rows, err := f.GetRows(name)
+	// Metadata date formats can omit seconds or shorten the year. Read the
+	// stored timestamp instead of its display text; other sheets retain their
+	// existing formatted-value mappings, including snapshot dates.
+	rows, err := f.GetRows(name, excelize.Options{RawCellValue: name == sheetVMetaData})
 	if err != nil {
 		return nil, fmt.Errorf("read worksheet %q: %w", name, err)
 	}
@@ -1342,7 +1354,7 @@ func workbookMetadataCaptureTime(t sheetTable, timezone *time.Location) (time.Ti
 			if !isMetadataTimeHeader(header) {
 				continue
 			}
-			if stamp, ok := parseMetadataTime(t.cell(row, header), timezone); ok {
+			if stamp, ok := parseMetadataTime(t.cell(row, header), timezone, t.date1904); ok {
 				return stamp, true
 			}
 		}
@@ -1353,7 +1365,7 @@ func workbookMetadataCaptureTime(t sheetTable, timezone *time.Location) (time.Ti
 			if len(t.headers) > 1 {
 				t.cell(row, t.headers[1])
 			}
-			if stamp, ok := parseMetadataTime(row[1], timezone); ok {
+			if stamp, ok := parseMetadataTime(row[1], timezone, t.date1904); ok {
 				return stamp, true
 			}
 		}
@@ -1361,7 +1373,7 @@ func workbookMetadataCaptureTime(t sheetTable, timezone *time.Location) (time.Ti
 	return time.Time{}, false
 }
 
-func parseMetadataTime(value string, timezone *time.Location) (time.Time, bool) {
+func parseMetadataTime(value string, timezone *time.Location, date1904 bool) (time.Time, bool) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return time.Time{}, false
@@ -1372,11 +1384,15 @@ func parseMetadataTime(value string, timezone *time.Location) (time.Time, bool) 
 	if timezone == nil {
 		return time.Time{}, false
 	}
+	// ISO date cells may store a wall-clock timestamp without a UTC offset.
+	if stamp, err := time.ParseInLocation("2006-01-02T15:04:05", value, timezone); err == nil {
+		return stamp, true
+	}
 	if stamp, ok := parseSnapshotTime(value, timezone); ok {
 		return stamp, true
 	}
 	if serial, err := strconv.ParseFloat(value, 64); err == nil && serial >= 1 {
-		stamp, err := excelize.ExcelDateToTime(serial, false)
+		stamp, err := excelize.ExcelDateToTime(serial, date1904)
 		if err == nil {
 			return time.Date(stamp.Year(), stamp.Month(), stamp.Day(), stamp.Hour(), stamp.Minute(), stamp.Second(), stamp.Nanosecond(), timezone), true
 		}

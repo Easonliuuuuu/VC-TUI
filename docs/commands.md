@@ -272,7 +272,9 @@ In order: `--captured-at`, a usable `vMetaData` timestamp, workbook document
 properties, then import time. `--timezone` is an IANA time zone such as
 `America/Los_Angeles`; it interprets timezone-free values in `vMetaData` and
 `vSnapshot`. A timezone-free `vMetaData` timestamp is skipped unless that
-option is supplied. The run says which source was used, and the run — and so
+option is supplied. Metadata dates are read from stored cell values, preserving
+seconds even when Excel displays only minutes, and use the workbook's 1900 or
+1904 date system. The run says which source was used, and the run — and so
 history, diff and trends — is stamped with the capture time, not the day of
 import (which is recorded in the run's note). A filename is never parsed for a
 date.
