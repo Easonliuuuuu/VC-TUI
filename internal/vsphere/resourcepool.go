@@ -60,21 +60,15 @@ func newResourcePool(c *Client, idx *index, m *mo.ResourcePool) ResourcePool {
 	parent := m.Parent
 	root := parent == nil || parent.Type != "ResourcePool"
 	pool := ResourcePool{
-		Location:        idx.locate(c, m.Self, m.Name),
-		ID:              m.Self.Value,
-		Name:            m.Name,
-		Root:            root,
-		Parent:          idx.name(parent),
-		Owner:           idx.name(&m.Owner),
-		Status:          string(m.OverallStatus),
-		ConfigStatus:    string(m.ConfigStatus),
-		CPUExpandable:   m.Config.CpuAllocation.ExpandableReservation != nil && *m.Config.CpuAllocation.ExpandableReservation,
-		CPUShares:       sharesValue(m.Config.CpuAllocation.Shares),
-		CPULevel:        string(sharesLevel(m.Config.CpuAllocation.Shares)),
-		MemConfiguredMB: resourcePoolConfiguredMemory(m.Summary),
-		MemExpandable:   m.Config.MemoryAllocation.ExpandableReservation != nil && *m.Config.MemoryAllocation.ExpandableReservation,
-		MemShares:       sharesValue(m.Config.MemoryAllocation.Shares),
-		MemLevel:        string(sharesLevel(m.Config.MemoryAllocation.Shares)),
+		Location:           idx.locate(c, m.Self, m.Name),
+		ID:                 m.Self.Value,
+		Name:               m.Name,
+		Root:               root,
+		Parent:             idx.name(parent),
+		Owner:              idx.name(&m.Owner),
+		Status:             string(m.OverallStatus),
+		ConfigStatus:       string(m.ConfigStatus),
+		ResourceAllocation: newResourceAllocation(m.Config, m.Summary),
 	}
 	pool.VMRefs = make([]string, 0, len(m.Vm))
 	for _, ref := range m.Vm {
@@ -83,21 +77,43 @@ func newResourcePool(c *Client, idx *index, m *mo.ResourcePool) ResourcePool {
 		}
 	}
 	sort.Strings(pool.VMRefs)
-	pool.CPUReservationMHz = m.Config.CpuAllocation.Reservation
-	pool.CPULimitMHz = m.Config.CpuAllocation.Limit
-	pool.CPUOverheadLimitMHz = m.Config.CpuAllocation.OverheadLimit
-	pool.MemReservationMB = m.Config.MemoryAllocation.Reservation
-	pool.MemLimitMB = m.Config.MemoryAllocation.Limit
-	pool.MemOverheadLimitMB = m.Config.MemoryAllocation.OverheadLimit
 	return pool
 }
 
-func resourcePoolConfiguredMemory(summary types.BaseResourcePoolSummary) int64 {
-	resourcePool, ok := summary.(*types.ResourcePoolSummary)
-	if !ok || resourcePool == nil {
-		return 0
+// newResourceAllocation reads a pool's or vApp's allocation. A vApp's summary
+// is a VirtualAppSummary, which embeds the ResourcePoolSummary that carries
+// the configured memory.
+func newResourceAllocation(config types.ResourceConfigSpec, summary types.BaseResourcePoolSummary) ResourceAllocation {
+	cpu, mem := config.CpuAllocation, config.MemoryAllocation
+	return ResourceAllocation{
+		CPUReservationMHz:   cpu.Reservation,
+		CPULimitMHz:         cpu.Limit,
+		CPUOverheadLimitMHz: cpu.OverheadLimit,
+		CPUExpandable:       cpu.ExpandableReservation != nil && *cpu.ExpandableReservation,
+		CPUShares:           sharesValue(cpu.Shares),
+		CPULevel:            string(sharesLevel(cpu.Shares)),
+		MemConfiguredMB:     resourcePoolConfiguredMemory(summary),
+		MemReservationMB:    mem.Reservation,
+		MemLimitMB:          mem.Limit,
+		MemOverheadLimitMB:  mem.OverheadLimit,
+		MemExpandable:       mem.ExpandableReservation != nil && *mem.ExpandableReservation,
+		MemShares:           sharesValue(mem.Shares),
+		MemLevel:            string(sharesLevel(mem.Shares)),
 	}
-	return int64(resourcePool.ConfiguredMemoryMB)
+}
+
+func resourcePoolConfiguredMemory(summary types.BaseResourcePoolSummary) int64 {
+	switch v := summary.(type) {
+	case *types.ResourcePoolSummary:
+		if v != nil {
+			return int64(v.ConfiguredMemoryMB)
+		}
+	case *types.VirtualAppSummary:
+		if v != nil {
+			return int64(v.ConfiguredMemoryMB)
+		}
+	}
+	return 0
 }
 
 func sharesValue(shares *types.SharesInfo) int32 {

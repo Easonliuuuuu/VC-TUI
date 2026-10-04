@@ -131,3 +131,35 @@ func Dash(s string) string {
 	}
 	return s
 }
+
+// Allocation renders one resource of a resource pool's or vApp's allocation
+// on one line: "limit 1.0GHz · reservation none · shares normal · expandable".
+// unit renders an amount (MHz or MB). A nil limit or reservation was not
+// reported and reads "-"; a limit of -1 is unlimited.
+func Allocation(limit, reservation *int64, expandable bool, level string, shares int32, unit func(int64) string) string {
+	limitText := "-"
+	switch {
+	case limit == nil:
+	case *limit < 0:
+		limitText = "unlimited"
+	default:
+		limitText = unit(*limit)
+	}
+	reservationText := "-"
+	switch {
+	case reservation == nil:
+	case *reservation == 0:
+		reservationText = "none"
+	default:
+		reservationText = unit(*reservation)
+	}
+	sharesText := Dash(level)
+	if level == "custom" {
+		sharesText = "custom (" + strconv.FormatInt(int64(shares), 10) + ")"
+	}
+	out := "limit " + limitText + " · reservation " + reservationText + " · shares " + sharesText
+	if expandable {
+		out += " · expandable"
+	}
+	return out
+}

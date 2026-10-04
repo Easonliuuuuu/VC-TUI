@@ -173,7 +173,11 @@ has no license-key field, so a key cannot reach the ledger, output or exports
 (see [License metadata](licensing.md)). Inventory schema version 19 adds the
 opt-in `Datastore.FileInventory` record (status, row limit, truncation
 provenance and file rows) behind `vFileInfo`; it is a separate capture from the
-VMDK browse evidence, and orphan and health evaluation never read it. A shared
+VMDK browse evidence, and orphan and health evaluation never read it.
+Inventory schema version 20 adds the `vapp` collection: each vApp's membership,
+CPU/memory allocation (`vsphere.ResourceAllocation`, shared with resource
+pools), status colours and startup order, which `vRP` lists after the resource
+pools. A shared
 `rvtoolsSheets` compatibility-sheet builder canonicalizes and validates the run
 once and returns every supported worksheet (`vInfo`, `vCPU`, `vMemory`,
 per-VM `vDisk`/`vPartition`/`vNetwork`/`vCD`/`vUSB`,

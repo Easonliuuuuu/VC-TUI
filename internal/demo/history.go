@@ -56,7 +56,7 @@ func (b *Backend) AssessmentService() (*assessment.Service, func(), error) {
 		}
 		dr := b.contexts[2]
 		failed := make([]assessment.CollectionResult, 0, 8)
-		for _, kind := range []string{"vm", "host", "cluster", "resourcepool", "dvswitch", "datastore", "network", "snapshot"} {
+		for _, kind := range []string{"vm", "host", "cluster", "resourcepool", "vapp", "dvswitch", "datastore", "network", "snapshot"} {
 			c := assessment.CollectionResult{Kind: kind, Status: "failed"}
 			if kind == "vm" {
 				c.Error = "proxy connection refused"
@@ -90,6 +90,7 @@ func saveSite(ctx context.Context, store *assessment.Store, runID int64, cc *con
 		res("host", inv.Hosts, len(inv.Hosts)),
 		res("cluster", inv.Clusters, len(inv.Clusters)),
 		res("resourcepool", inv.ResourcePools, len(inv.ResourcePools)),
+		res("vapp", inv.VApps, len(inv.VApps)),
 		res("datastore", inv.Datastores, len(inv.Datastores)),
 		res("dvswitch", inv.DVSwitches, len(inv.DVSwitches)),
 		res("network", inv.Networks, len(inv.Networks)),

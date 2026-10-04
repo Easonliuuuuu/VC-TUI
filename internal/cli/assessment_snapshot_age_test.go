@@ -35,7 +35,7 @@ func newSnapshotAgeTestHistoryDB(t *testing.T) string {
 		Snapshots: []vsphere.VMSnapshot{{ID: "snap-1", Name: "snap-1", CreateTime: finished.Add(-90 * 24 * time.Hour)}},
 	}
 	collections := make([]assessment.CollectionResult, 0, 8)
-	for _, kind := range []string{"vm", "host", "cluster", "resourcepool", "dvswitch", "datastore", "network", "snapshot"} {
+	for _, kind := range []string{"vm", "host", "cluster", "resourcepool", "vapp", "dvswitch", "datastore", "network", "snapshot"} {
 		collection := assessment.CollectionResult{Kind: kind, Status: "empty"}
 		if kind == "vm" {
 			collection.Status = "success"

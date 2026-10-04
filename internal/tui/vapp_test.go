@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/easonliuuuuu/vsfleet/internal/vsphere"
 )
 
@@ -188,5 +189,67 @@ func TestVAppWorkspace_NoDuplicateResolvedChild(t *testing.T) {
 	}
 	if cacheCount != 1 {
 		t.Fatalf("expected web-cache to appear exactly once in members, found %d times", cacheCount)
+	}
+}
+
+// vappWithAllocation gives prod's vApp a second member, a CPU limit and a
+// startup order that starts db-01 before app-01.
+func vappWithAllocation(t *testing.T) *Model {
+	t.Helper()
+	b := twoHealthy()
+	inv := *b.inventories["prod"]
+	inv.VMs = append(inv.VMs, vsphere.VM{
+		Location: vsphere.Location{Context: "prod", Datacenter: "Taipei", Path: "/Taipei/vm/db-01"},
+		ID:       "prod-vm-db", Name: "db-01", PowerState: "poweredOff", CPU: 2, MemoryMB: 8192, Host: "esxi-02",
+	})
+	app := inv.VApps[0]
+	app.DirectVMCount = 2
+	app.DirectVMs = append(append([]string(nil), app.DirectVMs...), "db-01")
+	app.DirectVMRefs = append(append([]string(nil), app.DirectVMRefs...), "VirtualMachine:prod-vm-db")
+	limit, none, unlimited, reserved := int64(1000), int64(0), int64(-1), int64(128)
+	app.Allocation = &vsphere.ResourceAllocation{
+		CPULimitMHz: &limit, CPUReservationMHz: &none, CPUExpandable: true, CPULevel: "normal", CPUShares: 4000,
+		MemLimitMB: &unlimited, MemReservationMB: &reserved, MemExpandable: true, MemLevel: "normal", MemShares: 163840,
+	}
+	app.StartOrder = []vsphere.VAppStartEntry{
+		{Ref: "VirtualMachine:prod-vm-db", Name: "db-01", Order: 1, DelaySeconds: 10},
+		{Ref: "VirtualMachine:prod-vm-1", Name: "app-01", Order: 2, DelaySeconds: 120},
+	}
+	inv.VApps = []vsphere.VApp{app}
+	b.inventories["prod"] = &inv
+	m := newTestModel(t, b, Options{Current: "prod"})
+	press(t, m, "7", "enter")
+	return m
+}
+
+func TestVAppWorkspaceShowsAllocationAndStartupOrder(t *testing.T) {
+	m := vappWithAllocation(t)
+	out := ansi.Strip(m.View())
+	for _, want := range []string{
+		"limit 1.0GHz · reservation none · shares normal · expandable",
+		"limit unlimited · reservation 128M · shares normal · expandable",
+		"1 db-01 (+10s) → 2 app-01",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("summary is missing %q:\n%s", want, out)
+		}
+	}
+	// Members follow the startup sequence, not the alphabet.
+	dbLine, db := lineWith(out, "db-01   ")
+	appLine, app := lineWith(out, "app-01  ")
+	if dbLine < 0 || appLine < 0 || dbLine > appLine {
+		t.Fatalf("db-01 (start 1) should be listed before app-01 (start 2):\n%s", out)
+	}
+	if !strings.Contains(db, " 1 ") || !strings.Contains(app, " 2 ") {
+		t.Errorf("START column missing: db=%q app=%q", db, app)
+	}
+}
+
+func TestVAppWorkspaceSaysAllocationWasNotRecorded(t *testing.T) {
+	m := newTestModel(t, twoHealthy(), Options{Current: "prod"})
+	press(t, m, "7", "enter")
+	_, line := lineWith(m.View(), "Allocation")
+	if !strings.Contains(line, "not recorded") {
+		t.Fatalf("a vApp without allocation should say so, got %q", line)
 	}
 }

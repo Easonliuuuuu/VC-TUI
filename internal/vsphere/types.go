@@ -578,52 +578,83 @@ type Cluster struct {
 // browsable inventory vocabulary in AllKinds.
 type ResourcePool struct {
 	Location
-	Metadata            Metadata `json:"metadata"`
-	ID                  string   `json:"id"`
-	Name                string   `json:"name"`
-	Root                bool     `json:"root"`
-	Parent              string   `json:"parent"`
-	Owner               string   `json:"owner"`
-	Status              string   `json:"status"`
-	ConfigStatus        string   `json:"config_status"`
-	VMRefs              []string `json:"vm_refs"`
-	CPUReservationMHz   *int64   `json:"cpu_reservation_mhz,omitempty"`
-	CPULimitMHz         *int64   `json:"cpu_limit_mhz,omitempty"`
-	CPUOverheadLimitMHz *int64   `json:"cpu_overhead_limit_mhz,omitempty"`
-	CPUExpandable       bool     `json:"cpu_expandable"`
-	CPUShares           int32    `json:"cpu_shares"`
-	CPULevel            string   `json:"cpu_level"`
-	MemConfiguredMB     int64    `json:"mem_configured_mb"`
-	MemReservationMB    *int64   `json:"mem_reservation_mb,omitempty"`
-	MemLimitMB          *int64   `json:"mem_limit_mb,omitempty"`
-	MemOverheadLimitMB  *int64   `json:"mem_overhead_limit_mb,omitempty"`
-	MemExpandable       bool     `json:"mem_expandable"`
-	MemShares           int32    `json:"mem_shares"`
-	MemLevel            string   `json:"mem_level"`
+	Metadata     Metadata `json:"metadata"`
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Root         bool     `json:"root"`
+	Parent       string   `json:"parent"`
+	Owner        string   `json:"owner"`
+	Status       string   `json:"status"`
+	ConfigStatus string   `json:"config_status"`
+	VMRefs       []string `json:"vm_refs"`
+	ResourceAllocation
+}
+
+// ResourceAllocation is the CPU and memory allocation a resource pool or a
+// vApp (a resource pool subtype) hands out to everything inside it. Its JSON
+// fields are flattened into the owner's payload. A nil reservation or limit
+// means vSphere did not expose one; a limit of -1 is unlimited.
+type ResourceAllocation struct {
+	CPUReservationMHz   *int64 `json:"cpu_reservation_mhz,omitempty"`
+	CPULimitMHz         *int64 `json:"cpu_limit_mhz,omitempty"`
+	CPUOverheadLimitMHz *int64 `json:"cpu_overhead_limit_mhz,omitempty"`
+	CPUExpandable       bool   `json:"cpu_expandable"`
+	CPUShares           int32  `json:"cpu_shares"`
+	CPULevel            string `json:"cpu_level"`
+	MemConfiguredMB     int64  `json:"mem_configured_mb"`
+	MemReservationMB    *int64 `json:"mem_reservation_mb,omitempty"`
+	MemLimitMB          *int64 `json:"mem_limit_mb,omitempty"`
+	MemOverheadLimitMB  *int64 `json:"mem_overhead_limit_mb,omitempty"`
+	MemExpandable       bool   `json:"mem_expandable"`
+	MemShares           int32  `json:"mem_shares"`
+	MemLevel            string `json:"mem_level"`
 }
 
 // VApp is a logical vSphere application container. Membership fields contain
 // only direct children; nested vApps and resource pools are represented
 // separately so a detail view never mistakes descendants for direct members.
+//
+// Status is the vApp's run state (started, stopped, ...); OverallStatus and
+// ConfigStatus are the colours vSphere reports for it as a resource pool.
+// Allocation and StartOrder are absent from captures before inventory
+// schema 20, so a nil Allocation means "not recorded", never "no limits".
 type VApp struct {
 	Location
-	Metadata               Metadata `json:"metadata"`
-	ID                     string   `json:"id"`
-	Name                   string   `json:"name"`
-	Status                 string   `json:"status"`
-	ParentContainer        string   `json:"parent_container"`
-	ParentVApp             string   `json:"parent_vapp,omitempty"`
-	DirectVMCount          int      `json:"direct_vm_count"`
-	DirectVMs              []string `json:"direct_vms"`
-	DirectVMRefs           []string `json:"direct_vm_refs,omitempty"`
-	ChildVAppCount         int      `json:"child_vapp_count"`
-	ChildVApps             []string `json:"child_vapps"`
-	ChildVAppRefs          []string `json:"child_vapp_refs,omitempty"`
-	ChildResourcePoolCount int      `json:"child_resource_pool_count"`
-	ChildResourcePools     []string `json:"child_resource_pools"`
-	ChildResourcePoolRefs  []string `json:"child_resource_pool_refs,omitempty"`
-	Cluster                string   `json:"cluster"`
-	ComputeResource        string   `json:"compute_resource"`
+	Metadata               Metadata            `json:"metadata"`
+	ID                     string              `json:"id"`
+	Name                   string              `json:"name"`
+	Status                 string              `json:"status"`
+	OverallStatus          string              `json:"overall_status,omitempty"`
+	ConfigStatus           string              `json:"config_status,omitempty"`
+	ParentContainer        string              `json:"parent_container"`
+	ParentVApp             string              `json:"parent_vapp,omitempty"`
+	DirectVMCount          int                 `json:"direct_vm_count"`
+	DirectVMs              []string            `json:"direct_vms"`
+	DirectVMRefs           []string            `json:"direct_vm_refs,omitempty"`
+	ChildVAppCount         int                 `json:"child_vapp_count"`
+	ChildVApps             []string            `json:"child_vapps"`
+	ChildVAppRefs          []string            `json:"child_vapp_refs,omitempty"`
+	ChildResourcePoolCount int                 `json:"child_resource_pool_count"`
+	ChildResourcePools     []string            `json:"child_resource_pools"`
+	ChildResourcePoolRefs  []string            `json:"child_resource_pool_refs,omitempty"`
+	Cluster                string              `json:"cluster"`
+	ComputeResource        string              `json:"compute_resource"`
+	Allocation             *ResourceAllocation `json:"allocation,omitempty"`
+	StartOrder             []VAppStartEntry    `json:"start_order,omitempty"`
+}
+
+// VAppStartEntry is one member's place in a vApp's startup and shutdown
+// sequence. Members with the same Order start together; a lower Order starts
+// first, and DelaySeconds is the wait before the next group starts.
+type VAppStartEntry struct {
+	Ref              string `json:"ref"`
+	Name             string `json:"name"`
+	Order            int32  `json:"order"`
+	DelaySeconds     int32  `json:"delay_seconds"`
+	StartAction      string `json:"start_action,omitempty"`
+	StopAction       string `json:"stop_action,omitempty"`
+	StopDelaySeconds int32  `json:"stop_delay_seconds"`
+	WaitForGuest     bool   `json:"wait_for_guest"`
 }
 
 // Datastore is a backing store for VM files.

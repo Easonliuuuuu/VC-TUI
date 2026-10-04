@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/easonliuuuuu/vsfleet/internal/humanize"
 	"github.com/easonliuuuuu/vsfleet/internal/vsphere"
 )
 
@@ -424,6 +425,11 @@ func printVAppDetail(out io.Writer, v vsphere.VApp) {
 	f.add("Direct VMs", strings.Join(v.DirectVMs, ", "))
 	f.add("Child vApps", strings.Join(v.ChildVApps, ", "))
 	f.add("Child resource pools", strings.Join(v.ChildResourcePools, ", "))
+	if a := v.Allocation; a != nil {
+		f.add("CPU allocation", humanize.Allocation(a.CPULimitMHz, a.CPUReservationMHz, a.CPUExpandable, a.CPULevel, a.CPUShares, humanize.MHz))
+		f.add("Memory allocation", humanize.Allocation(a.MemLimitMB, a.MemReservationMB, a.MemExpandable, a.MemLevel, a.MemShares, humanize.MB))
+	}
+	f.add("Startup order", vsphere.StartOrderText(v.StartOrder))
 	if v.Metadata.TagsStatus == "available" {
 		f.add("Tags", dash(metadataTags(v.Metadata)))
 	}

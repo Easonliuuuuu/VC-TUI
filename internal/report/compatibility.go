@@ -145,8 +145,8 @@ var sheetMeta = map[string]sheetInfo{
 	"vSC_VMK":    {derivesFrom: "the host collection", note: "One row per VMkernel or legacy service-console adapter. IP fields are empty when the host does not report them; distributed-switch-only connections are not expanded."},
 	"vMultiPath": {derivesFrom: "the host collection", note: "One row per host and SCSI LUN with aggregate path states. Individual paths are counted rather than expanded, and this profile does not collect a separate target inventory."},
 	"vCluster":   {derivesFrom: "the cluster collection", note: "One row per cluster. Standalone hosts appear as their own compute resource."},
-	"vRP": {derivesFrom: "the resource pool collection",
-		note: "One row per resource pool, including each cluster or standalone host's root Resources pool. vApps are reported on their own terms and are not duplicated here. Identity and CPU/memory allocation configuration only: this read-only capture does not request volatile runtime fields rather than guess at them. Captures before inventory schema 8 mark the tab not recorded."},
+	"vRP": {derivesFrom: "the resource pool and vApp collections",
+		note: "One row per resource pool, including each cluster or standalone host's root Resources pool, then one per vApp, as RVTools lists them: a vApp is a resource pool subtype with the same allocation, and its VMs are its direct members. Identity and CPU/memory allocation configuration only: this read-only capture does not request volatile runtime fields rather than guess at them. Captures before inventory schema 8 mark the tab not recorded; captures before schema 20 list resource pools only, and vsfleetCoverage says vApps are not listed."},
 	"vDatastore": {derivesFrom: "the datastore collection", note: "One row per datastore."},
 	"vSnapshot":  {derivesFrom: "the VM collection", note: "One row per snapshot, oldest first within a VM."},
 	fileInfoSheetName: {derivesFrom: "the opt-in datastore file inventory",
@@ -261,9 +261,9 @@ var sharedColumns = map[string]ColumnSpec{
 	"DRS enabled":       {Kind: KindBoolean},
 
 	// vRP.
-	"Resource pool":             {Kind: KindText, Note: "Inventory path of the pool."},
-	"VMs":                       {Kind: KindInteger, Note: "VMs directly in this pool."},
-	"vCPUs":                     {Kind: KindInteger, Note: "Sum of configured vCPUs across the VMs in this pool."},
+	"Resource pool":             {Kind: KindText, Note: "Inventory path of the pool or vApp."},
+	"VMs":                       {Kind: KindInteger, Note: "VMs directly in this pool or vApp."},
+	"vCPUs":                     {Kind: KindInteger, Note: "Sum of configured vCPUs across the VMs directly in this pool or vApp."},
 	"CPU limit":                 {Kind: KindInteger, Unit: "MHz", Empty: "when unlimited"},
 	"CPU overheadLimit":         {Kind: KindInteger, Unit: "MHz", Empty: "when vSphere does not expose one"},
 	"CPU reservation":           {Kind: KindInteger, Unit: "MHz", Empty: "when vSphere does not expose one"},
@@ -423,9 +423,9 @@ var sheetColumns = map[string]map[string]ColumnSpec{
 		"Object ID": {Kind: KindText, Note: "vCenter managed object reference of the cluster."},
 	},
 	"vRP": {
-		"Name":      {Kind: KindText, Note: "Resource pool name, the last element of the Resource pool path."},
-		"Status":    {Kind: KindText, Note: "vSphere overall status colour: green, yellow, red or gray."},
-		"Object ID": {Kind: KindText, Note: "vCenter managed object reference of the resource pool."},
+		"Name":      {Kind: KindText, Note: "Resource pool or vApp name, the last element of the Resource pool path."},
+		"Status":    {Kind: KindText, Note: "vSphere overall status colour: green, yellow, red or gray. For a vApp this is its colour as a resource pool, not its run state."},
+		"Object ID": {Kind: KindText, Note: "vCenter managed object reference of the resource pool or vApp."},
 	},
 	"vHost": {
 		"Host":      {Kind: KindText, Note: "ESXi host name."},

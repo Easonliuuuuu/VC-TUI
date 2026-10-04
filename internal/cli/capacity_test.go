@@ -70,7 +70,7 @@ func newProjectionCapacityHistoryDB(t *testing.T) string {
 		ds := vsphere.Datastore{Location: vsphere.Location{Context: "prod", Datacenter: "dc-a"}, ID: "ds-1", Name: "prod", CapacityBytes: 2000, FreeBytes: int64(1000 - i*100)}
 		payload, _ := json.Marshal(ds)
 		collections := make([]assessment.CollectionResult, 0, 8)
-		for _, kind := range []string{"vm", "host", "cluster", "resourcepool", "dvswitch", "datastore", "network", "snapshot"} {
+		for _, kind := range []string{"vm", "host", "cluster", "resourcepool", "vapp", "dvswitch", "datastore", "network", "snapshot"} {
 			collection := assessment.CollectionResult{Kind: kind, Status: "empty"}
 			if kind == "vm" || kind == "datastore" {
 				collection.Status = "success"

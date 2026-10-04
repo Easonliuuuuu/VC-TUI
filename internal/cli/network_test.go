@@ -43,7 +43,7 @@ func newNetworkHistoryDB(t *testing.T) string {
 			resourcePayload(t, item.context, item.vcenter, "dvswitch", switchValue.ID, switchValue.Name, switchValue),
 		}
 		collections := make([]assessment.CollectionResult, 0, 8)
-		for _, kind := range []string{"vm", "host", "cluster", "resourcepool", "dvswitch", "datastore", "network", "snapshot"} {
+		for _, kind := range []string{"vm", "host", "cluster", "resourcepool", "vapp", "dvswitch", "datastore", "network", "snapshot"} {
 			collection := assessment.CollectionResult{Kind: kind, Status: "success", Resources: resourcesForKind(resources, kind)}
 			if kind == "vm" {
 				collection.ItemCount = 0

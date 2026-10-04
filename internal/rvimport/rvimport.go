@@ -132,6 +132,7 @@ const (
 	kindSnapshot  = "snapshot"
 	kindDVSwitch  = "dvswitch"
 	kindPool      = "resourcepool"
+	kindVApp      = "vapp"
 	kindNetwork   = "network"
 )
 
@@ -142,6 +143,7 @@ const (
 // "collection was not recorded" with no explanation.
 var neverImported = []struct{ kind, reason string }{
 	{kindPool, "the vRP worksheet carries pool configuration but only a VM count, never which VMs belong to a pool; importing it would make every pool look empty"},
+	{kindVApp, "RVTools lists vApps on the vRP worksheet with only a VM count, never which VMs belong to a vApp or its startup order"},
 	{kindNetwork, "RVTools carries no managed-object ID for a network, so importing one would rest on a display name alone"},
 }
 
@@ -1202,7 +1204,7 @@ func Parse(f *excelize.File, opts Options) (*Result, error) {
 
 // persistedImportKinds is every kind an imported context records, in a stable
 // order.
-var persistedImportKinds = []string{kindVM, kindHost, kindCluster, kindDatastore, kindSnapshot, kindDVSwitch, kindPool, kindNetwork}
+var persistedImportKinds = []string{kindVM, kindHost, kindCluster, kindDatastore, kindSnapshot, kindDVSwitch, kindPool, kindVApp, kindNetwork}
 
 func hasString(values []string, want string) bool {
 	for _, v := range values {

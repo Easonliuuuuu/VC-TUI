@@ -300,7 +300,11 @@ manual acceptance item.
 On the Contexts screen (`c`), use `Enter` to select a context, `a` for all
 contexts, `n`/`e`/`x` to add/edit/remove, `d` to diagnose, and `Esc` to return.
 
-Press `Enter` on a vApp to open its summary and expanded member hierarchy. Use
+Press `Enter` on a vApp to open its summary and expanded member hierarchy. The
+summary shows the vApp's CPU and memory allocation (limit, reservation, shares,
+expandable) and its startup order; the members table lists VMs in that order,
+with a `START` column. A vApp's limit is shared by all of its members together,
+so a capped vApp can throttle VMs whose own settings are unlimited. Use
 the arrow keys to select nested vApps, VMs, and resource pools; `Enter` opens a
 VM detail inspector and `Esc` returns to the previous level. A VM's header has
 the same SSH and copy actions as a regular VM, plus an action to seed a new

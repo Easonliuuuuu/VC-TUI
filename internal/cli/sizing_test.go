@@ -36,7 +36,7 @@ func newSizingHistoryDB(t *testing.T, datastoreStatus string) string {
 			Disks: []vsphere.VMDisk{{Key: 1, Label: "d", CapacityBytes: 100 * gib, BackingPath: "[ds1] " + name + "/" + name + ".vmdk"}}}}
 	}
 	var collections []assessment.CollectionResult
-	for _, kind := range []string{"vm", "host", "cluster", "resourcepool", "dvswitch", "datastore", "network", "snapshot"} {
+	for _, kind := range []string{"vm", "host", "cluster", "resourcepool", "vapp", "dvswitch", "datastore", "network", "snapshot"} {
 		c := assessment.CollectionResult{Kind: kind, Status: "empty"}
 		switch kind {
 		case "vm":

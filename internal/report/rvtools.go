@@ -863,27 +863,45 @@ func resourcePoolRows(data assessment.ExportData) [][]any {
 
 	rows := make([][]any, 0)
 	for _, r := range data.Resources {
-		if r.Kind != "resourcepool" {
-			continue
+		switch r.Kind {
+		case "resourcepool":
+			var pool vsphere.ResourcePool
+			if err := json.Unmarshal(r.Payload, &pool); err != nil {
+				continue
+			}
+			vCPUs := int32(0)
+			for _, vmRef := range pool.VMRefs {
+				vCPUs += vmCPUs[vmRef]
+			}
+			rows = append(rows, resourcePoolRow(data, r, pool.Path, nonempty(pool.Name, r.Name), pool.Status, len(pool.VMRefs), vCPUs,
+				pool.ResourceAllocation, pool.ConfigStatus, nonempty(pool.ID, r.ID), pool.Datacenter))
+		case "vapp":
+			// RVTools lists vApps on vRP: a vApp is a resource pool subtype
+			// with the same allocation. Its VMs are its direct members.
+			var vapp vsphere.VApp
+			if err := json.Unmarshal(r.Payload, &vapp); err != nil || vapp.Allocation == nil {
+				continue
+			}
+			vCPUs := int32(0)
+			for _, ref := range vapp.DirectVMRefs {
+				vCPUs += vmCPUs[strings.TrimPrefix(ref, "VirtualMachine:")]
+			}
+			rows = append(rows, resourcePoolRow(data, r, vapp.Path, nonempty(vapp.Name, r.Name), vapp.OverallStatus, vapp.DirectVMCount, vCPUs,
+				*vapp.Allocation, vapp.ConfigStatus, nonempty(vapp.ID, r.ID), vapp.Datacenter))
 		}
-		var pool vsphere.ResourcePool
-		if err := json.Unmarshal(r.Payload, &pool); err != nil {
-			continue
-		}
-		vCPUs := int32(0)
-		for _, vmRef := range pool.VMRefs {
-			vCPUs += vmCPUs[vmRef]
-		}
-		rows = append(rows, []any{
-			pool.Path, nonempty(pool.Name, r.Name), pool.Status, len(pool.VMRefs), vCPUs,
-			optionalInt64(pool.CPULimitMHz), optionalInt64(pool.CPUOverheadLimitMHz), optionalInt64(pool.CPUReservationMHz),
-			pool.CPULevel, pool.CPUShares, pool.CPUExpandable, pool.MemConfiguredMB,
-			optionalInt64(pool.MemLimitMB), optionalInt64(pool.MemOverheadLimitMB), optionalInt64(pool.MemReservationMB),
-			pool.MemLevel, pool.MemShares, pool.MemExpandable, pool.ConfigStatus,
-			nonempty(pool.ID, r.ID), pool.Datacenter, contextEndpoint(data, r.Context), r.VCenterID, r.Context,
-		})
 	}
 	return rows
+}
+
+func resourcePoolRow(data assessment.ExportData, r assessment.ResourceObservation, path, name, status string, vms int, vCPUs int32, a vsphere.ResourceAllocation, configStatus, id, datacenter string) []any {
+	return []any{
+		path, name, status, vms, vCPUs,
+		optionalInt64(a.CPULimitMHz), optionalInt64(a.CPUOverheadLimitMHz), optionalInt64(a.CPUReservationMHz),
+		a.CPULevel, a.CPUShares, a.CPUExpandable, a.MemConfiguredMB,
+		optionalInt64(a.MemLimitMB), optionalInt64(a.MemOverheadLimitMB), optionalInt64(a.MemReservationMB),
+		a.MemLevel, a.MemShares, a.MemExpandable, configStatus,
+		id, datacenter, contextEndpoint(data, r.Context), r.VCenterID, r.Context,
+	}
 }
 
 func datastoreRows(data assessment.ExportData) [][]any {
@@ -1134,7 +1152,7 @@ func coverageRows(data assessment.ExportData, healthReport health.Report) [][]an
 			{kind: "snapshot", sheet: "vSnapshot", count: snapshotCounts[c.Name]},
 			{kind: "vtools", sheet: "vTools", count: counts[c.Name]},
 			{kind: "source", sheet: sourceSheetName},
-			{kind: "resourcepool", sheet: "vRP", count: resources[c.Name]["resourcepool"]},
+			{kind: "resourcepool", sheet: "vRP", count: resources[c.Name]["resourcepool"] + resources[c.Name]["vapp"]},
 			{kind: "cluster", sheet: "vCluster", count: resources[c.Name]["cluster"]},
 			{kind: "host", sheet: "vHost", count: resources[c.Name]["host"]},
 			{kind: "host", sheet: "vHBA", count: hostConfigCounts[c.Name]["vHBA"], hostConfig: true},
@@ -1203,6 +1221,24 @@ func coverageRows(data assessment.ExportData, healthReport health.Report) [][]an
 			case spec.kind == "resourcepool" && !poolsRecorded:
 				status = "not recorded"
 				message = "capture predates resource pool inventory"
+			// vApps share vRP with resource pools but are their own
+			// collection, so a pool capture without them is incomplete.
+			case spec.kind == "resourcepool":
+				if collection, ok := collections["resourcepool"]; ok {
+					status, message = collection.Status, collection.Error
+				}
+				vapps, ok := collections["vapp"]
+				switch {
+				case status != "success" && status != "empty":
+				case !ok && !inventoryAtLeast(data.Run.InventorySchemaVersion, assessment.InventoryVAppSchema):
+					message = "capture predates vApp inventory; vApps are not listed"
+				case !ok:
+					status = "partial"
+					message = "vApps were not collected and are not listed"
+				case vapps.Status != "success" && vapps.Status != "empty":
+					status = "partial"
+					message = "vApps are not listed: " + nonempty(vapps.Error, vapps.Status)
+				}
 			case spec.kind == "dvswitch" && !dvsRecorded:
 				status = "not recorded"
 				message = "capture predates distributed switch inventory"
@@ -1637,6 +1673,8 @@ func validateResources(resources []assessment.ResourceObservation) error {
 			value = &vsphere.Datastore{}
 		case "resourcepool":
 			value = &vsphere.ResourcePool{}
+		case "vapp":
+			value = &vsphere.VApp{}
 		case "dvswitch":
 			value = &vsphere.DVSwitch{}
 		case assessment.LicenseKind:

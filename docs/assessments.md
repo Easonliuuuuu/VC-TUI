@@ -914,14 +914,22 @@ VMware Tools`. Captures taken before this tab existed are marked
 ### Resource pools are export evidence
 
 `vRP` includes every resource pool in the datacenter scope, including each
-cluster or standalone host's root `Resources` pool. vApps are reported on their
-own terms and are not duplicated as resource-pool rows. Resource pools are
-captured for the export and assessment ledger, not made into a browsable TUI
-tab or CLI inventory noun.
+cluster or standalone host's root `Resources` pool, followed by one row per
+vApp. RVTools lists vApps there too: a vApp is a resource-pool subtype with the
+same allocation, and its `VMs` and `vCPUs` count its direct member VMs. Resource
+pools are captured for the export and assessment ledger, not made into a
+browsable TUI tab or CLI inventory noun.
 
-The tab covers resource-pool identity and CPU/memory allocation configuration.
-This read-only capture does not request additional volatile or unavailable
-runtime fields, so it leaves them out rather than guessing values.
+The tab covers identity and CPU/memory allocation configuration. This read-only
+capture does not request additional volatile or unavailable runtime fields
+(RVTools' QuickStats columns), so it leaves them out rather than guessing
+values.
+
+vApps are their own `vapp` collection, captured from inventory schema 20. A run
+captured before then lists resource pools only, and `vsfleetCoverage` says
+`capture predates vApp inventory; vApps are not listed`; when the `vapp`
+collection failed, the vRP row is `partial` and names the error. Neither reads
+as an estate without vApps.
 
 ### Host storage and network inventory
 

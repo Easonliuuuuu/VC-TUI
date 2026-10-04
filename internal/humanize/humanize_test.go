@@ -124,3 +124,26 @@ func TestDash(t *testing.T) {
 		t.Errorf("Dash trimmed a real value: %q", got)
 	}
 }
+
+func TestAllocation(t *testing.T) {
+	limit, unlimited, none, reserved := int64(1000), int64(-1), int64(0), int64(128)
+	cases := []struct {
+		name               string
+		limit, reservation *int64
+		expandable         bool
+		level              string
+		shares             int32
+		unit               func(int64) string
+		want               string
+	}{
+		{"capped CPU", &limit, &none, true, "normal", 4000, MHz, "limit 1.0GHz · reservation none · shares normal · expandable"},
+		{"reserved memory", &unlimited, &reserved, false, "high", 0, MB, "limit unlimited · reservation 128M · shares high"},
+		{"custom shares", &unlimited, &none, false, "custom", 2500, MHz, "limit unlimited · reservation none · shares custom (2500)"},
+		{"not reported", nil, nil, false, "", 0, MB, "limit - · reservation - · shares -"},
+	}
+	for _, tc := range cases {
+		if got := Allocation(tc.limit, tc.reservation, tc.expandable, tc.level, tc.shares, tc.unit); got != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}

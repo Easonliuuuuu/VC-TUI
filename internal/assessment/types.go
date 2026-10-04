@@ -38,7 +38,14 @@ type RunStatus string
 // which readers must treat as "not collected", never as "no licenses". Schema
 // 19 adds the opt-in datastore file inventory (Datastore.FileInventory) behind
 // the vFileInfo export; a run captured without it simply has no such field.
-const CurrentInventorySchemaVersion = "19"
+// Schema 20 adds the "vapp" collection: each vApp's membership, CPU and memory
+// allocation, status colours and startup order. Older runs have no vApp
+// observations, which readers must treat as "not recorded", never as "no
+// vApps".
+const CurrentInventorySchemaVersion = "20"
+
+// InventoryVAppSchema is the first inventory schema that records vApps.
+const InventoryVAppSchema = 20
 
 const (
 	RunRunning  RunStatus = "running"
