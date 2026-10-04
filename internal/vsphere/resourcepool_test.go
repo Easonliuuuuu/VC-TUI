@@ -91,3 +91,35 @@ func TestResourcePoolNilAllocationsAreSafe(t *testing.T) {
 		_ = pool.MemLimitMB
 	}
 }
+
+// The simulator reports no startup order, but a vApp's allocation comes from
+// the same config property as a pool's, and the narrowed vAppConfig path must
+// still decode.
+func TestFetchVAppsReadsAllocation(t *testing.T) {
+	c, _ := newSimulator(t, func(m *simulator.Model) {
+		m.Datacenter = 1
+		m.Cluster = 1
+		m.ClusterHost = 1
+		m.App = 1
+		m.Machine = 1
+	})
+	idx, err := c.NewIndex(context.Background())
+	if err != nil {
+		t.Fatalf("NewIndex: %v", err)
+	}
+	inv := c.FetchGroup(context.Background(), idx, vsphere.GroupVApps)
+	if len(inv.Errors) != 0 {
+		t.Fatalf("FetchGroup vapps: %v", inv.Errors)
+	}
+	if len(inv.VApps) == 0 {
+		t.Fatal("expected a vApp")
+	}
+	for _, v := range inv.VApps {
+		if v.Allocation == nil || v.Allocation.CPULimitMHz == nil || v.Allocation.CPULevel == "" {
+			t.Errorf("vApp %q allocation not read: %+v", v.Name, v.Allocation)
+		}
+		if v.OverallStatus == "" {
+			t.Errorf("vApp %q has no overall status", v.Name)
+		}
+	}
+}

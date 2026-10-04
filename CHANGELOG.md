@@ -4,6 +4,7 @@
 
 ### Features
 
+* **assessment:** capture vApps as their own `vapp` collection (inventory schema 20) with their CPU/memory allocation, status colours and startup order, and list them on `vRP` after the resource pools as RVTools does; `vapp show` and the TUI vApp workspace show the allocation and startup order ([#276](https://github.com/Easonliuuuuu/vsfleet/issues/276))
 * **assessment:** add `assessment metadata`, a fixed-schema export of stored tags and custom attributes, `assessment metadata-report` for saved TOML report definitions with membership comparison (`--base`), and an opt-in `vsfleetMetadata` export sheet handled by the sharing profiles ([#217](https://github.com/Easonliuuuuu/vsfleet/issues/217))
 * **assessment:** collect bounded, opt-in VM performance history (`assessment perf`) with a conservative sizing signal, stored apart from inventory runs and shown in `assessment report` and a `vsfleetPerformance` export sheet ([#214](https://github.com/Easonliuuuuu/vsfleet/issues/214))
 * **assessment:** attribute datastore growth and project free-space thresholds

@@ -316,6 +316,10 @@ func demoResources(contextName, vcenterID, kind string, values any) []assessment
 		for _, value := range typed {
 			resources = append(resources, makeDemoResource(contextName, vcenterID, kind, value.ID, value.Name, value))
 		}
+	case []vsphere.VApp:
+		for _, value := range typed {
+			resources = append(resources, makeDemoResource(contextName, vcenterID, kind, value.ID, value.Name, value))
+		}
 	case []vsphere.Network:
 		for _, value := range typed {
 			resources = append(resources, makeDemoResource(contextName, vcenterID, kind, value.ID, value.Name, value))

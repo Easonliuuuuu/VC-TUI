@@ -127,7 +127,7 @@ func withCollections(in map[string]assessment.ContextResult, extra map[string]as
 		} else {
 			r.Collections = append(r.Collections, assessment.CollectionResult{Kind: "host", Status: "empty"})
 		}
-		for _, kind := range []string{"cluster", "datastore", "resourcepool", "dvswitch", "network"} {
+		for _, kind := range []string{"cluster", "datastore", "resourcepool", "vapp", "dvswitch", "network"} {
 			r.Collections = append(r.Collections, assessment.CollectionResult{Kind: kind, Status: "empty"})
 		}
 		out[name] = r

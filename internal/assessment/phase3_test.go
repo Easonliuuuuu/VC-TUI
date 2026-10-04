@@ -24,7 +24,7 @@ func TestInfrastructureRoundTripDiffAndTrends(t *testing.T) {
 			t.Fatal(err)
 		}
 		payload, _ := json.Marshal(host)
-		err = s.SaveContext(context.Background(), r.ID, ContextResult{Name: "prod", VCenterID: "vc-1", Status: "success", VMs: nil, Collections: []CollectionResult{{Kind: "vm", Status: "empty"}, {Kind: "host", Status: "success", ItemCount: 1, Resources: []ResourceObservation{{VCenterID: "vc-1", Context: "prod", Kind: "host", ID: host.ID, Name: host.Name, Payload: payload}}}, {Kind: "cluster", Status: "empty"}, {Kind: "resourcepool", Status: "empty"}, {Kind: "dvswitch", Status: "empty"}, {Kind: "datastore", Status: "empty"}, {Kind: "network", Status: "empty"}, {Kind: "snapshot", Status: "empty"}}}, when.Add(time.Minute))
+		err = s.SaveContext(context.Background(), r.ID, ContextResult{Name: "prod", VCenterID: "vc-1", Status: "success", VMs: nil, Collections: []CollectionResult{{Kind: "vm", Status: "empty"}, {Kind: "host", Status: "success", ItemCount: 1, Resources: []ResourceObservation{{VCenterID: "vc-1", Context: "prod", Kind: "host", ID: host.ID, Name: host.Name, Payload: payload}}}, {Kind: "cluster", Status: "empty"}, {Kind: "resourcepool", Status: "empty"}, {Kind: "vapp", Status: "empty"}, {Kind: "dvswitch", Status: "empty"}, {Kind: "datastore", Status: "empty"}, {Kind: "network", Status: "empty"}, {Kind: "snapshot", Status: "empty"}}}, when.Add(time.Minute))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -38,7 +38,7 @@ func TestInfrastructureRoundTripDiffAndTrends(t *testing.T) {
 	r1 := save(base, host)
 	host.MemoryMB = 65536
 	r2 := save(base.Add(time.Hour), host)
-	if r2.Status != RunComplete || r2.SuccessfulCollections != 8 {
+	if r2.Status != RunComplete || r2.SuccessfulCollections != 9 {
 		t.Fatalf("run=%+v", r2)
 	}
 	d, err := s.Diff(context.Background(), r1.ID, r2.ID, false)

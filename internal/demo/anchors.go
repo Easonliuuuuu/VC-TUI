@@ -77,6 +77,9 @@ func (e *estate) finishVApps(s siteSpec, placed []placedVM, loc locFunc) {
 			v.DirectVMRefs = append(v.DirectVMRefs, vmRef(m.ID))
 		}
 		v.DirectVMCount = len(members)
+		v.OverallStatus, v.ConfigStatus = "green", "green"
+		v.Allocation = demoVAppAllocation(s.ctx, spec.name, members)
+		v.StartOrder = demoVAppStartOrder(members)
 		if spec.childPool != "" {
 			v.ChildResourcePools = []string{spec.childPool}
 			v.ChildResourcePoolRefs = []string{"ResourcePool:" + poolID(s.ctx, letter, spec.childPool)}
@@ -85,6 +88,44 @@ func (e *estate) finishVApps(s siteSpec, placed []placedVM, loc locFunc) {
 		byName[spec.name] = len(e.inv.VApps)
 		e.inv.VApps = append(e.inv.VApps, v)
 	}
+}
+
+// demoVAppAllocation gives about half the vApps a CPU limit and a memory
+// reservation, so the dashboard shows both a capped and an uncapped vApp.
+func demoVAppAllocation(ctx, name string, members []*vsphere.VM) *vsphere.ResourceAllocation {
+	var mem int64
+	var cpus int64
+	for _, m := range members {
+		mem += m.MemoryMB
+		cpus += int64(m.CPU)
+	}
+	a := &vsphere.ResourceAllocation{
+		CPUReservationMHz: int64Value(0), CPULimitMHz: int64Value(-1), CPUExpandable: true, CPUShares: 4000, CPULevel: "normal",
+		MemConfiguredMB: mem, MemReservationMB: int64Value(0), MemLimitMB: int64Value(-1), MemExpandable: true, MemShares: 163840, MemLevel: "normal",
+	}
+	if pickN(2, ctx, name, "cap") == 0 && cpus > 0 {
+		// Roughly a third of a 2.4 GHz core per vCPU: tight enough to throttle.
+		a.CPULimitMHz = int64Value(max(1000, cpus*800))
+		a.MemReservationMB = int64Value(mem / 4)
+	}
+	return a
+}
+
+// demoVAppStartOrder starts the first member alone, then the rest together,
+// the usual database-then-application shape.
+func demoVAppStartOrder(members []*vsphere.VM) []vsphere.VAppStartEntry {
+	out := make([]vsphere.VAppStartEntry, 0, len(members))
+	for i, m := range members {
+		order, delay := int32(2), int32(120)
+		if i == 0 {
+			order, delay = 1, 60
+		}
+		out = append(out, vsphere.VAppStartEntry{
+			Ref: vmRef(m.ID), Name: m.Name, Order: order, DelaySeconds: delay,
+			StartAction: "powerOn", StopAction: "guestShutdown", StopDelaySeconds: 120, WaitForGuest: i == 0,
+		})
+	}
+	return out
 }
 
 func contains(list []string, s string) bool {
@@ -137,19 +178,23 @@ func (e *estate) finishPools(s siteSpec, placed []placedVM, loc locFunc) {
 		}
 		e.inv.ResourcePools = append(e.inv.ResourcePools, vsphere.ResourcePool{
 			Location: loc("host", c.name+"/Resources"), ID: fmt.Sprintf("%s-pool-root-%s", s.ctx, c.letter), Name: "Resources", Root: true, Owner: c.name,
-			Status: "green", ConfigStatus: "green", VMRefs: root.refs, CPUReservationMHz: int64Value(0), CPULimitMHz: int64Value(-1), CPUExpandable: true,
-			CPUShares: 4000, CPULevel: "normal", MemConfiguredMB: totalMem, MemReservationMB: int64Value(0), MemLimitMB: int64Value(-1), MemExpandable: true,
-			MemShares: 4000, MemLevel: "normal",
+			Status: "green", ConfigStatus: "green", VMRefs: root.refs,
+			ResourceAllocation: vsphere.ResourceAllocation{
+				CPUReservationMHz: int64Value(0), CPULimitMHz: int64Value(-1), CPUExpandable: true, CPUShares: 4000, CPULevel: "normal",
+				MemConfiguredMB: totalMem, MemReservationMB: int64Value(0), MemLimitMB: int64Value(-1), MemExpandable: true, MemShares: 4000, MemLevel: "normal",
+			},
 		})
 		for i, ps := range c.pools {
 			limitMem := children[i].mem * 3 / 2
 			e.inv.ResourcePools = append(e.inv.ResourcePools, vsphere.ResourcePool{
 				Location: loc("host", c.name+"/Resources/"+ps.name), ID: poolID(s.ctx, c.letter, ps.name), Name: ps.name, Parent: "Resources", Owner: c.name,
 				Status: "green", ConfigStatus: "green", VMRefs: children[i].refs,
-				CPUReservationMHz: int64Value(int64(500 * (1 + pickN(8, s.ctx, ps.name)))), CPULimitMHz: int64Value(int64(8000 * (1 + pickN(6, s.ctx, ps.name)))), CPUExpandable: true,
-				CPUShares: []int32{1000, 2000, 4000}[pickN(3, ps.name)], CPULevel: []string{"low", "normal", "high"}[pickN(3, ps.name)],
-				MemConfiguredMB: children[i].mem, MemReservationMB: int64Value(children[i].mem / 4), MemLimitMB: int64Value(max(limitMem, 4096)), MemExpandable: true,
-				MemShares: 2000, MemLevel: "normal",
+				ResourceAllocation: vsphere.ResourceAllocation{
+					CPUReservationMHz: int64Value(int64(500 * (1 + pickN(8, s.ctx, ps.name)))), CPULimitMHz: int64Value(int64(8000 * (1 + pickN(6, s.ctx, ps.name)))), CPUExpandable: true,
+					CPUShares: []int32{1000, 2000, 4000}[pickN(3, ps.name)], CPULevel: []string{"low", "normal", "high"}[pickN(3, ps.name)],
+					MemConfiguredMB: children[i].mem, MemReservationMB: int64Value(children[i].mem / 4), MemLimitMB: int64Value(max(limitMem, 4096)), MemExpandable: true,
+					MemShares: 2000, MemLevel: "normal",
+				},
 			})
 		}
 	}

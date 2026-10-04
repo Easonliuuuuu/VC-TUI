@@ -2,7 +2,9 @@ package vsphere
 
 import (
 	"context"
+	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
@@ -17,6 +19,12 @@ var vappProps = []string{
 	"resourcePool",
 	"childLink",
 	"summary",
+	"config",
+	"overallStatus",
+	"configStatus",
+	// Only the startup sequence: vAppConfig also carries OVF sections and
+	// product properties, which can be large and are not needed here.
+	"vAppConfig.entityConfig",
 }
 
 // ListVApps returns vSphere VirtualApp containers in the client's configured
@@ -90,12 +98,15 @@ func newVApp(c *Client, idx *index, m *mo.VirtualApp) VApp {
 		cluster = idx.clusterFor(&m.Self)
 	}
 	directVMRefs := uniqueRefs(m.Vm)
+	allocation := newResourceAllocation(m.Config, m.Summary)
 
 	return VApp{
 		Location:               loc,
 		ID:                     m.Self.Value,
 		Name:                   m.Name,
 		Status:                 virtualAppStatus(m.Summary),
+		OverallStatus:          string(m.OverallStatus),
+		ConfigStatus:           string(m.ConfigStatus),
 		ParentContainer:        idx.name(parent),
 		ParentVApp:             idx.name(parentVApp),
 		DirectVMCount:          len(directVMRefs),
@@ -109,7 +120,64 @@ func newVApp(c *Client, idx *index, m *mo.VirtualApp) VApp {
 		ChildResourcePoolRefs:  managedRefNames(childPools),
 		Cluster:                cluster,
 		ComputeResource:        placement,
+		Allocation:             &allocation,
+		StartOrder:             vappStartOrder(idx, m.VAppConfig),
 	}
+}
+
+// vappStartOrder lists the vApp's startup sequence in start order, then by
+// name. A vApp whose configuration was not readable has none.
+func vappStartOrder(idx *index, config *types.VAppConfigInfo) []VAppStartEntry {
+	if config == nil || len(config.EntityConfig) == 0 {
+		return nil
+	}
+	out := make([]VAppStartEntry, 0, len(config.EntityConfig))
+	for _, e := range config.EntityConfig {
+		entry := VAppStartEntry{
+			Name:             e.Tag,
+			Order:            e.StartOrder,
+			DelaySeconds:     e.StartDelay,
+			StartAction:      e.StartAction,
+			StopAction:       e.StopAction,
+			StopDelaySeconds: e.StopDelay,
+			WaitForGuest:     e.WaitingForGuest != nil && *e.WaitingForGuest,
+		}
+		if e.Key != nil {
+			entry.Ref = e.Key.Type + ":" + e.Key.Value
+			if name := idx.name(e.Key); name != "" {
+				entry.Name = name
+			}
+		}
+		out = append(out, entry)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Order != out[j].Order {
+			return out[i].Order < out[j].Order
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
+// StartOrderText renders a startup sequence as its groups in order:
+// "1 vapp-db (+10s) → 2 vapp-web, vapp-api". The delay is the wait after a
+// group starts before the next one does, so the last group's is left out.
+func StartOrderText(entries []VAppStartEntry) string {
+	var b strings.Builder
+	for i, e := range entries {
+		switch {
+		case i == 0:
+			fmt.Fprintf(&b, "%d %s", e.Order, e.Name)
+		case entries[i-1].Order == e.Order:
+			b.WriteString(", " + e.Name)
+		default:
+			if d := entries[i-1].DelaySeconds; d > 0 {
+				fmt.Fprintf(&b, " (+%ds)", d)
+			}
+			fmt.Fprintf(&b, " → %d %s", e.Order, e.Name)
+		}
+	}
+	return b.String()
 }
 
 func virtualAppStatus(summary types.BaseResourcePoolSummary) string {

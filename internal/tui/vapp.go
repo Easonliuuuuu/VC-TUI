@@ -30,6 +30,7 @@ type vappMember struct {
 	kind      vsphere.Kind
 	depth     int
 	state     string
+	start     string
 	cpu       string
 	memory    string
 	host      string
@@ -51,6 +52,7 @@ type vappChild struct {
 const (
 	vappMemberTypeWidth                = 7
 	vappMemberStateWidth               = 12
+	vappMemberStartWidth               = 5
 	vappMemberCPUWidth                 = 5
 	vappMemberMemoryWidth              = 7
 	vappMemberHostWidth                = 18
@@ -124,6 +126,7 @@ func (m *Model) vappMembersFrom(v *vsphere.VApp, inv *vsphere.Inventory, depth i
 
 	// Containers come first so the hierarchy reads like an inventory tree;
 	// their descendants immediately follow them at the next indentation level.
+	starts := startOrderByRef(v)
 	children := childVApps(v, inv)
 	sort.SliceStable(children, func(i, j int) bool {
 		return children[i].name < children[j].name
@@ -143,6 +146,9 @@ func (m *Model) vappMembersFrom(v *vsphere.VApp, inv *vsphere.Inventory, depth i
 			continue
 		}
 		member.openable = child.app != nil
+		if child.app != nil {
+			member.start = starts["VirtualApp:"+child.app.ID]
+		}
 		out = append(out, member)
 		if child.app == nil {
 			continue
@@ -152,8 +158,18 @@ func (m *Model) vappMembersFrom(v *vsphere.VApp, inv *vsphere.Inventory, depth i
 		out = append(out, m.vappMembersFrom(child.app, inv, depth+1, nextPath)...)
 	}
 
+	// VMs follow the vApp's startup sequence when it has one, so the table
+	// reads in the order the vApp powers them on.
 	vmMembers := directVMs(v, inv, depth)
+	for i := range vmMembers {
+		if vmMembers[i].id != "" {
+			vmMembers[i].start = starts["VirtualMachine:"+vmMembers[i].id]
+		}
+	}
 	sort.SliceStable(vmMembers, func(i, j int) bool {
+		if vmMembers[i].start != vmMembers[j].start {
+			return startOrderLess(vmMembers[i].start, vmMembers[j].start)
+		}
 		return vmMembers[i].name < vmMembers[j].name
 	})
 	out = append(out, vmMembers...)
@@ -164,6 +180,30 @@ func (m *Model) vappMembersFrom(v *vsphere.VApp, inv *vsphere.Inventory, depth i
 	})
 	out = append(out, pools...)
 	return out
+}
+
+// startOrderByRef maps each member reference ("VirtualMachine:vm-1") to its
+// start order. A vApp captured before its startup order was recorded maps
+// nothing, and its members show no order.
+func startOrderByRef(v *vsphere.VApp) map[string]string {
+	out := make(map[string]string, len(v.StartOrder))
+	for _, e := range v.StartOrder {
+		if e.Ref != "" {
+			out[e.Ref] = strconv.FormatInt(int64(e.Order), 10)
+		}
+	}
+	return out
+}
+
+// startOrderLess orders members by start order, numerically, with members
+// that have none last.
+func startOrderLess(a, b string) bool {
+	if a == "" || b == "" {
+		return b == "" && a != ""
+	}
+	ai, _ := strconv.Atoi(a)
+	bi, _ := strconv.Atoi(b)
+	return ai < bi
 }
 
 func cloneBoolMap(in map[string]bool) map[string]bool {
@@ -391,6 +431,7 @@ func vappMemberColumns(withContext bool) []column {
 		{title: "TYPE", width: vappMemberTypeWidth},
 		{title: "NAME"},
 		{title: "STATE", width: vappMemberStateWidth},
+		{title: "START", width: vappMemberStartWidth, right: true},
 		{title: "CPU", width: vappMemberCPUWidth, right: true},
 		{title: "MEM", width: vappMemberMemoryWidth, right: true},
 		{title: "HOST", width: vappMemberHostWidth},
@@ -416,6 +457,11 @@ func (m *Model) viewVAppDetail() []string {
 		truncate("  "+t.label.Render(pad("Parent", labelColumnPad, false))+t.value.Render(humanize.Dash(root.ParentContainer)), m.width),
 		truncate("  "+t.label.Render(pad("Placement", labelColumnPad, false))+t.value.Render(humanize.Dash(root.Cluster)+" · "+humanize.Dash(root.Datacenter)), m.width),
 		truncate("  "+t.label.Render(pad("Direct children", labelColumnPad, false))+t.value.Render(fmt.Sprintf("%d VM · %d vAPP · %d pool", root.DirectVMCount, root.ChildVAppCount, root.ChildResourcePoolCount)), m.width),
+	)
+	for _, f := range vappAllocationFields(root) {
+		lines = append(lines, truncate("  "+t.label.Render(pad(f[0], labelColumnPad, false))+t.value.Render(f[1]), m.width))
+	}
+	lines = append(lines,
 		"",
 		t.header.Render("Members"),
 	)
@@ -452,6 +498,25 @@ func (m *Model) viewVAppDetail() []string {
 	return scrollLines(lines, 0, m.bodyHeight())
 }
 
+// vappAllocationFields are the summary lines for a vApp's allocation and
+// startup order. A vApp captured before either was recorded says so rather
+// than showing an empty, unlimited-looking allocation.
+func vappAllocationFields(v *vsphere.VApp) [][2]string {
+	if v.Allocation == nil {
+		return [][2]string{{"Allocation", "not recorded"}}
+	}
+	a := v.Allocation
+	order := vsphere.StartOrderText(v.StartOrder)
+	if order == "" {
+		order = "none"
+	}
+	return [][2]string{
+		{"CPU", humanize.Allocation(a.CPULimitMHz, a.CPUReservationMHz, a.CPUExpandable, a.CPULevel, a.CPUShares, humanize.MHz)},
+		{"Memory", humanize.Allocation(a.MemLimitMB, a.MemReservationMB, a.MemExpandable, a.MemLevel, a.MemShares, humanize.MB)},
+		{"Startup order", order},
+	}
+}
+
 func (m *Model) renderVAppMember(member vappMember, cols []column, widths []int, selected bool) string {
 	name := strings.Repeat("  ", member.depth) + member.name
 	if member.asContext != "" {
@@ -464,7 +529,7 @@ func (m *Model) renderVAppMember(member vappMember, cols []column, widths []int,
 	case vappMemberPool:
 		kind = "POOL"
 	}
-	cells := []string{kind, name, member.state, member.cpu, member.memory, member.host}
+	cells := []string{kind, name, member.state, humanize.Dash(member.start), member.cpu, member.memory, member.host}
 	if len(cols) > len(cells) {
 		cells = append([]string{member.context}, cells...)
 	}

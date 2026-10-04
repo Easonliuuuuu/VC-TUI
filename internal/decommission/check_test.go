@@ -11,7 +11,7 @@ func boolPtr(value bool) *bool { return &value }
 
 func baseData(vm vsphere.VM) assessment.ExportData {
 	collections := make([]assessment.CollectionRun, 0, 7)
-	for _, kind := range []string{"vm", "host", "cluster", "resourcepool", "dvswitch", "datastore", "network", "snapshot"} {
+	for _, kind := range []string{"vm", "host", "cluster", "resourcepool", "vapp", "dvswitch", "datastore", "network", "snapshot"} {
 		collections = append(collections, assessment.CollectionRun{Kind: kind, Status: "empty"})
 	}
 	return assessment.ExportData{
@@ -88,7 +88,7 @@ func TestEvaluateUnknownCoverageAndIdentity(t *testing.T) {
 
 func TestEvaluateAmbiguityAndStrongCrossContextJoin(t *testing.T) {
 	collections := make([]assessment.CollectionRun, 0, 7)
-	for _, kind := range []string{"vm", "host", "cluster", "resourcepool", "dvswitch", "datastore", "network", "snapshot"} {
+	for _, kind := range []string{"vm", "host", "cluster", "resourcepool", "vapp", "dvswitch", "datastore", "network", "snapshot"} {
 		collections = append(collections, assessment.CollectionRun{Kind: kind, Status: "empty"})
 	}
 	data := assessment.ExportData{

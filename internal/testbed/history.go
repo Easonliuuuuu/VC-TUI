@@ -102,7 +102,7 @@ func collectContext(ctx context.Context, manager *session.Manager, cc *config.Co
 	if err != nil {
 		return result, err
 	}
-	for _, group := range []vsphere.FetchGroup{vsphere.GroupVMs, vsphere.GroupHosts, vsphere.GroupClusters, vsphere.GroupResourcePools, vsphere.GroupDVSwitches, vsphere.GroupDatastores} {
+	for _, group := range []vsphere.FetchGroup{vsphere.GroupVMs, vsphere.GroupHosts, vsphere.GroupClusters, vsphere.GroupResourcePools, vsphere.GroupVApps, vsphere.GroupDVSwitches, vsphere.GroupDatastores} {
 		var part *vsphere.Inventory
 		if group == vsphere.GroupHosts {
 			part = client.FetchGroupWith(opCtx, idx, group, vsphere.FetchOptions{HostConfig: true})
@@ -125,6 +125,8 @@ func collectContext(ctx context.Context, manager *session.Manager, cc *config.Co
 			result.Collections = append(result.Collections, clusterCollection("cluster", result.VCenterID, cc.Name, part.Clusters))
 		case vsphere.GroupResourcePools:
 			result.Collections = append(result.Collections, resourceCollection("resourcepool", result.VCenterID, cc.Name, part.ResourcePools, func(v vsphere.ResourcePool) string { return v.ID }, func(v vsphere.ResourcePool) string { return v.Name }))
+		case vsphere.GroupVApps:
+			result.Collections = append(result.Collections, resourceCollection("vapp", result.VCenterID, cc.Name, part.VApps, func(v vsphere.VApp) string { return v.ID }, func(v vsphere.VApp) string { return v.Name }))
 		case vsphere.GroupDVSwitches:
 			result.Collections = append(result.Collections, resourceCollection("dvswitch", result.VCenterID, cc.Name, part.DVSwitches, func(v vsphere.DVSwitch) string { return v.ID }, func(v vsphere.DVSwitch) string { return v.Name }))
 		case vsphere.GroupDatastores:
@@ -181,7 +183,7 @@ func healthyContexts(contexts []*config.Context) []*config.Context {
 
 func failedResult(name, message string) assessment.ContextResult {
 	result := assessment.ContextResult{Name: name, Status: "failed", Error: message}
-	for _, kind := range []string{"vm", "host", "cluster", "resourcepool", "dvswitch", "datastore"} {
+	for _, kind := range []string{"vm", "host", "cluster", "resourcepool", "vapp", "dvswitch", "datastore"} {
 		result.Collections = append(result.Collections, assessment.CollectionResult{Kind: kind, Status: "failed", Error: message})
 	}
 	return result

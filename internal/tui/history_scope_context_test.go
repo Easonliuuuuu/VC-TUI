@@ -18,7 +18,7 @@ var errUnavailableTrends = errors.New("trend evidence unavailable")
 // allKindsCollected records a successful collection for every kind a run
 // persists, which is what makes a stored run count as complete.
 func allKindsCollected() []assessment.CollectionResult {
-	kinds := []string{"vm", "host", "cluster", "datastore", "resourcepool", "dvswitch", "network", "snapshot"}
+	kinds := []string{"vm", "host", "cluster", "datastore", "resourcepool", "vapp", "dvswitch", "network", "snapshot"}
 	out := make([]assessment.CollectionResult, 0, len(kinds))
 	for _, kind := range kinds {
 		out = append(out, assessment.CollectionResult{Kind: kind, Status: "success"})

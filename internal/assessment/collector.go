@@ -254,7 +254,7 @@ func (c *Collector) captureContext(parent context.Context, cc *config.Context, b
 	// A single index is reused for all groups. Groups are intentionally
 	// sequential within one vCenter to keep API load predictable; contexts are
 	// still collected concurrently by Capture.
-	for _, group := range []vsphere.FetchGroup{vsphere.GroupVMs, vsphere.GroupHosts, vsphere.GroupClusters, vsphere.GroupResourcePools, vsphere.GroupDVSwitches, vsphere.GroupDatastores, vsphere.GroupNetworks} {
+	for _, group := range []vsphere.FetchGroup{vsphere.GroupVMs, vsphere.GroupHosts, vsphere.GroupClusters, vsphere.GroupResourcePools, vsphere.GroupVApps, vsphere.GroupDVSwitches, vsphere.GroupDatastores, vsphere.GroupNetworks} {
 		var part *vsphere.Inventory
 		if group == vsphere.GroupDatastores {
 			// The per-context operation budget (the connect timeout) is
@@ -316,6 +316,8 @@ func (c *Collector) captureContext(parent context.Context, cc *config.Context, b
 			r.Collections = append(r.Collections, resourceCollection("cluster", r.VCenterID, cc.Name, part.Clusters, part.ErrorFor))
 		case vsphere.GroupResourcePools:
 			r.Collections = append(r.Collections, resourceCollection("resourcepool", r.VCenterID, cc.Name, part.ResourcePools, part.ErrorFor))
+		case vsphere.GroupVApps:
+			r.Collections = append(r.Collections, resourceCollection("vapp", r.VCenterID, cc.Name, part.VApps, part.ErrorFor))
 		case vsphere.GroupDVSwitches:
 			r.Collections = append(r.Collections, resourceCollection("dvswitch", r.VCenterID, cc.Name, part.DVSwitches, part.ErrorFor))
 		case vsphere.GroupDatastores:
