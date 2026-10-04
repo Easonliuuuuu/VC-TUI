@@ -133,8 +133,12 @@ func (m *Model) ensureVMPerf(force bool) tea.Cmd {
 	return tea.Batch(load, m.armVMPerfTick())
 }
 
-// showingVMPerf reports whether a VM's charts are on screen right now.
+// showingVMPerf reports whether a VM's charts, or a vApp's member charts,
+// are on screen right now.
 func (m *Model) showingVMPerf() bool {
+	if m.mode == modeVAppDetail {
+		return m.showingVAppPerf()
+	}
 	if m.mode != modeDetail && m.mode != modeVAppVMDetail {
 		return false
 	}
@@ -150,6 +154,9 @@ func (m *Model) showingVMPerf() bool {
 // unless one is in flight, or a good one is fresh: younger than the range's
 // refresh interval while live refresh is on, any age while it is off.
 func (m *Model) loadVMPerf(force bool) tea.Cmd {
+	if m.mode == modeVAppDetail {
+		return m.loadVAppPerf(force)
+	}
 	r, ok := m.detailRow()
 	if !ok || r.vm == nil {
 		return nil
@@ -252,8 +259,11 @@ func (m *Model) applyVMPerfTick(msg vmPerfTickMsg) tea.Cmd {
 // shiftPerfRange moves to a shorter (delta < 0) or longer range and starts
 // reading it.
 func (m *Model) shiftPerfRange(delta int) tea.Cmd {
-	r, ok := m.detailRow()
-	if !ok || r.vm == nil {
+	if m.mode == modeVAppDetail {
+		if !m.showingVAppPerf() {
+			return nil
+		}
+	} else if r, ok := m.detailRow(); !ok || r.vm == nil {
 		return nil
 	}
 	m.perfRangeIdx = clamp(m.perfRangeIdx+delta, 0, len(perfRanges)-1)
@@ -1073,7 +1083,8 @@ func (m *Model) chartTitle(mt metric, st seriesStats, ok bool, w int) string {
 	for _, left := range []string{full, name} {
 		for _, v := range variants {
 			stats := t.dim.Render(v) + warn
-			if ansi.StringWidth(left)+1+ansi.StringWidth(stats) <= w {
+			// joinEnds needs a two-column gap, or it drops the stats.
+			if ansi.StringWidth(left)+2+ansi.StringWidth(stats) <= w {
 				return joinEnds(left, stats, w)
 			}
 		}

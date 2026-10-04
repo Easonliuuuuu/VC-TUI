@@ -88,6 +88,41 @@ func (e *estate) finishVApps(s siteSpec, placed []placedVM, loc locFunc) {
 		byName[spec.name] = len(e.inv.VApps)
 		e.inv.VApps = append(e.inv.VApps, v)
 	}
+	e.sizeVAppLimits()
+}
+
+// sizeVAppLimits sets each capped vApp's CPU limit from every vCPU beneath
+// it, nested vApps included, since a vApp's limit covers them too. Sized from
+// direct members alone, a parent's members could sum past its limit, which
+// real vSphere never allows.
+func (e *estate) sizeVAppLimits() {
+	cpus := map[string]int64{}
+	for _, vm := range e.inv.VMs {
+		cpus[vmRef(vm.ID)] = int64(vm.CPU)
+	}
+	byID := map[string]*vsphere.VApp{}
+	for i := range e.inv.VApps {
+		byID["VirtualApp:"+e.inv.VApps[i].ID] = &e.inv.VApps[i]
+	}
+	var treeCPUs func(v *vsphere.VApp) int64
+	treeCPUs = func(v *vsphere.VApp) int64 {
+		n := int64(0)
+		for _, ref := range v.DirectVMRefs {
+			n += cpus[ref]
+		}
+		for _, ref := range v.ChildVAppRefs {
+			if child := byID[ref]; child != nil {
+				n += treeCPUs(child)
+			}
+		}
+		return n
+	}
+	for i := range e.inv.VApps {
+		v := &e.inv.VApps[i]
+		if a := v.Allocation; a != nil && a.CPULimitMHz != nil && *a.CPULimitMHz > 0 {
+			a.CPULimitMHz = int64Value(max(1000, treeCPUs(v)*2000))
+		}
+	}
 }
 
 // demoVAppAllocation gives about half the vApps a CPU limit and a memory
@@ -104,8 +139,9 @@ func demoVAppAllocation(ctx, name string, members []*vsphere.VM) *vsphere.Resour
 		MemConfiguredMB: mem, MemReservationMB: int64Value(0), MemLimitMB: int64Value(-1), MemExpandable: true, MemShares: 163840, MemLevel: "normal",
 	}
 	if pickN(2, ctx, name, "cap") == 0 && cpus > 0 {
-		// Roughly a third of a 2.4 GHz core per vCPU: tight enough to throttle.
-		a.CPULimitMHz = int64Value(max(1000, cpus*800))
+		// 2 GHz per vCPU on 2.4 GHz cores: a busy member brings the vApp
+		// close to its cap.
+		a.CPULimitMHz = int64Value(max(1000, cpus*2000))
 		a.MemReservationMB = int64Value(mem / 4)
 	}
 	return a

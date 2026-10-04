@@ -312,6 +312,35 @@ vCenter context from its IP. The parent context's route is copied, and the
 saved context records the VM's managed object reference; once saved, the
 member row is annotated with the context name.
 
+On a live connection the workspace also charts the vApp's performance by
+adding up its member VMs, nested vApps included:
+
+- **CPU usage** is the members' summed MHz. When the vApp has a CPU limit the
+  chart's top is that limit and a `▲` marks samples within 5% of it, because
+  usage cannot pass a limit: reaching it means the vApp is holding its
+  members back. Without a limit the top is what the members could use, their
+  vCPUs at their hosts' core speed.
+- **Memory active** is the members' summed active memory, against the vApp's
+  memory limit when it has one, or else their configured memory; the
+  reservation is shown beside it.
+- The members table gains each VM's peak CPU (MHz, `▲` when busy for its own
+  vCPUs), peak CPU ready, and peak **CPU limited**: time the VM was ready to
+  run but held back by a limit, which is where a vApp's limit shows up on the
+  VMs it throttles. `s` switches between start order and busiest first.
+
+Below 100 columns, or on a short terminal, the two charts become one-line
+sparklines so the members table keeps its room. `<`/`>` and `r` change and
+re-read the range as on a VM's pane, and the charts refresh themselves the same
+way. The workspace does not read the vApp's own statistics: on vCenter 8.0.3 a
+vApp, like any resource pool, has no 20-second realtime statistics, offers only
+four counters at the default statistics level, and its 5-minute roll-ups arrive
+20 minutes or more after its VMs'. Its members' counters give the same totals
+sooner. They are read in as few `QueryPerf` requests as vCenter allows: one for
+the 1h range, and batches of three VMs for the roll-ups, which stays under
+vCenter's default `config.vpxd.stats.maxQueryMetrics` of 64. A batch that fails
+is retried one VM at a time, and a member that still cannot be read is named and
+left out of the totals.
+
 ## History workspace
 
 Press `H` to open the History hub, which contains Changes, Trends, Runs, and

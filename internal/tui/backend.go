@@ -113,6 +113,13 @@ type vmPerfBackend interface {
 	VMPerfSeries(ctx context.Context, cc *config.Context, vm vsphere.VM, window time.Duration, interval int, now time.Time) (perf.SeriesSet, error)
 }
 
+// vmsPerfBackend is the live-query extension behind the vApp workspace's
+// charts: the same counters as vmPerfBackend for a group of VMs, read in as
+// few requests as vCenter allows. It is optional in the same way.
+type vmsPerfBackend interface {
+	VMsPerfSeries(ctx context.Context, cc *config.Context, vms []vsphere.VM, window time.Duration, interval int, now time.Time) ([]vsphere.VMSeriesResult, error)
+}
+
 // clockBackend lets a backend whose data is pinned to a fixed instant — the
 // synthetic demo estate — supply that instant, so ages computed in the
 // interface (a snapshot's, say) do not drift with the wall clock.
@@ -287,6 +294,13 @@ func liveQuery[T any](ctx context.Context, b *sessionBackend, cc *config.Context
 func (b *sessionBackend) VMPerfSeries(ctx context.Context, cc *config.Context, vm vsphere.VM, window time.Duration, interval int, now time.Time) (perf.SeriesSet, error) {
 	return liveQuery(ctx, b, cc, func(client *vsphere.Client, opCtx context.Context) (perf.SeriesSet, error) {
 		return client.VMPerfSeries(opCtx, vm, window, interval, now)
+	})
+}
+
+// VMsPerfSeries implements vmsPerfBackend.
+func (b *sessionBackend) VMsPerfSeries(ctx context.Context, cc *config.Context, vms []vsphere.VM, window time.Duration, interval int, now time.Time) ([]vsphere.VMSeriesResult, error) {
+	return liveQuery(ctx, b, cc, func(client *vsphere.Client, opCtx context.Context) ([]vsphere.VMSeriesResult, error) {
+		return client.VMsPerfSeries(opCtx, vms, window, interval, now)
 	})
 }
 

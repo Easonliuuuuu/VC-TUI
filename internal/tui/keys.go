@@ -52,6 +52,9 @@ type keyMap struct {
 	// detail key line is already at 80 columns, and the page tabs show their
 	// own digits.
 	PerfPage key.Binding
+	// VAppSort orders the vApp workspace's member VMs by start order or by
+	// peak CPU. It is "s" like Sort, which the workspace never handles.
+	VAppSort key.Binding
 	Doctor   key.Binding
 	History  key.Binding
 	Capture  key.Binding
@@ -154,6 +157,7 @@ func defaultKeys() keyMap {
 		LongerRange:  key.NewBinding(key.WithKeys(">", "."), key.WithHelp(">", "longer range")),
 		PerfRange:    key.NewBinding(key.WithHelp("</>", "range")),
 		PerfPage:     key.NewBinding(key.WithKeys("0", "1", "2", "3", "4"), key.WithHelp("0-4", "chart page")),
+		VAppSort:     key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort")),
 		Doctor:       key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "diagnose")),
 		History:      key.NewBinding(key.WithKeys("H"), key.WithHelp("H", "history")),
 		Capture:      key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "capture")),
@@ -250,6 +254,9 @@ func (k keyMap) footerHints(m *Model) []key.Binding {
 		}
 		return []key.Binding{k.Up, k.Down, k.Open, k.Timeline, k.Back, k.Help, k.Quit}
 	case modeVAppDetail:
+		if _, ok := m.backend.(vmsPerfBackend); ok {
+			return []key.Binding{k.Up, k.Down, k.Open, k.PerfRange, k.VAppSort, k.Back, k.Help, k.Quit}
+		}
 		return []key.Binding{k.Up, k.Down, k.Open, k.Back, k.Help, k.Quit}
 	case modeVAppVMDetail:
 		if m.actions != nil {
