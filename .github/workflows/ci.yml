@@ -182,7 +182,7 @@ jobs:
       - name: Smoke test release binaries and image
         run: |
           for target in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64 windows_amd64 windows_arm64; do
-            ls dist/vsfleet_*_"${target}"*.{tar.gz,zip} >/dev/null 2>&1 || { echo "missing archive for $target"; exit 1; }
+            compgen -G "dist/vsfleet_*_${target}.tar.gz" >/dev/null || compgen -G "dist/vsfleet_*_${target}.zip" >/dev/null || { echo "missing archive for $target"; ls dist; exit 1; }
           done
           dist/vsfleet_linux_amd64_v1/vsfleet --version
           image="$(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep '^ghcr.io/easonliuuuuu/vsfleet:' | grep -m1 amd64 || true)"
