@@ -15,6 +15,7 @@ body:
         - ci
         - release
         - config
+        - deps
         - other
     validations:
       required: true

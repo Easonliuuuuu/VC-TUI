@@ -80,6 +80,7 @@ test("PR title component selects exactly one label", async () => {
     ["fix(vsphere): correct inventory mapping", ["vsphere"]],
     ["docs(docs): clarify setup", ["docs"]],
     ["feat(assessment)!: change findings format", ["assessment"]],
+    ["build(deps): bump the all-dependencies group with 3 updates", ["deps"]],
     ["chore(other): tidy shared tooling", []]
   ]) {
     assert.deepEqual(await runLabeler({

@@ -57,7 +57,7 @@ Commits and PRs are authored by the human running the work. An AI assistant is a
    - Add `!` right after the type/component: `feat(config)!: drop support for the version 1 configuration format`
    - And add a `BREAKING CHANGE: <description>` footer at the end of the body explaining what breaks and how to migrate.
 
-   **Component** (in parentheses) — required in commit and PR titles. Choose exactly one of `tui`, `assessment`, `compatibility`, `vsphere`, `docs`, `ci`, `release`, or `config` when it describes the main change. Use `other` when no single area fits; it deliberately adds no area label. Do not choose a component merely because the change mentions it or updates supporting documentation. The PR auto-label workflow reads this component, so do not use package names, paths, or file names as the title scope.
+   **Component** (in parentheses) — required in commit and PR titles. Choose exactly one of `tui`, `assessment`, `compatibility`, `vsphere`, `docs`, `ci`, `release`, `config`, or `deps` when it describes the main change. Use `other` when no single area fits; it deliberately adds no area label. Do not choose a component merely because the change mentions it or updates supporting documentation. The PR auto-label workflow reads this component, so do not use package names, paths, or file names as the title scope.
 
    **Summary** — imperative mood, lowercase, no period, ≤72 chars total for the first line. Describe what the change *does*, not what files changed.
 
