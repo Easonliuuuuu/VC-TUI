@@ -67,14 +67,47 @@ archives:
       - README.md
       - LICENSE
 
-homebrew_casks:
+brews:
   - name: vsfleet
     ids:
       - vsfleet
-    binaries:
-      - vsfleet
-    homepage: https://github.com/easonliuuuuu/vsfleet
+    homepage: https://github.com/Easonliuuuuu/vsfleet
     description: Read-only vSphere estate assessment and diagnostics across every vCenter
+    license: MIT
+    test: |
+      assert_match version.to_s, shell_output("#{bin}/vsfleet --version")
+    repository:
+      owner: Easonliuuuuu
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+
+nfpms:
+  - id: vsfleet
+    package_name: vsfleet
+    file_name_template: "{{ .PackageName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    vendor: Eason Liu
+    homepage: https://github.com/Easonliuuuuu/vsfleet
+    maintainer: Eason Liu
+    description: Read-only vSphere estate assessment and diagnostics across every vCenter
+    license: MIT
+    formats:
+      - deb
+      - rpm
+    bindir: /usr/bin
+    contents:
+      - src: LICENSE
+        dst: /usr/share/doc/vsfleet/copyright
+      - src: README.md
+        dst: /usr/share/doc/vsfleet/README.md
+
+scoops:
+  - name: vsfleet
+    ids:
+      - vsfleet
+    homepage: https://github.com/Easonliuuuuu/vsfleet
+    description: Read-only vSphere estate assessment and diagnostics across every vCenter
+    license: MIT
     repository:
       owner: Easonliuuuuu
       name: homebrew-tap
