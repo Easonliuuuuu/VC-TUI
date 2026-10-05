@@ -2344,8 +2344,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 // the keyboard, and reports whether one did. handleKey calls it before the
 // global "q" (quit) and "?" (help) shortcuts, so a letter typed into a field
 // is never taken as a shortcut (issues #26, #301). Ctrl+C is answered before
-// this and still quits from every input. A new text input belongs here, and
-// in textInputFocused's callers' tests (TestFreeTextInputsOwnQuitAndHelpKeys).
+// this and still quits from every input. A new text input belongs here and in
+// TestFreeTextInputsOwnQuitAndHelpKeys.
 //
 // The order is the priority of the overlays: the SSH prompt ranks below the
 // credential prompt (the caller answers it first) but above everything else, then
