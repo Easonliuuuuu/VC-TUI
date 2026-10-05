@@ -17,4 +17,4 @@ vsfleet  DEMO · SAMPLE DATA  ◆ prod-vc  ·  1 connected
   Guest disks         -
   Host                esxi-mgmt-02
 
-↑/k up  ↓/j down  enter open  </> range  h timeline  esc ba…
+enter open  </> range  h timeline  esc back  ? help

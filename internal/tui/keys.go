@@ -1,6 +1,11 @@
 package tui
 
-import "github.com/charmbracelet/bubbles/key"
+import (
+	"slices"
+
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/x/ansi"
+)
 
 // keyMap is the whole keyboard surface. It is one struct rather than a switch
 // on raw strings so that the help panel is generated from the bindings and
@@ -415,9 +420,9 @@ func (k keyMap) footerHints(m *Model) []key.Binding {
 		return []key.Binding{k.Confirm, k.ToggleKeep, k.Back}
 	case modeContexts:
 		if m.demo {
-			return []key.Binding{k.UseContext, k.AllScope, k.Doctor, k.Back}
+			return []key.Binding{k.UseContext, k.AllScopeBrief, k.Doctor, k.Back, k.Help}
 		}
-		return []key.Binding{k.UseContext, k.AllScope, k.NewContext, k.EditContext, k.DeleteContext, k.Doctor, k.Back}
+		return []key.Binding{k.UseContext, k.AllScopeBrief, k.NewContext, k.EditContext, k.DeleteContext, k.Doctor, k.Back, k.Help}
 	case modeSearch:
 		return []key.Binding{k.Open, k.Filter, k.Sort, k.Reload, k.Back, k.Help, k.Quit}
 	case modeChanges:
@@ -458,19 +463,94 @@ func (k keyMap) footerHints(m *Model) []key.Binding {
 		if m.actions != nil {
 			return []key.Binding{k.Up, k.Down, k.RunAction, k.CancelAction}
 		}
-		return []key.Binding{k.Up, k.Down, k.Open, k.Filter, k.FindFiles, k.CopyPath, k.Back, k.Quit}
+		return []key.Binding{k.Up, k.Down, k.Open, k.Filter, k.FindFiles, k.CopyPath, k.Back, k.Help, k.Quit}
 	case modeDatastoreEntry:
-		return []key.Binding{k.Up, k.Down, k.Open, k.CopyPath, k.Back, k.Quit}
+		return []key.Binding{k.Up, k.Down, k.Open, k.CopyPath, k.Back, k.Help, k.Quit}
 	case modeDatastoreFind:
 		if m.ds != nil && m.ds.findPrompt {
 			// "f" and "y" are letters of the query while the prompt is open.
 			return []key.Binding{k.FindRun, k.Back}
 		}
-		return []key.Binding{k.Up, k.Down, k.Open, k.FindFiles, k.CopyPath, k.Back, k.Quit}
+		return []key.Binding{k.Up, k.Down, k.Open, k.FindFiles, k.CopyPath, k.Back, k.Help, k.Quit}
 	default:
 		// History comes before lower-priority browse hints so it remains
 		// discoverable even when a narrow terminal truncates the footer. Enter
 		// opening the selected row is conventional and remains in the help view.
 		return []key.Binding{k.Kind, k.History, k.Contexts, k.AllScopeBrief, k.Filter, k.Reload, k.Help, k.Quit}
 	}
+}
+
+// footerDropOrder is what the key line gives up, least essential first, when
+// the terminal is too narrow for every hint a screen has. Each entry is
+// dropped whole, so the up and down arrows go together. Back and Help are
+// never in it: "esc back" and "? help" are how an operator leaves a screen
+// and finds everything dropped here, so the line keeps them at any width.
+// Every key below is described in the "?" panel of the screens that show it
+// (TestEveryFooterFitsAndKeepsBackAndHelp checks that).
+func (k keyMap) footerDropOrder() [][]key.Binding {
+	return [][]key.Binding{
+		{k.Quit}, // ctrl+c still quits, and "q quit" is in the help.
+		{k.Up, k.Down},
+		{k.ImpactFilter},
+		{k.ClipSpan},
+		{k.PinRun},
+		{k.Reload},
+		{k.CopyPath},
+		{k.Doctor},
+		{k.NoteRun},
+		{k.TimelineAll},
+		{k.VAppSort},
+		{k.PerfRange},
+		{k.Timeline},
+	}
+}
+
+// sameHint reports whether two bindings read the same on the key line.
+// Bindings are not comparable, and their labels are what the reader sees.
+func sameHint(a, b key.Binding) bool { return a.Help() == b.Help() }
+
+// footerWidth is the width of hints laid out the way viewKeys joins them.
+func footerWidth(hints []key.Binding) int {
+	w := 0
+	for i, b := range hints {
+		if i > 0 {
+			w += 2
+		}
+		h := b.Help()
+		w += ansi.StringWidth(h.Key) + 1 + ansi.StringWidth(h.Desc)
+	}
+	return w
+}
+
+// fitFooter drops hints from a screen's full key line until it fits width:
+// first by footerDropOrder, then, for hints that list does not name, from the
+// right, since the lists put the most used keys first. Back, the cancel hint
+// and Help are kept; only a line that cannot fit even with those alone is
+// left for truncate to cut.
+func (k keyMap) fitFooter(hints []key.Binding, width int) []key.Binding {
+	pinned := func(b key.Binding) bool {
+		return sameHint(b, k.Back) || sameHint(b, k.CancelAction) || sameHint(b, k.Help)
+	}
+	out := slices.Clone(hints)
+	for _, tier := range k.footerDropOrder() {
+		if footerWidth(out) <= width {
+			return out
+		}
+		out = slices.DeleteFunc(out, func(b key.Binding) bool {
+			return slices.ContainsFunc(tier, func(t key.Binding) bool { return sameHint(b, t) })
+		})
+	}
+	for footerWidth(out) > width {
+		i := -1
+		for j := len(out) - 1; j >= 0 && i < 0; j-- {
+			if !pinned(out[j]) {
+				i = j
+			}
+		}
+		if i < 0 {
+			break
+		}
+		out = slices.Delete(out, i, i+1)
+	}
+	return out
 }

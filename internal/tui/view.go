@@ -272,7 +272,7 @@ func (m *Model) filterHint() string {
 func (m *Model) viewKeys() string {
 	t := m.theme
 	parts := make([]string, 0, 10)
-	for _, b := range m.keys.footerHints(m) {
+	for _, b := range m.keys.fitFooter(m.keys.footerHints(m), m.width) {
 		h := b.Help()
 		parts = append(parts, t.accent.Render(h.Key)+" "+t.dim.Render(h.Desc))
 	}
