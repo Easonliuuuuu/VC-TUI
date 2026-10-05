@@ -1,4 +1,4 @@
-vsfleet  history  ·  Changes   tab/⇧tab switch
+vsfleet  DEMO · SAMPLE DATA  history  ·  Changes
 ────────────────────────────────────────────────────────────
   RUNS     #1   #2   #3   #4   #5  
   pick                     b    t  
