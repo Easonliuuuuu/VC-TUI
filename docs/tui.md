@@ -19,6 +19,7 @@ quiet background refresh.
 | Search and filter | `Esc` | Clear the filter and restore the normal view |
 | Operations | `r` / `R` | Reload the current/all contexts |
 | Operations | `d` | Diagnose the selected row's vCenter |
+| Networks tab | `space` / `t` | Fold the switch under the cursor / switch between switches and the plain list |
 | Help and exit | `?` / `q` | Show key reference / quit |
 
 The selected row is marked with `▸` in the first column as well as by its
@@ -301,6 +302,67 @@ VM configuration. Confirm path metadata, UNKNOWN/partial rendering,
 cancellation, exact VM/template jumps, and that no datastore or VM mutation is
 possible. Until this record exists, real-vSphere validation remains an open
 manual acceptance item.
+
+## Networks and switches
+
+The Networks tab (`6`) lists port groups under the switch that carries them:
+each distributed switch, each standard switch (every host's switch of one
+name taken together, since two hosts' `vSwitch0` are almost always meant to
+be the same switch), and a group for opaque (NSX) networks. A distributed
+switch's uplink port group is left out, because nothing attaches to it.
+
+| Column | Meaning |
+|---|---|
+| `VLAN` | The port group's VLAN, trunk range or PVLAN; `none` for an untagged standard port group |
+| `VMS` | VMs attached to the port group; `-` until the wiring has been read |
+| `NOTES` | What needs attention: the switch's findings, or a port group's (`promiscuous`, `standby on 1 host`, `on 1 of 3 hosts`, `unused`) |
+| `VMK` | VMkernel adapters on the port group |
+| `HOSTS` | Hosts on the switch, as `joined/total` when hosts in the same clusters are missing from it |
+
+`space` folds the switch under the cursor, and `t` switches between this tree
+and the plain list of networks. A filter keeps a switch whenever one of its
+port groups matches, so a match is never shown without its switch, and a
+folded switch opens while a filter is narrowing the table.
+
+`Enter` on a port group opens its detail pane: its teaming, active and
+standby uplinks, security policy, and VMkernel adapters. `Enter` on a switch
+opens the switch workspace, with two pages chosen by `0` and `1`:
+
+- **Overview** lists the switch's properties, an uplink-by-host grid, the
+  findings, and its port groups. Hosts whose uplinks are identical share one
+  grid line (`esxi-a-01 … esxi-a-12 ×12`), so a large cluster still fits and
+  the host that differs stands out. A `▲` marks a link slower or faster than
+  the speed most hosts run that uplink at, and `down` a NIC with no link.
+- **Wiring** draws physical NICs, uplinks, the switch and its port groups,
+  counting NICs across hosts so the drawing is as tall for sixty hosts as
+  for two. `j`/`k` choose a port group, and its teaming is drawn into the
+  links: heavy for its active uplinks, dotted for its standby ones. `Enter`
+  opens the selected port group. On a narrow terminal the switch's name
+  leaves the spine first and, narrower still, the physical column.
+
+The findings name the host and the part involved:
+
+| Finding | Why it matters |
+|---|---|
+| A host is in the same cluster as the switch's hosts but not on it | VMs on the switch cannot move to that host |
+| An uplink has no physical NIC, on one host or on every host | Port groups that use it have one path fewer there |
+| A NIC has no link | Traffic on that uplink has failed over, or has nowhere to go |
+| An uplink's speed differs between hosts | Throughput depends on which host a VM runs on |
+| A port group has no working uplink, or only its standby one, on a host | Its traffic on that host is down, or has no failover left |
+| A VMkernel adapter's MTU is above the switch's | Jumbo-frame traffic such as vMotion or vSAN fails |
+| A port group allows promiscuous mode | Every VM on it can see the others' traffic |
+| A standard port group's VLAN or a switch's MTU differs between hosts, or a port group is missing from some hosts | VMs and vMotion behave differently, or not at all, depending on the host |
+
+Port groups and their switch names come from the ordinary inventory load.
+Everything about wiring — hosts, uplinks, NICs, VMkernel adapters and VM
+counts — comes from a separate read of the distributed switches and of
+`config.network` on every host, made only while the Networks tab or a switch
+workspace is open, and again after each reload of the network inventory. A
+large estate's host network configuration is too heavy to read on every
+inventory load. Until that read lands the table says `reading wiring…`, and
+when it fails the workspace says why rather than showing a switch with
+nothing on it. The read is read-only and needs no privilege beyond those the
+inventory already uses.
 
 ## Contexts and vApps
 

@@ -61,6 +61,10 @@ func (m *Model) View() string {
 		body = strings.Join(m.viewVAppDetail(), "\n")
 	case m.mode == modeVAppVMDetail:
 		body = strings.Join(m.viewVAppVMDetail(), "\n")
+	case m.mode == modeSwitchDetail:
+		body = strings.Join(m.viewSwitchDetail(), "\n")
+	case m.mode == modeSwitchPGDetail:
+		body = strings.Join(m.viewSwitchPGDetail(), "\n")
 	case m.mode == modeDoctor:
 		body = strings.Join(m.viewDoctor(), "\n")
 	case m.mode == modeHelp:
@@ -237,7 +241,13 @@ func (m *Model) filterHint() string {
 		}
 		return hint
 	}
-	here := len(m.rows())
+	here := 0
+	for _, r := range m.rows() {
+		// A switch row is kept for its port groups, not counted as a match.
+		if !r.tree.head {
+			here++
+		}
+	}
 	hint := fmt.Sprintf("  %d here", here)
 	if all := len(m.ensureSearch(m.filter.Value()).rows); all > here {
 		hint += fmt.Sprintf(" · %d in the estate — tab to widen", all)
@@ -266,7 +276,7 @@ func (m *Model) viewBrowse() []string {
 	w := m.width
 	lines := []string{t.rule.Render(strings.Repeat("─", w))}
 
-	cols := columnsFor(m.kind, m.showContext())
+	cols := m.browseColumns()
 	widths := layoutColumns(cols, w-glyphGutter)
 	head := make([]string, 0, len(cols))
 	for i, c := range cols {
@@ -292,6 +302,15 @@ func (m *Model) viewBrowse() []string {
 			fmt.Sprintf("%s %s: %s", glyphFail, st.cc.Name, firstLine(st.err.Error())), w)))
 	}
 	return scrollLines(lines, 0, m.bodyHeight())
+}
+
+// browseColumns are the table's columns: the kind's own, or the grouped
+// Networks tab's.
+func (m *Model) browseColumns() []column {
+	if m.kind == vsphere.KindNetwork && !m.netFlat {
+		return networkTreeColumns(m.showContext())
+	}
+	return columnsFor(m.kind, m.showContext())
 }
 
 // viewTabs is the numbered kind bar. Numbering it is the point: reaching

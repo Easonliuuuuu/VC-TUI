@@ -103,8 +103,19 @@ type keyMap struct {
 	CopyPath  key.Binding
 
 	Sort key.Binding
-	Help key.Binding
-	Quit key.Binding
+	// Fold and NetView belong to the Networks tab: fold the switch under the
+	// cursor, and switch between port groups grouped by switch and the plain
+	// list. SwitchPage picks the switch workspace's page; it shares digits
+	// with Kind, which the workspace never handles.
+	Fold       key.Binding
+	NetView    key.Binding
+	SwitchPage key.Binding
+	// NetKeys is Fold and NetView's shared help line. The help overlay has to
+	// fit the minimum terminal height, and one line more than this moves the
+	// Connection keys below the bottom of it.
+	NetKeys key.Binding
+	Help    key.Binding
+	Quit    key.Binding
 
 	// The next four belong to the contexts screen.
 	UseContext    key.Binding
@@ -203,9 +214,13 @@ func defaultKeys() keyMap {
 		FindFiles: key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "find in datastore")),
 		CopyPath:  key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy datastore path")),
 
-		Sort: key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort: name/status")),
-		Help: key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
-		Quit: key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+		Sort:       key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort: name/status")),
+		Fold:       key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "fold switch")),
+		NetView:    key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "networks: tree/list")),
+		SwitchPage: key.NewBinding(key.WithKeys("0", "1"), key.WithHelp("0/1", "page")),
+		NetKeys:    key.NewBinding(key.WithHelp("space/t", "networks: fold, list")),
+		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
+		Quit:       key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 
 		UseContext:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "use")),
 		NewContext:    key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new")),
@@ -259,7 +274,7 @@ func (k keyMap) helpSections(demo bool) []helpSection {
 		// their own instead (historyHelpSections), which "?" shows in place of
 		// these sections when it is opened from the hub.
 		{"History", []key.Binding{k.History, k.NextPane}},
-		{"Table", []key.Binding{k.Sort}},
+		{"Table", []key.Binding{k.Sort, k.NetKeys}},
 		{"Contexts screen (c)", ctxBindings},
 		{"Other", []key.Binding{k.Help, k.Quit}},
 	}
@@ -380,6 +395,16 @@ func (k keyMap) footerHints(m *Model) []key.Binding {
 			return []key.Binding{k.Up, k.Down, k.RunAction, k.CancelAction}
 		}
 		return []key.Binding{k.Up, k.Down, k.Open, k.PerfRange, k.Timeline, k.Back, k.Help, k.Quit}
+	case modeSwitchDetail:
+		if m.sw != nil && m.sw.page == 1 {
+			return []key.Binding{k.Up, k.Down, k.Open, k.SwitchPage, k.Reload, k.Back, k.Help, k.Quit}
+		}
+		return []key.Binding{k.Up, k.Down, k.SwitchPage, k.Reload, k.Back, k.Help, k.Quit}
+	case modeSwitchPGDetail:
+		if m.actions != nil {
+			return []key.Binding{k.Up, k.Down, k.RunAction, k.CancelAction}
+		}
+		return []key.Binding{k.Up, k.Down, k.Open, k.Back, k.Help, k.Quit}
 	case modeDoctor:
 		return []key.Binding{k.Reload, k.Back, k.Help, k.Quit}
 	case modeHelp:

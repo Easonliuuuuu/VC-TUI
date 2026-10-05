@@ -1,0 +1,40 @@
+vsfleet  DEMO · SAMPLE DATA  ◆ prod-vc  ·  1 connected
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+DVS-Storage   distributed switch · prod-vc                                                                                         ✕ 1 · ▲ 5
+ 0 Overview [1 Wiring]                                                                                                 wiring as of 00:00:00
+
+ PHYSICAL                UPLINK       SWITCH               PORT GROUP              VLAN     VMS
+ vmnic4 25G ×54   ━━┬━━━ dvUplink1 ━━┐                 ┌── iscsi-a-vlan-2010 ▲     2010       0
+ vmnic4 down ×1 ✕ ──┘                │                 ├── iscsi-b-vlan-2011 ▲     2011       0
+ vmnic5 25G ×55   ┄┄┄┄┄┄ dvUplink2 ┄┄┤                 ├── nfs-vlan-2020 ▲         2020       0
+                                     └━ DVS-Storage ━━━┴━━ vmotion-vlan-2030 ▲     2030  vmk 55
+
+  ━ active uplink   ┄ standby   ─ not used by the selected port group   ▲ differs   ✕ no link
+
+▸ vmotion-vlan-2030   VLAN 2030 · 0 VMs · 55 VMkernel adapters
+  teaming failover_explicit · active dvUplink1 · standby dvUplink2
+  security promiscuous reject · MAC changes accept · forged transmits accept
+  ▲ vmotion-vlan-2030 runs on its standby uplink only on esxi-dmz-02
+  enter opens the port group
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑/k up  ↓/j down  enter open  0/1 page  r reload  esc back  ? help  q quit

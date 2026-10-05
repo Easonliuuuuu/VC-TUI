@@ -193,6 +193,41 @@ func (b *Backend) ListDatastoreVMReferences(_ context.Context, cc *config.Contex
 	return out, nil
 }
 
+// NetworkTopology implements the TUI's switch-view extension from the demo
+// estate's own switches and host network configuration. VM counts come from
+// the sample VMs' adapters, which is what Network.vm reflects on a vCenter.
+func (b *Backend) NetworkTopology(_ context.Context, cc *config.Context) (*vsphere.NetworkTopology, error) {
+	if cc == nil {
+		return nil, errors.New("no context selected")
+	}
+	if err := b.failures[cc.Name]; err != nil {
+		return nil, err
+	}
+	inv, ok := b.inventories[cc.Name]
+	if !ok || inv == nil {
+		return nil, fmt.Errorf("demo inventory for %q not found", cc.Name)
+	}
+	topo := &vsphere.NetworkTopology{
+		Context:    cc.Name,
+		Switches:   append([]vsphere.DVSwitch(nil), inv.DVSwitches...),
+		Hosts:      append([]vsphere.Host(nil), inv.Hosts...),
+		NetworkVMs: make(map[string]int, len(inv.Networks)),
+	}
+	for _, n := range inv.Networks {
+		topo.NetworkVMs[n.ID] = 0
+	}
+	for _, vm := range inv.VMs {
+		seen := map[string]bool{}
+		for _, nic := range vm.NICs {
+			if nic.NetworkID != "" && !seen[nic.NetworkID] {
+				seen[nic.NetworkID] = true
+				topo.NetworkVMs[nic.NetworkID]++
+			}
+		}
+	}
+	return topo, nil
+}
+
 // demoUnder reports the part of path inside dir, and whether it is there at
 // all.
 func demoUnder(path, dir string) (string, bool) {

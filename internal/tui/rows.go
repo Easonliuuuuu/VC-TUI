@@ -167,6 +167,8 @@ type row struct {
 	// vm is the virtual machine a VM row was built from, so the detail pane
 	// can judge its fields and chart its counters. Nil for every other kind.
 	vm *vsphere.VM
+	// tree places a row in the grouped Networks tab; see network.go.
+	tree treeInfo
 }
 
 // columnsFor returns the columns for a kind. withContext adds the leading
