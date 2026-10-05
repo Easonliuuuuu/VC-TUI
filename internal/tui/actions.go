@@ -61,15 +61,44 @@ const demoReadOnlyReason = "demo — read-only"
 // pane. Line 0 is the object's own header; every other line is
 // r.detail[cursor-2] — see detailFocusable, whose indexing this matches
 // exactly (index 1 is always the blank line under the title).
+//
+// Whatever the builders return, runnable actions come first and actions that
+// cannot run right now follow in their original order, so the popup opens on
+// something Enter can do and the unavailable entries read as a footnote. An
+// action that does not apply to the object at all is not built in the first
+// place; see addContextAction for the distinction.
 func (m *Model) actionsFor(r row, cursor int) []action {
 	if cursor == 0 {
-		return m.objectActions(r)
+		return runnableFirst(m.objectActions(r))
 	}
 	i := cursor - 2
 	if i < 0 || i >= len(r.detail) {
 		return nil
 	}
-	return m.fieldActions(r, r.detail[i])
+	return runnableFirst(m.fieldActions(r, r.detail[i]))
+}
+
+// runnable reports whether Enter on a can do anything.
+func (a action) runnable() bool { return a.disabled == "" && a.run != nil }
+
+// runnableFirst stably moves actions that cannot run behind those that can.
+func runnableFirst(items []action) []action {
+	slices.SortStableFunc(items, func(a, b action) int {
+		switch {
+		case a.runnable() == b.runnable():
+			return 0
+		case a.runnable():
+			return -1
+		default:
+			return 1
+		}
+	})
+	return items
+}
+
+// firstRunnable is the index of the first action Enter can run, or -1.
+func firstRunnable(items []action) int {
+	return slices.IndexFunc(items, action.runnable)
 }
 
 // copyAction is "Copy value" — the one action every addressable line offers,
@@ -518,10 +547,43 @@ func (m *Model) nestedContextFor(parentContext, moref, address string) *contextS
 	return nil
 }
 
-// addContextAction promotes a VM with an address to a context form. In demo
-// mode it is disabled because the presentation is read-only and does not
-// persist context mutations. Existing nested contexts remain switchable.
-func (m *Model) addContextAction(r row, address string) action {
+// vcenterNameEvidence reports whether a VM's own name, or the name its guest
+// reports, reads as a vCenter Server: a name part that starts with "vcsa",
+// "vcenter" or "vcentre", or is "vc" or "vc" plus digits ("vc01"). Parts are
+// split on anything that is not a letter or digit, so "prod-vcsa-01" and
+// "VCenter.lab.local" match while "vcls-1" (a vSphere cluster service agent),
+// "abc01" and "dc-01" do not. It is deliberately name evidence only: the guest
+// OS cannot tell a vCenter appliance from any other Photon OS appliance.
+func vcenterNameEvidence(names ...string) bool {
+	for _, name := range names {
+		parts := strings.FieldsFunc(strings.ToLower(name), func(r rune) bool {
+			return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+		})
+		for _, p := range parts {
+			switch {
+			case strings.HasPrefix(p, "vcsa"), strings.HasPrefix(p, "vcenter"), strings.HasPrefix(p, "vcentre"):
+				return true
+			case p == "vc":
+				return true
+			case strings.HasPrefix(p, "vc") && strings.Trim(p[2:], "0123456789") == "":
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// addContextAction promotes a VM that plausibly is a vCenter to a context
+// form, or switches to the context it already is. The second result says
+// whether the action applies to this VM at all; a VM that does not look like
+// a vCenter (a domain controller, a build runner) is not offered it, instead
+// of being offered a disabled entry that can never become runnable. What does
+// apply but cannot run right now stays visible with its reason: no address
+// yet, or demo mode, where the presentation is read-only and does not persist
+// context mutations. Existing nested contexts remain switchable and are always
+// offered, since saved provenance or an address match already proves the VM
+// is a vCenter the operator has added.
+func (m *Model) addContextAction(r row, address string) (action, bool) {
 	if nested := m.nestedContextFor(r.context, r.target.moref, address); nested != nil {
 		name := nested.cc.Name
 		return action{
@@ -534,16 +596,19 @@ func (m *Model) addContextAction(r row, address string) action {
 				m.mode = modeBrowse
 				return tea.Batch(m.ensureSelectedLoaded(false)...)
 			},
-		}
+		}, true
 	}
 
+	if !vcenterNameEvidence(r.name, r.target.hostName) {
+		return action{}, false
+	}
 	slug := m.uniqueContextName(r.name)
 	label := fmt.Sprintf("Add %q as a vCenter context", slug)
 	if address == "" {
-		return action{label: label, disabled: "no address available"}
+		return action{label: label, disabled: "no address available"}, true
 	}
 	if m.demo {
-		return action{label: label, disabled: demoReadOnlyReason}
+		return action{label: label, disabled: demoReadOnlyReason}, true
 	}
 	transport := config.TransportConfig{Type: config.TransportDirect}
 	if parent := m.byName[r.context]; parent != nil {
@@ -559,7 +624,7 @@ func (m *Model) addContextAction(r row, address string) action {
 	return action{label: label, run: func(m *Model) tea.Cmd {
 		m.returnTo = m.mode
 		return m.enterFormSeeded(seed)
-	}}
+	}}, true
 }
 
 // jumpAction narrows the table to kind's rows whose actionJoins field named
@@ -603,7 +668,9 @@ func (m *Model) objectActions(r row) []action {
 	switch r.kind {
 	case vsphere.KindVM:
 		out = append(out, m.vmSSHActions(r)...)
-		out = append(out, m.addContextAction(r, r.target.address))
+		if a, ok := m.addContextAction(r, r.target.address); ok {
+			out = append(out, a)
+		}
 		out = append(out, m.openAction(r))
 		out = append(out, copyNamed("Copy MoRef", r.target.moref))
 	case vsphere.KindTemplate:
@@ -693,22 +760,47 @@ func (m *Model) runAction(a action) tea.Cmd {
 // exactly one, or open the popup to choose among several. A line with no
 // actions at all (there is always at least "Copy value", so this is
 // unreachable today, but a future field type might have nothing to copy)
-// does nothing.
+// does nothing. The popup's cursor starts on the first runnable action, and
+// when nothing on the line can run, Enter says why in the message line
+// instead of opening a list nobody can choose from.
 func (m *Model) openFieldActions() tea.Cmd {
 	r, ok := m.detailRow()
 	if !ok {
 		return nil
 	}
-	items := m.actionsFor(r, m.detailCursor)
+	return m.openActionList(m.actionsFor(r, m.detailCursor))
+}
+
+// openActionList acts on items, already ordered runnable-first: nothing for
+// none, the action itself for exactly one, a message when none can run, else
+// the popup with its cursor on the first runnable entry.
+func (m *Model) openActionList(items []action) tea.Cmd {
+	first := firstRunnable(items)
 	switch {
 	case len(items) == 0:
+		return nil
+	case first < 0:
+		a := items[0]
+		m.setMessage(fmt.Sprintf("Nothing to run here — %s: %s", a.label, a.disabled), true)
 		return nil
 	case len(items) == 1:
 		return m.runAction(items[0])
 	default:
-		m.actions = &actionList{items: items}
+		m.actions = &actionList{items: items, cursor: first}
 		m.scrollVMActionIntoView()
 		return nil
+	}
+}
+
+// move steps the popup cursor by dir to the next runnable action, staying
+// put when there is none that way: a disabled entry is shown for its reason,
+// never selectable.
+func (al *actionList) move(dir int) {
+	for i := al.cursor + dir; i >= 0 && i < len(al.items); i += dir {
+		if al.items[i].runnable() {
+			al.cursor = i
+			return
+		}
 	}
 }
 
@@ -722,11 +814,11 @@ func (m *Model) handleActionsKey(msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, m.keys.Back):
 		m.actions = nil
 	case key.Matches(msg, m.keys.Up):
-		al.cursor = clamp(al.cursor-1, 0, len(al.items)-1)
+		al.move(-1)
 	case key.Matches(msg, m.keys.Down):
-		al.cursor = clamp(al.cursor+1, 0, len(al.items)-1)
+		al.move(1)
 	case key.Matches(msg, m.keys.Open):
-		if al.cursor >= 0 && al.cursor < len(al.items) && al.items[al.cursor].disabled == "" {
+		if al.cursor >= 0 && al.cursor < len(al.items) && al.items[al.cursor].runnable() {
 			return m.runAction(al.items[al.cursor])
 		}
 	}
