@@ -1,6 +1,6 @@
 module github.com/easonliuuuuu/vsfleet
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/atotto/clipboard v0.1.4
@@ -17,7 +17,7 @@ require (
 	github.com/xuri/excelize/v2 v2.11.0
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/net v0.58.0
-	golang.org/x/sync v0.22.0
+	golang.org/x/sync v0.23.0
 	golang.org/x/term v0.45.0
 	modernc.org/sqlite v1.58.0
 )
