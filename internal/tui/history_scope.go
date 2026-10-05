@@ -729,7 +729,7 @@ func scopeColumnWidths(width int) (impactW, objectW, contextW, detailW int) {
 	if width < 70 {
 		contextW = 7
 	}
-	avail := width - 2 - impactW - 1 - contextW - 1
+	avail := width - cursorGutter - impactW - 1 - contextW - 1
 	objectW = avail
 	if objectW > 28 {
 		detailW = objectW - 28 - 1
@@ -750,7 +750,7 @@ func scopeColumnWidths(width int) (impactW, objectW, contextW, detailW int) {
 func (m *Model) renderScopeStream(rows []scopeRow, width, height int) []string {
 	t := m.theme
 	impactW, objectW, contextW, detailW := scopeColumnWidths(width)
-	heading := "  " + pad("IMPACT", impactW, false) + " " + pad("OBJECT", objectW, false) + " " + pad("vCENTER", contextW, false)
+	heading := strings.Repeat(" ", cursorGutter) + pad("IMPACT", impactW, false) + " " + pad("OBJECT", objectW, false) + " " + pad("vCENTER", contextW, false)
 	if detailW > 0 {
 		heading += " " + pad("WHAT MOVED", detailW, false)
 	}

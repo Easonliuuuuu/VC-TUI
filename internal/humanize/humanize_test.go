@@ -68,10 +68,29 @@ func TestMHz(t *testing.T) {
 		{0, "-"},
 		{2400, "2.4GHz"},
 		{800, "800MHz"},
-		{307200, "307GHz"},
+		{307200, "307.2GHz"},
+		{115000, "115.0GHz"},
+		{18500, "18.5GHz"},
 	} {
 		if got := MHz(tc.in); got != tc.want {
 			t.Errorf("MHz(%d) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestMBPrecise(t *testing.T) {
+	for _, tc := range []struct {
+		in   int64
+		want string
+	}{
+		{0, "-"},
+		{512, "512M"},
+		{262144, "256.0G"},
+		{123392, "120.5G"},
+		{1 << 20, "1.0T"},
+	} {
+		if got := MBPrecise(tc.in); got != tc.want {
+			t.Errorf("MBPrecise(%d) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }

@@ -462,6 +462,28 @@ func (m *Model) vmDetailLines(r row, withActions bool) []string {
 	return out
 }
 
+// vmChartsDrawn reports whether any of the dashboard's chart lines are on
+// screen right now, which is what the "</> range" hint must promise. Beside
+// the properties (vmDetailLayout's split) they always are. Stacked under them,
+// at 80x24 for one, a full property list fills the viewport and the charts
+// sit below the fold until the pane is paged down, so the range keys exist
+// but nothing visible answers them.
+func (m *Model) vmChartsDrawn() bool {
+	if !m.showingVMPerf() {
+		return false
+	}
+	if _, split := m.vmDetailLayout(); split {
+		return true
+	}
+	r, ok := m.detailRow()
+	if !ok || r.vm == nil {
+		return false
+	}
+	left, _ := m.vmPropertyLines(r, false)
+	// vmDetailLines puts one blank line between the properties and the charts.
+	return len(left)+1 < m.detailY+m.bodyHeight()
+}
+
 func (m *Model) vmPropertyWidth() int {
 	width, _ := m.vmDetailLayout()
 	return width

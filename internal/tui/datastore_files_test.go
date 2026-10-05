@@ -503,7 +503,7 @@ func TestBrowseFilesIgnoresAndRestoresTheInventoryFilter(t *testing.T) {
 
 	press(t, m, "/")
 	typeText(t, m, "iso")
-	if out := m.View(); !strings.Contains(out, "1 here") {
+	if out := m.View(); !strings.Contains(out, "1 of 3 in this folder") {
 		t.Fatalf("filter count should match the one visible row:\n%s", out)
 	}
 	typeText(t, m, "zzz")

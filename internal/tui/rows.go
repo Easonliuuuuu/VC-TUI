@@ -208,8 +208,8 @@ func columnsFor(kind vsphere.Kind, withContext bool) []column {
 			column{title: "NAME"},
 			column{title: "STATE", width: 12},
 			column{title: "CLUSTER", width: 14},
-			column{title: "CPU", width: 16, right: true},
-			column{title: "MEMORY", width: 12, right: true},
+			column{title: "CPU", width: hostBarWidth + usageBarSuffix},
+			column{title: "MEMORY", width: hostBarWidth + usageBarSuffix},
 			column{title: "VMS", width: 5, right: true},
 			column{title: "VERSION", width: 10},
 		)
@@ -653,8 +653,8 @@ func hostRow(h vsphere.Host, withContext bool) row {
 			h.Name,
 			state,
 			humanize.Dash(h.Cluster),
-			ratio(humanize.MHz(h.CPUUsageMHz), humanize.MHz(h.TotalCPU())),
-			ratio(humanize.MB(h.MemoryUsageMB), humanize.MB(h.MemoryMB)),
+			capacityBar(h.CPUUsageMHz, h.TotalCPU(), hostBarWidth),
+			capacityBar(h.MemoryUsageMB, h.MemoryMB, hostBarWidth),
 			strconv.Itoa(h.VMCount),
 			humanize.Dash(h.Version),
 		),
@@ -669,7 +669,7 @@ func hostRow(h vsphere.Host, withContext bool) row {
 			{"CPU", fmt.Sprintf("%d cores / %d threads @ %s", h.CPUCores, h.CPUThreads, humanize.MHz(int64(h.CPUMHz)))},
 			{"CPU used", ratio(humanize.MHz(h.CPUUsageMHz), humanize.MHz(h.TotalCPU()))},
 			{"Memory", humanize.MB(h.MemoryMB)},
-			{"Memory used", ratio(humanize.MB(h.MemoryUsageMB), humanize.MB(h.MemoryMB))},
+			{"Memory used", ratio(humanize.MBPrecise(h.MemoryUsageMB), humanize.MBPrecise(h.MemoryMB))},
 			{"Virtual machines", strconv.Itoa(h.VMCount)},
 			{"Datacenter", humanize.Dash(h.Datacenter)},
 			{"Inventory path", humanize.Dash(h.Path)},
@@ -944,6 +944,29 @@ func countWord(n int, singular, plural string) string {
 	return fmt.Sprintf("%d %s", n, plural)
 }
 
+// kindCount is "1 VM" or "10 VMs": n of one kind, in the words the estate
+// summary uses.
+func kindCount(kind vsphere.Kind, n int) string {
+	switch kind {
+	case vsphere.KindVM:
+		return countWord(n, "VM", "VMs")
+	case vsphere.KindTemplate:
+		return countWord(n, "template", "templates")
+	case vsphere.KindHost:
+		return countWord(n, "host", "hosts")
+	case vsphere.KindCluster:
+		return countWord(n, "cluster", "clusters")
+	case vsphere.KindVApp:
+		return countWord(n, "vApp", "vApps")
+	case vsphere.KindDatastore:
+		return countWord(n, "datastore", "datastores")
+	case vsphere.KindNetwork:
+		return countWord(n, "network", "networks")
+	default:
+		return countWord(n, string(kind), string(kind)+"s")
+	}
+}
+
 // historyFieldValue shares browse vocabulary while leaving stored evidence
 // and exports intact. Other field values keep their original meaning.
 func historyFieldValue(name, value string) string {
@@ -977,6 +1000,30 @@ func ratio(used, total string) string {
 		used = "0"
 	}
 	return used + "/" + total
+}
+
+// usageBarSuffix is what usageBar appends after the bar itself: a space and a
+// right-aligned percentage such as " 75%". A column holding a bar is the bar's
+// width plus this. hostBarWidth is the bar the Hosts table draws for CPU and
+// memory, short enough that both still fit beside the cluster at 80 columns;
+// Datastores keep their longer bar because they have only one.
+const (
+	usageBarSuffix = 5
+	hostBarWidth   = 8
+)
+
+// capacityBar is usageBar for a used/total pair, as the Hosts table draws CPU
+// and memory. Unlike a datastore, a host with a known capacity and nothing
+// used is a real, idle 0%, so it gets an empty bar rather than the dash that
+// means "not reported". Without a capacity there is nothing to take a share of.
+func capacityBar(used, total int64, width int) string {
+	if total <= 0 {
+		return "-"
+	}
+	if used <= 0 {
+		return strings.Repeat("·", width) + "   0%"
+	}
+	return usageBar(float64(used)/float64(total)*100, width)
 }
 
 // usageBar renders a percentage as a bar plus the number. The bar is for the

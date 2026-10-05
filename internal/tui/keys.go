@@ -266,20 +266,26 @@ func (k keyMap) helpSections(demo bool) []helpSection {
 	}
 	return []helpSection{
 		{"Move", []key.Binding{k.Up, k.Down, k.PageUp, k.PageDown, k.Home, k.End}},
-		// The datastore file browser's two extra keys sit here rather than in
-		// a section of their own: enter, esc and "/" already mean the same
-		// thing there as everywhere else, and a fourth block would push the
-		// second column past the minimum supported terminal height.
-		{"Resource kinds", []key.Binding{k.Kind, k.NextTab, k.PrevTab, k.Open, k.Back, k.FindFiles, k.CopyPath}},
+		{"Resource kinds", []key.Binding{k.Kind, k.NextTab, k.PrevTab, k.Open, k.Back}},
 		{"Scope", []key.Binding{k.Contexts, k.AllScope, k.Filter, k.Search}},
-		{"Connection", []key.Binding{k.Reload, k.ReloadAll, k.Doctor}},
 		// The history hub's own keys are not here: this overlay has to fit the
 		// minimum supported terminal height, and a second history block pushes
 		// the Connection keys off the bottom of it. They have a help panel of
 		// their own instead (historyHelpSections), which "?" shows in place of
-		// these sections when it is opened from the hub.
-		{"History", []key.Binding{k.History, k.NextPane}},
+		// these sections when it is opened from the hub. That includes tab,
+		// which is "search all" on this screen (Scope above) and "next pane"
+		// there, so it is listed once per screen rather than twice here.
+		//
+		// History sits above Connection so that helpLines, which breaks the two
+		// columns at the section crossing the halfway mark, closes the left
+		// column on it. Below Connection, the left column grows by the
+		// Datastores section's height and "diagnose" falls off a 30 row terminal.
+		{"History", []key.Binding{k.History}},
+		{"Connection", []key.Binding{k.Reload, k.ReloadAll, k.Doctor}},
 		{"Table", []key.Binding{k.Sort, k.NetKeys}},
+		// f and y act on a datastore, not on a kind, so they get a section of
+		// their own rather than sitting among the keys that switch kinds.
+		{"Datastores", []key.Binding{k.FindFiles, k.CopyPath}},
 		{"Contexts screen (c)", ctxBindings},
 		{"Other", []key.Binding{k.Help, k.Quit}},
 	}
@@ -386,7 +392,7 @@ func (k keyMap) footerHints(m *Model) []key.Binding {
 		if m.actions != nil {
 			return []key.Binding{k.Up, k.Down, k.RunAction, k.CancelAction}
 		}
-		if r, ok := m.detailRow(); ok && r.vm != nil {
+		if m.vmChartsDrawn() {
 			return []key.Binding{k.Up, k.Down, k.Open, k.PerfRange, k.Timeline, k.Back, k.Help, k.Quit}
 		}
 		return []key.Binding{k.Up, k.Down, k.Open, k.Timeline, k.Back, k.Help, k.Quit}
@@ -399,7 +405,10 @@ func (k keyMap) footerHints(m *Model) []key.Binding {
 		if m.actions != nil {
 			return []key.Binding{k.Up, k.Down, k.RunAction, k.CancelAction}
 		}
-		return []key.Binding{k.Up, k.Down, k.Open, k.PerfRange, k.Timeline, k.Back, k.Help, k.Quit}
+		if m.vmChartsDrawn() {
+			return []key.Binding{k.Up, k.Down, k.Open, k.PerfRange, k.Timeline, k.Back, k.Help, k.Quit}
+		}
+		return []key.Binding{k.Up, k.Down, k.Open, k.Timeline, k.Back, k.Help, k.Quit}
 	case modeSwitchDetail:
 		if m.sw != nil && m.sw.page == 1 {
 			return []key.Binding{k.Up, k.Down, k.Open, k.SwitchPage, k.Reload, k.Back, k.Help, k.Quit}
