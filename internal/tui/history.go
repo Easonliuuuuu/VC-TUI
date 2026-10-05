@@ -969,7 +969,7 @@ func (m *Model) viewHistoryHealth() []string {
 	// Health is not scoped: its rules run over the whole stored assessment, so
 	// the header says so rather than letting it be read as the selected
 	// vCenter's verdict.
-	lines := []string{t.title.Render("Health"), "", t.dim.Render("  all vCenters · read-only findings from the latest stored assessment")}
+	lines := []string{t.title.Render("Health"), "", truncate(t.dim.Render("  all vCenters · read-only findings from the latest stored assessment"), m.width)}
 	if m.historyHealthErr != nil {
 		return append(lines, "  "+t.warn.Render(m.historyHealthErr.Error()))
 	}
