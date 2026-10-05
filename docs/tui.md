@@ -21,6 +21,13 @@ quiet background refresh.
 | Operations | `d` | Diagnose the selected row's vCenter |
 | Help and exit | `?` / `q` | Show key reference / quit |
 
+The selected row is marked with `▸` in the first column as well as by its
+highlight, so it stays visible under `NO_COLOR` or a monochrome terminal. While
+a text input (a filter, search, the datastore Find prompt, a label or note
+editor, a credential prompt) has focus, the key line lists only the keys that
+input answers to; every other key is typed into it. `?` shows the keys of the
+screen it was opened from, and `Esc` returns to that screen.
+
 ## VM detail dashboard
 
 A VM's detail pane is a small dashboard. Its properties keep the field
@@ -356,8 +363,8 @@ estate-wide by design: its job is to report which vCenters a run missed.
 Runs lists whole assessments, and Health judges the whole stored assessment;
 both are estate-wide whatever is selected, and Health's header says so. Health
 shows the migration verdict, categories, and default read-only findings for the
-latest stored assessment; `↑`/`↓` scroll the pane. Use `vsfleet health` when
-thresholds need tuning.
+latest stored assessment, critical first, then warning, then info; `↑`/`↓`
+scroll the pane. Use `vsfleet health` when thresholds need tuning.
 
 Changes opens on the newest two assessments and puts the stored runs on a run
 axis at the top of the pane, oldest to newest, with the two ends of the
@@ -371,6 +378,9 @@ comparison marked `b` and `t`:
 | Swap the ends | `s` | |
 | Clip to shared coverage | `c` | Moves the baseline to the newest older run that reached the same vCenters as the target |
 | Filter by impact | `1`-`4`, `0` clears | blocks, sizing, growth, churn |
+
+The key line shows the short forms (`b/t end`, `c clip`, `1-4 impact`); `?` from
+any History pane lists that pane's keys in full.
 
 Under the axis, a coverage matrix shows which vCenters each run actually
 reached — `●` reached, `✕` not compared, `·` no record. It collapses to a

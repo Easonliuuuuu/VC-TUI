@@ -2858,7 +2858,10 @@ func (m *Model) handleHelpKey(msg tea.KeyMsg) tea.Cmd {
 	limit := max(0, len(m.helpLines())-m.bodyHeight())
 	switch {
 	case key.Matches(msg, m.keys.Back):
-		m.mode = modeBrowse
+		// Back to wherever "?" was pressed, the same place "?" itself returns
+		// to. Esc used to land on the browse table from every screen, so
+		// asking for help in the middle of a history pane threw the pane away.
+		m.mode = m.helpFrom
 		m.detailY = 0
 	case key.Matches(msg, m.keys.Up):
 		m.detailY = clamp(m.detailY-1, 0, limit)

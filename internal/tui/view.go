@@ -992,8 +992,14 @@ func (m *Model) overlayKeys(hints [][2]string) []string {
 // a reference you look up somewhere else instead.
 func (m *Model) helpLines() []string {
 	t := m.theme
-	blocks := make([][]string, 0, len(m.keys.helpSections(m.demo)))
-	for _, sec := range m.keys.helpSections(m.demo) {
+	sections, title := m.keys.helpSections(m.demo), "Keys"
+	if m.helpFrom == modeChanges {
+		// Opened from the history hub: show that pane's keys in place of the
+		// browse sections, which describe a screen that is not visible.
+		sections, title = m.keys.historyHelpSections(m.historyPane, m.canCapture()), "Keys · History"
+	}
+	blocks := make([][]string, 0, len(sections))
+	for _, sec := range sections {
 		block := []string{t.header.Render(sec.title)}
 		for _, b := range sec.bindings {
 			h := b.Help()
@@ -1012,7 +1018,7 @@ func (m *Model) helpLines() []string {
 		}
 	}
 
-	lines := []string{t.title.Render("Keys"), ""}
+	lines := []string{t.title.Render(title), ""}
 	for _, l := range body {
 		lines = append(lines, "  "+l)
 	}

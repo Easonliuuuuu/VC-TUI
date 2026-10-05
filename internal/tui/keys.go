@@ -86,6 +86,12 @@ type keyMap struct {
 	ScrubNext key.Binding
 	PickRun   key.Binding
 	ClipSpan  key.Binding
+	// BaseTarget and NextPaneBrief are display-only footer stand-ins for the
+	// two keys Base/Target and NextPane share a hint slot for. The Changes
+	// key line has to hold nine hints in 80 columns and still end in "esc
+	// back  ? help"; the full names live in the history help section.
+	BaseTarget    key.Binding
+	NextPaneBrief key.Binding
 	// ImpactFilter narrows the change stream to one class of change. "0"
 	// clears it, so the filter never becomes a state you cannot leave.
 	ImpactFilter key.Binding
@@ -186,11 +192,13 @@ func defaultKeys() keyMap {
 
 		// Arrows only: "h" and "l" are the timeline and the browse screen's
 		// kind keys, and a scrubber that also fired those would be a trap.
-		ScrubPrev:    key.NewBinding(key.WithKeys("left"), key.WithHelp("←/→", "move end")),
-		ScrubNext:    key.NewBinding(key.WithKeys("right"), key.WithHelp("→", "newer run")),
-		PickRun:      key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "pick run")),
-		ClipSpan:     key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "clip to shared coverage")),
-		ImpactFilter: key.NewBinding(key.WithKeys("0", "1", "2", "3", "4"), key.WithHelp("1-4", "impact")),
+		ScrubPrev:     key.NewBinding(key.WithKeys("left"), key.WithHelp("←/→", "move")),
+		ScrubNext:     key.NewBinding(key.WithKeys("right"), key.WithHelp("→", "newer run")),
+		PickRun:       key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "pick run")),
+		ClipSpan:      key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "clip")),
+		BaseTarget:    key.NewBinding(key.WithHelp("b/t", "end")),
+		NextPaneBrief: key.NewBinding(key.WithHelp("tab", "panes")),
+		ImpactFilter:  key.NewBinding(key.WithKeys("0", "1", "2", "3", "4"), key.WithHelp("1-4", "impact")),
 
 		FindFiles: key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "find in datastore")),
 		CopyPath:  key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy datastore path")),
@@ -245,18 +253,77 @@ func (k keyMap) helpSections(demo bool) []helpSection {
 		{"Resource kinds", []key.Binding{k.Kind, k.NextTab, k.PrevTab, k.Open, k.Back, k.FindFiles, k.CopyPath}},
 		{"Scope", []key.Binding{k.Contexts, k.AllScope, k.Filter, k.Search}},
 		{"Connection", []key.Binding{k.Reload, k.ReloadAll, k.Doctor}},
-		// The changes screen puts its run-picker and capture bindings in the
-		// footer; keeping this section to one line preserves the compact help
-		// overlay at the minimum supported terminal height.
-		// The Changes pane's own bindings stay in its footer rather than
-		// claiming a section here: this overlay has to fit the minimum
-		// supported terminal height, and a second history block pushes the
-		// Connection keys off the bottom of it.
+		// The history hub's own keys are not here: this overlay has to fit the
+		// minimum supported terminal height, and a second history block pushes
+		// the Connection keys off the bottom of it. They have a help panel of
+		// their own instead (historyHelpSections), which "?" shows in place of
+		// these sections when it is opened from the hub.
 		{"History", []key.Binding{k.History, k.NextPane}},
 		{"Table", []key.Binding{k.Sort}},
 		{"Contexts screen (c)", ctxBindings},
 		{"Other", []key.Binding{k.Help, k.Quit}},
 	}
+}
+
+// described is b with a different label, for a help section that has room to
+// say more than the footer does.
+func described(b key.Binding, keys, desc string) key.Binding {
+	b.SetHelp(keys, desc)
+	return b
+}
+
+// historyHelpSections is the help panel for the history hub. It replaces the
+// browse sections instead of adding to them: the overlay has to fit the
+// minimum supported terminal height, and none of the browse-only keys (kinds,
+// scope, contexts, sort) do anything inside the hub. Descriptions stay within
+// 22 columns, which is what a help column has after its key.
+//
+// The Changes pane is the one whose bindings are documented nowhere else; the
+// other panes' footers already name theirs, but they are listed too so "?" is
+// complete wherever it is opened.
+func (k keyMap) historyHelpSections(pane int, canCapture bool) []helpSection {
+	var panes helpSection
+	switch pane {
+	case historyPaneRuns:
+		panes = helpSection{"Runs pane", []key.Binding{
+			k.Up, k.Down,
+			described(k.EditRun, "e", "edit label"),
+			described(k.NoteRun, "N", "edit note"),
+			described(k.PinRun, "p", "pin or unpin"),
+		}}
+	case historyPaneTrends:
+		panes = helpSection{"Trends pane", []key.Binding{
+			described(k.Up, "↑/k", "scroll up"),
+			described(k.Down, "↓/j", "scroll down"),
+		}}
+	case historyPaneHealth:
+		panes = helpSection{"Health pane", []key.Binding{
+			described(k.Up, "↑/k", "scroll up"),
+			described(k.Down, "↓/j", "scroll down"),
+		}}
+	default:
+		panes = helpSection{"Changes pane", []key.Binding{
+			k.Up, k.Down,
+			described(k.ScrubPrev, "←/→", "move active end"),
+			described(k.Base, "b", "move baseline end"),
+			described(k.Target, "t", "move target end"),
+			described(k.Swap, "s", "swap the two ends"),
+			described(k.PickRun, "R", "pick from all runs"),
+			described(k.ClipSpan, "c", "clip to same vCenters"),
+			described(k.ImpactFilter, "1-4", "impact · 0 clears"),
+			described(k.Open, "enter", "open inspector"),
+			described(k.Timeline, "h", "VM timeline"),
+		}}
+	}
+	hub := []key.Binding{k.PrevPane, k.NextPane}
+	if canCapture {
+		hub = append(hub, k.Capture)
+	}
+	hub = append(hub, described(k.Back, "esc", "back to browse"), k.Help, k.Quit)
+	// The pane's own keys come first: the panel splits into two columns at
+	// the block that crosses the halfway mark, and the long Changes block
+	// has to start the left column for the hub keys to land in the right.
+	return []helpSection{panes, {"History hub", hub}}
 }
 
 type helpSection struct {
@@ -345,7 +412,11 @@ func (k keyMap) footerHints(m *Model) []key.Binding {
 		if m.historyPane != historyPaneChanges {
 			return append(append([]key.Binding{k.Up, k.Down, k.NextPane}, capture...), k.Back, k.Help, k.Quit)
 		}
-		return append(append([]key.Binding{k.ScrubPrev, k.Base, k.Target, k.ClipSpan, k.ImpactFilter, k.NextPane}, capture...), k.Back, k.Quit)
+		// "? help" and "esc back" are the two hints this line may never lose,
+		// and the key line used to cut them off. Every label is the shortest
+		// that still names the action; b, t, s, R, h, enter and q are in the
+		// history help (see historyHelpSections), and ctrl+c still quits.
+		return append(append([]key.Binding{k.ScrubPrev, k.BaseTarget, k.ClipSpan, k.ImpactFilter, k.NextPaneBrief}, capture...), k.Back, k.Help)
 	case modeChangeDetail:
 		return []key.Binding{k.Up, k.Down, k.Timeline, k.Back, k.Help, k.Quit}
 	case modeHistoryRuns:
