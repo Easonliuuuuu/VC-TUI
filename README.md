@@ -68,7 +68,30 @@ Managing multiple VMware vCenters traditionally requires juggling browser tabs, 
 ### Homebrew (macOS and Linux)
 
 ```sh
-brew install --cask easonliuuuuu/tap/vsfleet
+brew install easonliuuuuu/tap/vsfleet
+```
+
+### Windows (WinGet & Scoop)
+
+```powershell
+# WinGet (Windows 10/11)
+winget install vsfleet
+
+# Scoop
+scoop bucket add easonliuuuuu https://github.com/Easonliuuuuu/homebrew-tap
+scoop install vsfleet
+```
+
+### Linux Packages (Debian, Ubuntu, RHEL, Fedora)
+
+Download native `.deb` or `.rpm` packages from [GitHub Releases](https://github.com/Easonliuuuuu/vsfleet/releases):
+
+```sh
+# Debian / Ubuntu
+sudo dpkg -i vsfleet_*_linux_amd64.deb
+
+# RHEL / CentOS / Fedora
+sudo rpm -i vsfleet_*_linux_amd64.rpm
 ```
 
 ### Pre-built binary (Linux, macOS, Windows)
