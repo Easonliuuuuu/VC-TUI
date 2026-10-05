@@ -2146,7 +2146,8 @@ func (m *Model) finishLoad(st *contextState) tea.Cmd {
 		// A timer discovering that input is required is represented on the
 		// context row, not as an unsolicited prompt or transient error banner.
 	case st.err != nil && st.inv == nil:
-		m.setMessage(st.cc.Name+": "+st.err.Error(), true)
+		// The browse failure row owns this error and its recovery hint.
+		// Repeating it in the transient message line costs a second row.
 	case st.err != nil:
 		m.setMessage(st.cc.Name+": refresh failed, still showing data from "+st.loadedAt.Format("15:04:05")+": "+st.err.Error(), true)
 	case quiet:

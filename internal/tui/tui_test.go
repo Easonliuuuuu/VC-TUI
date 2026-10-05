@@ -691,7 +691,7 @@ func TestOneBrokenVCenterKeepsTheRest(t *testing.T) {
 	if !strings.Contains(out, "app-01") {
 		t.Errorf("healthy results were lost:\n%s", out)
 	}
-	if !strings.Contains(out, "socks5 proxy") {
+	if !strings.Contains(out, "customer-a: connection failed") {
 		t.Errorf("the failure must be reported, not swallowed:\n%s", out)
 	}
 	if !strings.Contains(out, "1 failed") {
