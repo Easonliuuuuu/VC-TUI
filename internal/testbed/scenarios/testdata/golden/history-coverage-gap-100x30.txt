@@ -1,4 +1,4 @@
-vsfleet  history  ·  Changes   tab/⇧tab switch
+vsfleet  DEMO · SAMPLE DATA  history  ·  Changes   tab/⇧tab switch
 ────────────────────────────────────────────────────────────────────────────────────────────────────
   RUNS     #1   #2   #3   #4   #5    #4 → #5 · 28d · 2 runs
   VMs       ·    ·    ·    ·    ·    —

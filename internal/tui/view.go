@@ -168,13 +168,7 @@ func (m *Model) viewHeader() string {
 	if m.pendingScope() {
 		summary += " · " + m.spin.View() + "loading"
 	}
-	left := t.title.Render("vsfleet")
-	// The badge rides on the header rather than a line of its own so that
-	// every browse screen — and every screenshot taken of one — says plainly
-	// that this estate is invented.
-	if m.demo {
-		left += "  " + t.warn.Render(demoBadge)
-	}
+	left := m.headerBrand()
 	left += "  " + scope + t.dim.Render("  ·  "+summary)
 	// The sort order describes the table, so it is only claimed on the screen
 	// that has one.
@@ -183,6 +177,23 @@ func (m *Model) viewHeader() string {
 		right = t.faint.Render("sort: " + m.sortMode.label())
 	}
 	return joinEnds(left, right, m.width)
+}
+
+// headerBrand is the product name that opens every screen's header line, with
+// the demo badge riding on it when the interface shows sample data. Every
+// header builds on this rather than writing "vsfleet" itself, so the badge
+// cannot be dropped by one screen's layout: it rides on the header rather than
+// a line of its own so that every screen, and every screenshot taken of one,
+// says plainly that this estate is invented. Anything a header appends comes
+// after the badge, so truncating a narrow header trims the detail and keeps
+// the badge.
+func (m *Model) headerBrand() string {
+	t := m.theme
+	brand := t.title.Render("vsfleet")
+	if m.demo {
+		brand += "  " + t.warn.Render(demoBadge)
+	}
+	return brand
 }
 
 // joinEnds puts left and right on one line of exactly w columns, dropping the
@@ -412,7 +423,7 @@ func tabsWidth(labels []string, gap int) int {
 func (m *Model) viewSearchHeader() string {
 	t := m.theme
 	st := m.ensureSearch(m.filter.Value())
-	left := t.title.Render("vsfleet") + "  " + t.accent.Render("search")
+	left := m.headerBrand() + "  " + t.accent.Render("search")
 	if st.query == "" {
 		return truncate(left+t.dim.Render("  ·  every vCenter, every kind"), m.width)
 	}

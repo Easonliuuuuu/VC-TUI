@@ -157,7 +157,14 @@ func (m *Model) viewChangesHeader() string {
 	// this header, so the header no longer restates "target #N" — a figure
 	// the bar already shows by label, date, and coverage instead of a bare ID.
 	label := "history  ·  " + labels[pane]
-	return t.title.Render("vsfleet") + "  " + t.accent.Render(label) + t.dim.Render("   tab/⇧tab switch")
+	left := m.headerBrand() + "  " + t.accent.Render(label)
+	// The switch hint is the first thing to go when the badge leaves no room
+	// for it, rather than being cut mid-word.
+	full := left + t.dim.Render("   tab/⇧tab switch")
+	if m.width > 0 && ansi.StringWidth(full) > m.width {
+		return truncate(left, m.width)
+	}
+	return full
 }
 
 func (m *Model) viewHistoryTimelineHeader() string {
@@ -170,7 +177,7 @@ func (m *Model) viewHistoryTimelineDetailHeader() string {
 
 func (m *Model) viewTimelineHeader(label string) string {
 	t := m.theme
-	left := t.title.Render("vsfleet") + "  " + t.accent.Render(label)
+	left := m.headerBrand() + "  " + t.accent.Render(label)
 	if entity := m.timelineEntity(); entity != "" {
 		left += t.dim.Render("  ·  ") + t.value.Render(entity)
 	}
