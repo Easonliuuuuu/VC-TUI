@@ -378,6 +378,25 @@ inventory already uses.
 On the Contexts screen (`c`), use `Enter` to select a context, `a` for all
 contexts, `n`/`e`/`x` to add/edit/remove, `d` to diagnose, and `Esc` to return.
 
+Pressing `a` on the browse screen widens the table to every vCenter that has
+loaded; it never connects the others. The vCenters that have not loaded are
+named under the table, one line per state, so `1 connected` of `all 3 vCenters`
+says which two are missing and why:
+
+```text
+○ not connected: edge-vc, dr-vc · R connects all · c then enter connects one, d diagnoses
+◐ connecting: lab-vc
+◐ credentials required: site-3 · R asks for them · c then enter picks one
+✕ old-vc: connection failed · c select, d diagnose
+```
+
+`R` connects them all (and opens the password prompt for any that need one);
+`c` then `Enter` connects one and narrows to it, and `c` then `d` diagnoses it
+without connecting. A long list collapses to `edge-vc, dr-vc, +4 more`, and the
+hints shorten on a narrow terminal, so the table keeps its rows. A vCenter that
+failed keeps its own `✕` line with the `d` diagnosis hint instead of appearing
+twice. Estate search uses the same reasons (`✕ edge-vc not searched: not connected`).
+
 Press `Enter` on a vApp to open its summary and expanded member hierarchy. The
 summary shows the vApp's CPU and memory allocation (limit, reservation, shares,
 expandable) and its startup order; the members table lists VMs in that order,

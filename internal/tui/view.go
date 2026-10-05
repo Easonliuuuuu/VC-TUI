@@ -120,7 +120,7 @@ func (m *Model) bodyHeight() int { return max(1, m.height-chromeHeight) }
 // tableHeight is how many resource rows fit, after the rule, the headings and
 // any lines spent reporting a vCenter or kind that could not be read.
 func (m *Model) tableHeight() int {
-	chrome, unread := tableChrome, len(m.failuresInScope())
+	chrome, unread := tableChrome, len(m.failuresInScope())+len(m.unloadedInScope())
 	if m.mode == modeSearch {
 		st := m.ensureSearch(m.filter.Value())
 		chrome, unread = searchChrome, len(st.missing)+len(st.incomplete)
@@ -317,6 +317,15 @@ func (m *Model) viewBrowse() []string {
 		lines = append(lines, t.bad.Render(truncate(
 			fmt.Sprintf("%s %s: %s · %s", glyphFail, st.cc.Name, reason, m.failureHint(action)), w)))
 	}
+	// The vCenters with nothing loaded are named too: "all 3 vCenters · 1
+	// connected" leaves the reader to guess which two are missing.
+	for _, g := range m.unloadedInScope() {
+		style := t.dim
+		if g.warn {
+			style = t.warn
+		}
+		lines = append(lines, style.Render(g.render(w)))
+	}
 	return scrollLines(lines, 0, m.bodyHeight())
 }
 
@@ -472,14 +481,8 @@ func (m *Model) viewSearch() []string {
 		lines = append(lines, m.renderRow(r, cols, widths, i == m.cursor))
 	}
 	for _, cs := range st.missing {
-		reason := "not connected"
-		if cs.showsLoading() {
-			reason = "still loading"
-		} else if cs.err != nil {
-			reason = firstLine(cs.err.Error())
-		}
 		lines = append(lines, t.bad.Render(truncate(
-			fmt.Sprintf("%s %s not searched: %s", glyphFail, cs.cc.Name, reason), w)))
+			fmt.Sprintf("%s %s not searched: %s", glyphFail, cs.cc.Name, cs.unloadedReason()), w)))
 	}
 	for _, incomplete := range st.incomplete {
 		lines = append(lines, t.warn.Render(truncate(
@@ -635,6 +638,16 @@ func (m *Model) emptyMessage() string {
 	case m.filter.Value() != "":
 		return fmt.Sprintf("no %s matching %q", tabTitle(m.kind), m.filter.Value())
 	case len(m.failuresInScope()) > 0:
+		return ""
+	case len(m.unloadedInScope()) > 0:
+		// "No VMs" would be false while the vCenters that would have them are
+		// named below, not loaded. With nothing loaded at all the lines below
+		// are the whole answer.
+		for _, st := range m.states {
+			if st.inv != nil {
+				return "no " + tabTitle(m.kind) + " in the connected vCenters"
+			}
+		}
 		return ""
 	default:
 		return "no " + tabTitle(m.kind)
