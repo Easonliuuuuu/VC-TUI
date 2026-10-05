@@ -37,4 +37,4 @@ vsfleet  history  ·  Changes   tab/⇧tab switch
                                                      │                                                                                      
                                                      │                                                                                      
 
-←/→ move end  b baseline  t target  c clip to shared coverage  1-4 impact  tab next pane  esc back  q quit
+←/→ move  b/t end  c clip  1-4 impact  tab panes  esc back  ? help
