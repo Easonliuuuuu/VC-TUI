@@ -59,6 +59,10 @@ jobs:
               config: {
                 color: "bfdadc",
                 description: "Configuration, contexts, and operator settings"
+              },
+              deps: {
+                color: "0366d6",
+                description: "Dependency and toolchain updates"
               }
             };
 
@@ -97,7 +101,7 @@ jobs:
             const title = (item.title ?? "").trim();
             const components = [
               "tui", "assessment", "compatibility", "vsphere",
-              "docs", "ci", "release", "config", "other"
+              "docs", "ci", "release", "config", "deps", "other"
             ];
             let component;
             if (context.payload.pull_request) {
