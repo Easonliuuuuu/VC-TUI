@@ -397,12 +397,12 @@ func (m *Model) viewSearchHeader() string {
 	if st.query == "" {
 		return truncate(left+t.dim.Render("  ·  every vCenter, every kind"), m.width)
 	}
-	summary := fmt.Sprintf("%d match(es) in %d vCenter(s)", len(st.rows), st.searched)
+	summary := countWord(len(st.rows), "match", "matches") + " in " + countWord(st.searched, "vCenter", "vCenters")
 	if n := len(st.missing); n > 0 {
 		summary += t.bad.Render(fmt.Sprintf(" · %d not searched", n))
 	}
 	if n := len(st.incomplete); n > 0 {
-		summary += t.warn.Render(fmt.Sprintf(" · %d kind(s) incomplete", n))
+		summary += t.warn.Render(" · " + countWord(n, "kind", "kinds") + " incomplete")
 	}
 	return truncate(left+t.dim.Render("  ·  ")+t.value.Render(st.query)+t.dim.Render("  ·  "+summary), m.width)
 }
@@ -467,7 +467,7 @@ func (m *Model) searchEmptyMessage(st *searchState) string {
 	case st.searched == 0:
 		return "no vCenter has answered yet"
 	default:
-		return fmt.Sprintf("nothing named %q in %d vCenter(s)", st.query, st.searched)
+		return fmt.Sprintf("nothing named %q in %s", st.query, countWord(st.searched, "vCenter", "vCenters"))
 	}
 }
 

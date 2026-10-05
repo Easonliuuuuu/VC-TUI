@@ -7,24 +7,24 @@ vsfleet  DEMO · SAMPLE DATA  ◆ prod-vc  ·  1 connected
   Guest OS            Microsoft Windows Server     │                                                
                       2022 (64-bit)                │                                                
   Guest state         running                      │ ▅▅▅▆▆▆▅▄▃▁  ▁▂▃▃▃▂▂▁▂▄▆▇▇█▇▇▆▆▆▇███▇▆▄▃▂▂▃▃▃▃▂▁
-  VMware Tools        guestToolsNotRunning         │ ███████████████████████████████████████████████
-                      ▲ not installed              │ 23:00                                     00:00
-  Tools version       -                            │ 
-  IP address          -                            │ Memory active  % of 8G   avg 34.7% · peak 41.2%
-  DNS name            -                            │                                                
+  VMware Tools        not installed  ▲             │ ███████████████████████████████████████████████
+  Tools version       -                            │ 23:00                                     00:00
+  IP address          -                            │ 
+  DNS name            -                            │ Memory active  % of 8G   avg 34.7% · peak 41.2%
   CPU                 2 vCPU                       │                                                
-  Memory              8G                           │ ▄▄▄▄▄▄▄▃▂▂▁▁▂▂▂▂▂▂▂▂▂▃▄▄▅▅▅▄▄▄▄▅▅▅▅▅▄▃▃▂▂▂▃▃▂▂▁
-  Committed storage   40.0G                        │ ███████████████████████████████████████████████
-  Snapshots           none  ✓                      │ 23:00                                     00:00
-  Guest disks         -                            │ 
-  Host                esxi-mgmt-02                 │ Disk               avg 866 KB/s · peak 1.5 MB/s
-  Cluster             mgmt                         │                                  ▂▄▆███▇▅▃▁   ▁
-  Datacenter          Taipei                       │ ▁                     ▂▄▆▆▆▆▅▄▄▅▇███████████▇██
-  Folder              /Infrastructure/Core         │ █▇▄▂    ▁▂▄▄▄▄▃▁   ▂▄██████████████████████████
-  Datastores          local-esxi-mgmt-01           │ ████▇▆▆▇█████████▇█████████████████████████████
-  Inventory path      /Taipei/vm/Infrastructure/Co │ 23:00                                     00:00
-                      re/ad-dc-01                  │ 
-  Managed object      prod-vc-vm-906               │ CONTENTION
+  Memory              8G                           │                                                
+  Committed storage   40.0G                        │ ▄▄▄▄▄▄▄▃▂▂▁▁▂▂▂▂▂▂▂▂▂▃▄▄▅▅▅▄▄▄▄▅▅▅▅▅▄▃▃▂▂▂▃▃▂▂▁
+  Snapshots           none  ✓                      │ ███████████████████████████████████████████████
+  Guest disks         -                            │ 23:00                                     00:00
+  Host                esxi-mgmt-02                 │ 
+  Cluster             mgmt                         │ Disk               avg 866 KB/s · peak 1.5 MB/s
+  Datacenter          Taipei                       │                                  ▂▄▆███▇▅▃▁   ▁
+  Folder              /Infrastructure/Core         │ ▁                     ▂▄▆▆▆▆▅▄▄▅▇███████████▇██
+  Datastores          local-esxi-mgmt-01           │ █▇▄▂    ▁▂▄▄▄▄▃▁   ▂▄██████████████████████████
+  Inventory path      /Taipei/vm/Infrastructure/Co │ ████▇▆▆▇█████████▇█████████████████████████████
+                      re/ad-dc-01                  │ 23:00                                     00:00
+  Managed object      prod-vc-vm-906               │ 
+                                                   │ CONTENTION
                                                    │ CPU ready     ▁▁▁▁▂▁       0.4%     peak 1.9% ✓
 
 ↑/k up  ↓/j down  enter open  </> range  h timeline  esc back  ? help  q quit

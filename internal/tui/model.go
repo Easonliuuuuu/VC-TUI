@@ -2156,7 +2156,7 @@ func (m *Model) finishLoad(st *contextState) tea.Cmd {
 		// Nothing to say: the table simply became current.
 	default:
 		if n := len(st.inv.Errors); n > 0 {
-			m.setMessage(fmt.Sprintf("%s · %d listing error(s), see tabs", st.cc.Name, n), false)
+			m.setMessage(fmt.Sprintf("%s · %s, see tabs", st.cc.Name, countWord(n, "listing error", "listing errors")), false)
 		} else {
 			m.setMessage(st.cc.Name+" · "+st.inv.Counts(), false)
 			m.messageInventory = true
