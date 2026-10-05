@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -288,10 +289,23 @@ func (m *Model) viewBrowse() []string {
 	// Failures are listed under the table rather than replacing it: the
 	// vCenters that did answer are still the answer to the question asked.
 	for _, st := range m.failuresInScope() {
+		reason, action := "connection failed", "d diagnose"
+		if errors.Is(st.err, errPromptCanceled) {
+			reason, action = "credential entry canceled", "r retry"
+		}
 		lines = append(lines, t.bad.Render(truncate(
-			fmt.Sprintf("%s %s: %s", glyphFail, st.cc.Name, firstLine(st.err.Error())), w)))
+			fmt.Sprintf("%s %s: %s · %s", glyphFail, st.cc.Name, reason, m.failureHint(action)), w)))
 	}
 	return scrollLines(lines, 0, m.bodyHeight())
+}
+
+// failureHint keeps diagnosis reachable even when the selected healthy row
+// belongs to another vCenter in the all-contexts table.
+func (m *Model) failureHint(action string) string {
+	if m.allScope {
+		return "c select, " + action
+	}
+	return action
 }
 
 // viewTabs is the numbered kind bar. Numbering it is the point: reaching

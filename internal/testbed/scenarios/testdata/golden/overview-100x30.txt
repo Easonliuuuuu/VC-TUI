@@ -25,6 +25,6 @@ vsfleet  DEMO · SAMPLE DATA  all 3 vCenters  ·  2 connected · 1 failed       
  ● prod-vc         api-15             on             4     16G  10.20.0.153       esxi-a-09         
  ● prod-vc         api-16             on             8     32G  10.20.0.163       esxi-a-04         
  ● prod-vc         api-17             on             2      4G  10.20.0.173       esxi-a-07         
-✕ dr-site: proxy <dynamic>: connection refused
-dr-site: proxy <dynamic>: connection refused
+✕ dr-site: connection failed · c select, d diagnose
+edge-vc · 180 VMs, 8 templates, 12 hosts, 2 clusters, 6 vApps, 12 datastores, 16 networks
 1-7 kind  H history  c contexts  a all  / filter  r reload  ? help  q quit
