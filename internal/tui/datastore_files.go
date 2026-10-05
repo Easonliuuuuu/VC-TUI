@@ -676,6 +676,10 @@ func datastoreEntryDir(datastore string, entry vsphere.DatastoreEntry) string {
 	return vsphere.ParentBrowsePath(relative)
 }
 
+// dsNameColumn is the flexible NAME column, which search results fill with
+// the datastore path and which takes all the width the fixed columns leave.
+const dsNameColumn = 1
+
 func dsColumns() []column {
 	return []column{
 		{title: "TYPE", width: dsTypeWidth},
@@ -922,6 +926,17 @@ func (m *Model) dsTable(entries []vsphere.DatastoreEntry, cursor int, offset *in
 	return lines
 }
 
+// padDSPath fits a search result's datastore path to w columns, keeping its
+// end: the file name is what matched, so it is the part that must survive.
+// A folder's trailing "/" is held back while shortening, otherwise the cut
+// would land on it and leave "…/" with no name at all.
+func padDSPath(s string, w int) string {
+	if dir := strings.TrimSuffix(s, "/"); dir != s && w > 1 {
+		return pad(shortenPath(dir, w-1)+"/", w, false)
+	}
+	return padTail(s, w)
+}
+
 func (m *Model) renderDSEntry(entry vsphere.DatastoreEntry, cols []column, widths []int, selected, showPath bool) string {
 	kind, glyph, name := "FILE", " ", entry.Name
 	size := humanize.FileBytes(entry.SizeBytes)
@@ -942,6 +957,10 @@ func (m *Model) renderDSEntry(entry vsphere.DatastoreEntry, cols []column, width
 	drawn := make([]string, 0, len(cols))
 	for i, c := range cols {
 		if widths[i] == 0 {
+			continue
+		}
+		if showPath && i == dsNameColumn {
+			drawn = append(drawn, padDSPath(cells[i], widths[i]))
 			continue
 		}
 		drawn = append(drawn, pad(cells[i], widths[i], c.right))

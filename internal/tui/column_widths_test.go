@@ -224,8 +224,7 @@ func TestHealthFindingsUseTheSharedColumnGap(t *testing.T) {
 		m := healthPaneModel(t, width, 24)
 		view := ansi.Strip(m.View())
 		for _, line := range strings.Split(view, "\n") {
-			// The table's own lines; the pane's dim subtitle is not part of it.
-			if w := ansi.StringWidth(line); w > width && !strings.Contains(line, "all vCenters") {
+			if w := ansi.StringWidth(line); w > width {
 				t.Fatalf("%d columns: line is %d wide: %q", width, w, line)
 			}
 		}
@@ -242,6 +241,68 @@ func TestHealthFindingsUseTheSharedColumnGap(t *testing.T) {
 		}
 		if after := head[strings.Index(head, "OBJECT")+1:]; !strings.Contains(after, "MESSAGE") {
 			t.Errorf("%d columns: MESSAGE heading missing:\n%s", width, head)
+		}
+	}
+}
+
+// Issue #303: the Health subtitle is 69 columns wide and was drawn untruncated.
+func TestHealthSubtitleFitsTheWidth(t *testing.T) {
+	for _, width := range columnWidthSizes {
+		m := healthPaneModel(t, width, 24)
+		line := lineContaining(t, ansi.Strip(m.View()), "all vCenters")
+		if w := ansi.StringWidth(line); w > width {
+			t.Errorf("%d columns: subtitle is %d wide: %q", width, w, line)
+		}
+	}
+}
+
+// Issue #304: datastore search results show the datastore path, and a path
+// wider than the NAME column lost its file name to a right-hand cut.
+func TestDatastoreFindKeepsTheFileNameOfALongPath(t *testing.T) {
+	const deep = "[nvme-01] backups/2026/finance/sql-prod-01/snapshots/sql-prod-01.vmdk"
+	const deepDir = "[nvme-01] backups/2026/finance/sql-prod-01/snapshots/archive"
+	for _, width := range columnWidthSizes {
+		b := browsing()
+		b.results = []vsphere.DatastoreEntry{
+			file("sql-prod-01.vmdk", deep, 40<<30),
+			dir("archive", deepDir),
+		}
+		m := newTestModel(t, b.fakeBackend, Options{Current: "prod"})
+		m.backend = b
+		m.width, m.height = width, 24
+		openBrowser(t, m)
+		press(t, m, "f")
+		typeText(t, m, "sql-prod-01*")
+		press(t, m, "enter")
+
+		view := ansi.Strip(m.View())
+		for _, line := range strings.Split(view, "\n") {
+			if w := ansi.StringWidth(line); w > width {
+				t.Fatalf("%d columns: line is %d wide: %q", width, w, line)
+			}
+		}
+		row := lineContaining(t, view, "FILE")
+		if !strings.Contains(row, "sql-prod-01.vmdk") {
+			t.Errorf("%d columns: the file name was cut off: %q", width, row)
+		}
+		if !strings.Contains(row, deep[len("[nvme-01] "):]) && !strings.Contains(row, "…/") {
+			t.Errorf("%d columns: a shortened path should start with an ellipsis and a slash: %q", width, row)
+		}
+		drow := lineContaining(t, view, "DIR")
+		if !strings.Contains(drow, "archive/") {
+			t.Errorf("%d columns: the folder name was cut off: %q", width, drow)
+		}
+	}
+}
+
+func TestPadDSPathKeepsAFolderName(t *testing.T) {
+	for _, w := range []int{20, 30, 40} {
+		got := padDSPath("backups/2026/finance/sql-prod-01/", w)
+		if ansi.StringWidth(got) != w {
+			t.Errorf("width %d: got %q (%d wide)", w, got, ansi.StringWidth(got))
+		}
+		if !strings.Contains(got, "sql-prod-01/") {
+			t.Errorf("width %d: folder name lost: %q", w, got)
 		}
 	}
 }
