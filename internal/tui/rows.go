@@ -478,8 +478,8 @@ func vmRow(vm vsphere.VM, withContext bool) row {
 			{"vCenter", vm.Context},
 			{"Power state", powerWord(vm.PowerState)},
 			{"Guest OS", humanize.Dash(vm.GuestOS)},
-			{"Guest state", humanize.Dash(vm.GuestState)},
-			{"VMware Tools", humanize.Dash(vm.ToolsState)},
+			{"Guest state", guestStateWord(vm.GuestState)},
+			{"VMware Tools", toolsWord(vm.ToolsState, vm.ToolsVersionStatus)},
 			{"Tools version", humanize.Dash(vm.ToolsVersion)},
 			{"IP address", humanize.Dash(vm.IPAddress)},
 			{"DNS name", humanize.Dash(vm.GuestHostName)},
@@ -824,6 +824,65 @@ func powerWord(s string) string {
 		return "-"
 	default:
 		return s
+	}
+}
+
+// toolsWord gives installation evidence precedence over the running enum:
+// vSphere reports not-running even when Tools is not installed.
+func toolsWord(state, versionStatus string) string {
+	if versionStatus == "guestToolsNotInstalled" {
+		return "not installed"
+	}
+	switch state {
+	case "guestToolsRunning":
+		return "running"
+	case "guestToolsNotRunning":
+		return "not running"
+	case "guestToolsExecutingScripts":
+		return "executing scripts"
+	default:
+		return humanize.Dash(state)
+	}
+}
+
+func guestStateWord(state string) string {
+	switch state {
+	case "notRunning":
+		return "not running"
+	case "shuttingDown":
+		return "shutting down"
+	case "resetting":
+		return "restarting"
+	case "standby":
+		return "standby"
+	default:
+		return humanize.Dash(state)
+	}
+}
+
+// countWord renders irregular plurals without placeholder suffixes.
+func countWord(n int, singular, plural string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, singular)
+	}
+	return fmt.Sprintf("%d %s", n, plural)
+}
+
+// historyFieldValue shares browse vocabulary while leaving stored evidence
+// and exports intact. Other field values keep their original meaning.
+func historyFieldValue(name, value string) string {
+	if value == "" {
+		return "—"
+	}
+	switch name {
+	case "power_state", "power":
+		return powerWord(value)
+	case "tools_state":
+		return toolsWord(value, "")
+	case "guest_state":
+		return guestStateWord(value)
+	default:
+		return value
 	}
 }
 

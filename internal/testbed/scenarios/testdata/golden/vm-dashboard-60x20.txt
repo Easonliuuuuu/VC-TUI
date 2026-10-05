@@ -6,7 +6,7 @@ vsfleet  DEMO · SAMPLE DATA  ◆ prod-vc  ·  1 connected
   Power state         on
   Guest OS            Microsoft Windows Server 2022 (64-bit)
   Guest state         running
-  VMware Tools        guestToolsNotRunning  ▲ not installed
+  VMware Tools        not installed  ▲
   Tools version       -
   IP address          -
   DNS name            -

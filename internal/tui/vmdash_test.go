@@ -592,11 +592,11 @@ func TestVMDetailMarkFollowsTheWholeValue(t *testing.T) {
 				continue
 			}
 			field := lines[spans[i+2].start : spans[i+2].end+1]
-			if !strings.Contains(ansi.Strip(field[0]), "guestToolsNotRunning") {
+			if !strings.Contains(ansi.Strip(field[0]), "not running") {
 				t.Fatalf("width %d: the value was broken mid-word: %q", width, ansi.Strip(strings.Join(field, "\n")))
 			}
 			last := ansi.Strip(field[len(field)-1])
-			if !strings.Contains(last, glyphCheckWarn+" not running") {
+			if !strings.Contains(last, glyphCheckWarn) || strings.Count(ansi.Strip(strings.Join(field, "\n")), "not running") != 1 {
 				t.Fatalf("width %d: the mark should follow the value, got %q", width, ansi.Strip(strings.Join(field, "\n")))
 			}
 			for _, line := range field {

@@ -161,7 +161,7 @@ func TestComparisonBarNamesBothRunsAndCoverageGap(t *testing.T) {
 	bar := strings.Join(m.viewComparisonBar(m.changeDiff), "\n")
 	for _, want := range []string{
 		"pre-maintenance", "📌", historyRunLabel(base.ID), historyRunLabel(target.ID),
-		"2 vCenters", "1 vCenter", "+2h01m",
+		"2 vCenters", "1 vCenter", "+2h 1m",
 		"not compared: edge-vc",
 	} {
 		if !strings.Contains(bar, want) {
@@ -265,7 +265,7 @@ func TestChangeDetailShowsFieldsForVanishedVM(t *testing.T) {
 		t.Fatalf("rows=%+v", rows)
 	}
 	detail := strings.Join(m.historyInspector(rows[0]), "\n")
-	for _, want := range []string{"esx-01", "poweredOn", "uuid-1", "4 vCPU", "8G"} {
+	for _, want := range []string{"esx-01", "on", "uuid-1", "4 vCPU", "8G"} {
 		if !strings.Contains(detail, want) {
 			t.Fatalf("inspector missing %q — the old screen would have shown nothing here:\n%s", want, detail)
 		}
@@ -368,7 +368,7 @@ func TestChangesSplitShowsInlineInspector(t *testing.T) {
 	// newTestModel sets width 140, comfortably above the split threshold.
 	press(t, m, "H")
 	view := strings.Join(m.viewChanges(), "\n")
-	for _, want := range []string{"State", "esx-01", "poweredOn"} {
+	for _, want := range []string{"State", "esx-01", "on"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("wide Changes view did not show the inline inspector — missing %q:\n%s", want, view)
 		}

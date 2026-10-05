@@ -307,6 +307,8 @@ func vmFieldMarks(vm vsphere.VM, now time.Time) map[string]fieldMark {
 	switch {
 	case vm.ToolsVersionStatus == "guestToolsNotInstalled":
 		marks["VMware Tools"] = fieldMark{statusWarn, "not installed"}
+	case vm.PowerState == "poweredOn" && vm.ToolsState == "guestToolsExecutingScripts":
+		marks["VMware Tools"] = fieldMark{statusWarn, "executing scripts"}
 	case vm.PowerState == "poweredOn" && vm.ToolsState != "" && vm.ToolsState != "guestToolsRunning":
 		marks["VMware Tools"] = fieldMark{statusWarn, "not running"}
 	case toolsOutdated[vm.ToolsVersionStatus]:
@@ -511,6 +513,9 @@ func (m *Model) vmPropertyLines(r row, withActions bool) ([]string, []detailSpan
 		spans[idx].start = len(left)
 		suffix := ""
 		if mk, ok := marks[f.label]; ok {
+			if mk.note == f.value {
+				mk.note = ""
+			}
 			suffix = m.markSuffix(mk)
 		}
 		labelW := min(labelColumnPad, max(0, leftW-3))

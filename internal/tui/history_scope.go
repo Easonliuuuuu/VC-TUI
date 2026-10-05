@@ -479,7 +479,11 @@ func (m *Model) viewScrubber(width int, bars bool) []string {
 		}
 		ids += style.Render(centre(historyRunLabel(r.ID), scrubCellWidth))
 		sizes += t.dim.Render(centre(glyphs[i], scrubCellWidth))
-		handles += t.accent.Render(centre(m.handleMark(r.ID), scrubCellWidth))
+		handleStyle := t.accent
+		if m.handleMark(r.ID) == m.scrubHandle {
+			handleStyle = t.tabOn
+		}
+		handles += handleStyle.Render(centre(m.handleMark(r.ID), scrubCellWidth))
 	}
 	notes := m.scrubNotes(width)
 	lines := []string{ids}
@@ -502,7 +506,7 @@ func (m *Model) viewScrubber(width int, bars bool) []string {
 }
 
 // handleMark is the letter drawn under a run: which end of the comparison it
-// is, in upper case when it is the end the arrow keys currently move.
+// is. The active end is styled without changing the lowercase key label.
 func (m *Model) handleMark(id int64) string {
 	mark := ""
 	switch id {
@@ -512,9 +516,6 @@ func (m *Model) handleMark(id int64) string {
 		mark = "t"
 	default:
 		return ""
-	}
-	if m.scrubHandle == mark {
-		return strings.ToUpper(mark)
 	}
 	return mark
 }

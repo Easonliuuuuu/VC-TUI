@@ -360,7 +360,7 @@ func directVMs(v *vsphere.VApp, inv *vsphere.Inventory, depth int) []vappMember 
 		}
 	}
 	if len(out) == 0 && v.DirectVMCount > 0 {
-		out = append(out, missingVMMember(v.Context, "", fmt.Sprintf("%d VM(s) unavailable", v.DirectVMCount)))
+		out = append(out, missingVMMember(v.Context, "", countWord(v.DirectVMCount, "VM", "VMs")+" unavailable"))
 	}
 	return out
 }

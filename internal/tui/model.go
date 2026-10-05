@@ -679,10 +679,11 @@ type Model struct {
 	historyCapacityReport *assessment.CapacityReport
 	historyHealth         *health.Report
 	historyHealthErr      error
-	// historyTrendsErr is the Trends pane's own failure. Trends and Changes
+	// historyTrendsErr and historyTrendsEmpty belong to the Trends pane. Trends and Changes
 	// read different evidence under the same scope, so one pane having nothing
 	// to show must not put an error banner over the other pane's answer.
-	historyTrendsErr error
+	historyTrendsEmpty []string
+	historyTrendsErr   error
 	// historyCoverage is which vCenters each stored run actually reached,
 	// keyed by run ID then context name with the collection status as the
 	// value. The Changes pane draws it as a matrix under the run axis: a
@@ -1689,6 +1690,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case historyTrendsMsg:
 		m.historyTrendsErr = m.historyScopeError(msg.err, "complete assessments")
+		m.historyTrendsEmpty = msg.emptyExplanation
 		if msg.err == nil {
 			m.historyChurn = &msg.churn
 			m.historySnapshots = &msg.snapshots
@@ -2184,14 +2186,15 @@ func (m *Model) finishLoad(st *contextState) tea.Cmd {
 		// A timer discovering that input is required is represented on the
 		// context row, not as an unsolicited prompt or transient error banner.
 	case st.err != nil && st.inv == nil:
-		m.setMessage(st.cc.Name+": "+st.err.Error(), true)
+		// The browse failure row owns this error and its recovery hint.
+		// Repeating it in the transient message line costs a second row.
 	case st.err != nil:
 		m.setMessage(st.cc.Name+": refresh failed, still showing data from "+st.loadedAt.Format("15:04:05")+": "+st.err.Error(), true)
 	case quiet:
 		// Nothing to say: the table simply became current.
 	default:
 		if n := len(st.inv.Errors); n > 0 {
-			m.setMessage(fmt.Sprintf("%s · %d listing error(s), see tabs", st.cc.Name, n), false)
+			m.setMessage(fmt.Sprintf("%s · %s, see tabs", st.cc.Name, countWord(n, "listing error", "listing errors")), false)
 		} else {
 			m.setMessage(st.cc.Name+" · "+st.inv.Counts(), false)
 			m.messageInventory = true

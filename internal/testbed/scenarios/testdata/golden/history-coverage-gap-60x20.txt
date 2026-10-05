@@ -1,8 +1,8 @@
 vsfleet  history  ·  Changes   tab/⇧tab switch
 ────────────────────────────────────────────────────────────
   RUNS     #1   #2   #3   #4   #5  
-  pick                     b    T  
-  #4 → #5 · 28d0h · 2 runs
+  pick                     b    t  
+  #4 → #5 · 28d · 2 runs
   —
   ←/→ move target · b/t pick end
   COVER    ● reached   ✕ not compared   · no record

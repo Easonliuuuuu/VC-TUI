@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -298,8 +299,12 @@ func (m *Model) viewBrowse() []string {
 	// Failures are listed under the table rather than replacing it: the
 	// vCenters that did answer are still the answer to the question asked.
 	for _, st := range m.failuresInScope() {
+		reason, action := "connection failed", "d diagnose"
+		if errors.Is(st.err, errPromptCanceled) {
+			reason, action = "credential entry canceled", "r retry"
+		}
 		lines = append(lines, t.bad.Render(truncate(
-			fmt.Sprintf("%s %s: %s", glyphFail, st.cc.Name, firstLine(st.err.Error())), w)))
+			fmt.Sprintf("%s %s: %s · %s", glyphFail, st.cc.Name, reason, m.failureHint(action)), w)))
 	}
 	return scrollLines(lines, 0, m.bodyHeight())
 }
@@ -311,6 +316,15 @@ func (m *Model) browseColumns() []column {
 		return networkTreeColumns(m.showContext())
 	}
 	return columnsFor(m.kind, m.showContext())
+}
+
+// failureHint keeps diagnosis reachable even when the selected healthy row
+// belongs to another vCenter in the all-contexts table.
+func (m *Model) failureHint(action string) string {
+	if m.allScope {
+		return "c select, " + action
+	}
+	return action
 }
 
 // viewTabs is the numbered kind bar. Numbering it is the point: reaching
@@ -402,12 +416,12 @@ func (m *Model) viewSearchHeader() string {
 	if st.query == "" {
 		return truncate(left+t.dim.Render("  ·  every vCenter, every kind"), m.width)
 	}
-	summary := fmt.Sprintf("%d match(es) in %d vCenter(s)", len(st.rows), st.searched)
+	summary := countWord(len(st.rows), "match", "matches") + " in " + countWord(st.searched, "vCenter", "vCenters")
 	if n := len(st.missing); n > 0 {
 		summary += t.bad.Render(fmt.Sprintf(" · %d not searched", n))
 	}
 	if n := len(st.incomplete); n > 0 {
-		summary += t.warn.Render(fmt.Sprintf(" · %d kind(s) incomplete", n))
+		summary += t.warn.Render(" · " + countWord(n, "kind", "kinds") + " incomplete")
 	}
 	return truncate(left+t.dim.Render("  ·  ")+t.value.Render(st.query)+t.dim.Render("  ·  "+summary), m.width)
 }
@@ -472,7 +486,7 @@ func (m *Model) searchEmptyMessage(st *searchState) string {
 	case st.searched == 0:
 		return "no vCenter has answered yet"
 	default:
-		return fmt.Sprintf("nothing named %q in %d vCenter(s)", st.query, st.searched)
+		return fmt.Sprintf("nothing named %q in %s", st.query, countWord(st.searched, "vCenter", "vCenters"))
 	}
 }
 

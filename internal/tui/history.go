@@ -35,6 +35,7 @@ func (m *Model) enterChanges() tea.Cmd {
 	m.historyHealth = nil
 	m.historyHealthErr = nil
 	m.historyTrendsErr = nil
+	m.historyTrendsEmpty = nil
 	if m.assessment == nil {
 		m.historyErr = fmt.Errorf("historical assessments are unavailable")
 		m.historyHealthErr = fmt.Errorf("historical assessments are unavailable")
@@ -382,10 +383,18 @@ func formatInterval(d time.Duration) string {
 	case d < time.Hour:
 		return fmt.Sprintf("%dm", int(d.Minutes()))
 	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
+		hours, minutes := int(d.Hours()), int(d.Minutes())%60
+		if minutes == 0 {
+			return fmt.Sprintf("%dh", hours)
+		}
+		return fmt.Sprintf("%dh %dm", hours, minutes)
 	default:
 		days := int(d.Hours()) / 24
-		return fmt.Sprintf("%dd%dh", days, int(d.Hours())%24)
+		hours := int(d.Hours()) % 24
+		if hours == 0 {
+			return fmt.Sprintf("%dd", days)
+		}
+		return fmt.Sprintf("%dd %dh", days, hours)
 	}
 }
 
@@ -1272,11 +1281,33 @@ func (m *Model) viewHistoryTrends() []string {
 		sub = scope + " · " + sub
 	}
 	head := []string{t.title.Render("Trends"), "", t.dim.Render("  " + sub)}
+	if len(m.historyTrendsEmpty) > 0 {
+		lines := append(head, "")
+		explanation := append([]string(nil), m.historyTrendsEmpty...)
+		action := "Fix collection failures, then capture a complete assessment."
+		if m.canCapture() {
+			action = "Fix collection failures, then press n to capture again."
+		}
+		if m.demo {
+			action = "Demo history is fixed; complete runs are needed for Trends."
+		}
+		explanation = append(explanation, action)
+		for _, paragraph := range explanation {
+			for _, line := range wrap(paragraph, m.width-4) {
+				lines = append(lines, "  "+t.warn.Render(line))
+			}
+		}
+		m.offset = clamp(m.offset, 0, max(0, len(lines)-m.bodyHeight()))
+		return scrollLines(lines, m.offset, m.bodyHeight())
+	}
 	if m.historyTrendsErr != nil {
 		return append(head, t.warn.Render("  "+m.historyTrendsErr.Error()))
 	}
 	if m.historyChurn == nil || m.historySnapshots == nil {
 		return append(head, t.dim.Render("  loading history trends…"))
+	}
+	if len(m.historyChurn.Points) == 0 {
+		return append(head, t.dim.Render("  no complete assessments stored — capture a complete run"))
 	}
 	lines := append(head, "")
 	lines = append(lines, m.trendCapacityLines()...)
@@ -1539,7 +1570,7 @@ func (m *Model) vmInspectorFields(v assessment.VMChange) []string {
 	lines := []string{
 		t.header.Render("  State"),
 		fmt.Sprintf("  %-12s %s · %s", "as of", historyRunLabel(run.ID), run.StartedAt.Local().Format("2006-01-02 15:04")),
-		fmt.Sprintf("  %-12s %s", "power", nonempty(vm.PowerState, "—")),
+		fmt.Sprintf("  %-12s %s", "power", historyFieldValue("power_state", vm.PowerState)),
 		fmt.Sprintf("  %-12s %s", "host", nonempty(vm.Host, "—")),
 		fmt.Sprintf("  %-12s %s", "cluster", nonempty(vm.Cluster, "—")),
 		fmt.Sprintf("  %-12s %d vCPU · %s", "size", vm.CPU, humanize.MB(vm.MemoryMB)),
@@ -1554,7 +1585,7 @@ func (m *Model) vmInspectorFields(v assessment.VMChange) []string {
 	if len(v.Fields) > 0 {
 		lines = append(lines, "", t.header.Render("  Field changes"))
 		for _, f := range v.Fields {
-			lines = append(lines, fmt.Sprintf("  %-18s %s → %s", f.Field, truncate(nonempty(f.Before, "—"), 24), truncate(nonempty(f.After, "—"), 24)))
+			lines = append(lines, fmt.Sprintf("  %-18s %s → %s", f.Field, truncate(historyFieldValue(f.Field, f.Before), 24), truncate(historyFieldValue(f.Field, f.After), 24)))
 		}
 	}
 	return lines
@@ -1566,7 +1597,7 @@ func resourceInspectorFields(t theme, r assessment.ResourceChange) []string {
 	}
 	lines := []string{t.header.Render("  Field changes")}
 	for _, field := range r.Fields {
-		lines = append(lines, fmt.Sprintf("  %-22s %s → %s", field.Field, truncate(nonempty(field.Before, "—"), 24), truncate(nonempty(field.After, "—"), 24)))
+		lines = append(lines, fmt.Sprintf("  %-22s %s → %s", field.Field, truncate(historyFieldValue(field.Field, field.Before), 24), truncate(historyFieldValue(field.Field, field.After), 24)))
 	}
 	return lines
 }
@@ -1577,7 +1608,7 @@ func resourceDetail(r assessment.ResourceChange) string {
 	}
 	parts := make([]string, len(r.Fields))
 	for i, field := range r.Fields {
-		parts[i] = field.Field + ":" + field.Before + "→" + field.After
+		parts[i] = field.Field + ":" + historyFieldValue(field.Field, field.Before) + "→" + historyFieldValue(field.Field, field.After)
 	}
 	return strings.Join(parts, " ")
 }
@@ -1619,7 +1650,7 @@ func (m *Model) viewHistoryTimeline() []string {
 		if len(e.Changes) > 0 {
 			parts := make([]string, len(e.Changes))
 			for j, f := range e.Changes {
-				parts[j] = f.Field + ":" + nonempty(f.Before, "—") + "→" + nonempty(f.After, "—")
+				parts[j] = f.Field + ":" + historyFieldValue(f.Field, f.Before) + "→" + historyFieldValue(f.Field, f.After)
 			}
 			detail = strings.Join(parts, " ")
 		}
@@ -1644,7 +1675,7 @@ func (m *Model) viewHistoryTimelineDetail() []string {
 	if len(e.Changes) > 0 {
 		lines = append(lines, "", t.header.Render("Changes"))
 		for _, f := range e.Changes {
-			lines = append(lines, fmt.Sprintf("  %-18s %s → %s", f.Field, truncate(nonempty(f.Before, "—"), 24), truncate(nonempty(f.After, "—"), 24)))
+			lines = append(lines, fmt.Sprintf("  %-18s %s → %s", f.Field, truncate(historyFieldValue(f.Field, f.Before), 24), truncate(historyFieldValue(f.Field, f.After), 24)))
 		}
 	}
 	return scrollLines(lines, 0, m.bodyHeight())
@@ -1663,7 +1694,7 @@ func changeDetail(v assessment.VMChange) string {
 	}
 	parts := make([]string, len(v.Fields))
 	for i, f := range v.Fields {
-		parts[i] = f.Field + ":" + nonempty(f.Before, "—") + "→" + nonempty(f.After, "—")
+		parts[i] = f.Field + ":" + historyFieldValue(f.Field, f.Before) + "→" + historyFieldValue(f.Field, f.After)
 	}
 	return strings.Join(parts, " ")
 }

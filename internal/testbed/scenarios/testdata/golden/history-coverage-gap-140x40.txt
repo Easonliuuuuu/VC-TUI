@@ -1,14 +1,14 @@
 vsfleet  history  ·  Changes   tab/⇧tab switch
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-  RUNS     #1   #2   #3   #4   #5    #4 → #5 · 28d0h · 2 runs
+  RUNS     #1   #2   #3   #4   #5    #4 → #5 · 28d · 2 runs
   VMs       ·    ·    ·    ·    ·    —
-  pick                     b    T    ←/→ move target · b/t pick end
+  pick                     b    t    ←/→ move target · b/t pick end
   COVER    ● reached   ✕ not compared   · no record
   dr-site   ✕    ✕    ✕    ✕    ✕  
   edge-vc   ●    ●    ●    ●    ●  
   prod-vc   ●    ●    ●    ●    ●  
   b baseline  pre-migration        #4     Sun 09 Aug 00:00  partial   2/3 vCenters
-  t target    september-audit      #5     Sun 06 Sep 00:00  partial   2/3 vCenters +28d0h
+  t target    september-audit      #5     Sun 06 Sep 00:00  partial   2/3 vCenters +28d
   10 vanished   39 appeared   0 moved   0 modified   1 infra   28 snapshots
 
   IMPACT  OBJECT                       vCENTER       │ old-api-22                                                                           
@@ -18,7 +18,7 @@ vsfleet  history  ·  Changes   tab/⇧tab switch
 ▎blocks  old-jira-22                  prod-vc        │                                                                                      
 ▎blocks  old-mysql-20                 prod-vc        │   State                                                                              
 ▎blocks  old-queue-18                 prod-vc        │   as of        #4 · 2026-08-09 00:00                                                 
-▎blocks  old-vdi-eng-002              prod-vc        │   power        poweredOn                                                             
+▎blocks  old-vdi-eng-002              prod-vc        │   power        on                                                                    
 ▎blocks  old-vdi-eng-042              prod-vc        │   host         esxi-a-09                                                             
 ▎blocks  old-vdi-fin-023              prod-vc        │   cluster      compute-a                                                             
 ▎blocks  old-vdi-ops-024              prod-vc        │   size         2 vCPU · 4G                                                           
