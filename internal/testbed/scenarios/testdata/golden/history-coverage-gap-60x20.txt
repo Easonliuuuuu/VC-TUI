@@ -13,8 +13,8 @@ vsfleet  DEMO · SAMPLE DATA  history  ·  Changes
   t target    september-aud… #5     09-06 00:00  partial   …
   10 vanished   39 appeared   0 moved   0 modified   1 infr…
 
-  IMPACT  OBJECT                       vCENTER WHAT MOVED   
-▸blocks  old-api-22                   prod-vc vanished     
-▎blocks  old-batch-17                 prod-vc vanished     
+ IMPACT  OBJECT                       vCENTER WHAT MOVED    
+▸blocks  old-api-22                   prod-vc vanished      
+▎blocks  old-batch-17                 prod-vc vanished      
 
 ←/→ move  b/t end  c clip  tab panes  esc back  ? help

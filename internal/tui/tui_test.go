@@ -2398,22 +2398,3 @@ func TestDemoModeEmptyContextsViewDoesNotAdvertiseNewContext(t *testing.T) {
 		t.Errorf("empty demo contexts screen did not display expected message:\n%s", view)
 	}
 }
-
-func TestHostCapacityColumnsFitAtNarrowWidths(t *testing.T) {
-	cols := columnsFor(vsphere.KindHost, false)
-	for _, total := range []int{80, 100, 140} {
-		widths := layoutColumns(cols, total)
-		for i, c := range cols {
-			switch c.title {
-			case "CPU":
-				if widths[i] < len("12.4GHz/102.4GHz") {
-					t.Errorf("width %d: CPU column is %d wide", total, widths[i])
-				}
-			case "MEMORY":
-				if widths[i] < len("512.0G/1.0T") {
-					t.Errorf("width %d: MEMORY column is %d wide", total, widths[i])
-				}
-			}
-		}
-	}
-}

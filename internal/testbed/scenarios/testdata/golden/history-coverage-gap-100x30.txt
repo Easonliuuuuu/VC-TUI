@@ -11,20 +11,20 @@ vsfleet  DEMO · SAMPLE DATA  history  ·  Changes   tab/⇧tab switch
   t target    september-audit      #5     Sun 06 Sep 00:00  partial   2/3 vCenters +28d
   10 vanished   39 appeared   0 moved   0 modified   1 infra   28 snapshots
 
-  IMPACT  OBJECT                   vCENTER │ old-api-22                                             
-▸blocks  old-api-22               prod-vc  │   context  prod-vc                                     
-▎blocks  old-batch-17             prod-vc  │   kind     vm                                          
-▎blocks  old-crm-04               prod-vc  │   change   vanished                                    
-▎blocks  old-jira-22              prod-vc  │                                                        
-▎blocks  old-mysql-20             prod-vc  │   State                                                
-▎blocks  old-queue-18             prod-vc  │   as of        #4 · 2026-08-09 00:00                   
-▎blocks  old-vdi-eng-002          prod-vc  │   power        on                                      
-▎blocks  old-vdi-eng-042          prod-vc  │   host         esxi-a-09                               
-▎blocks  old-vdi-fin-023          prod-vc  │   cluster      compute-a                               
-▎blocks  old-vdi-ops-024          prod-vc  │   size         2 vCPU · 4G                             
-▎growth  39 VMs                   prod-vc  │   datastore    vsan-compute-a                          
-▎growth  esxi-b-10                prod-vc  │   ip address   —                                       
-▎churn   28 snapshots             prod-vc  │   guest os     Ubuntu Linux (64-bit)                   
+ IMPACT  OBJECT                    vCENTER │ old-api-22                                             
+▸blocks  old-api-22                prod-vc │   context  prod-vc                                     
+▎blocks  old-batch-17              prod-vc │   kind     vm                                          
+▎blocks  old-crm-04                prod-vc │   change   vanished                                    
+▎blocks  old-jira-22               prod-vc │                                                        
+▎blocks  old-mysql-20              prod-vc │   State                                                
+▎blocks  old-queue-18              prod-vc │   as of        #4 · 2026-08-09 00:00                   
+▎blocks  old-vdi-eng-002           prod-vc │   power        on                                      
+▎blocks  old-vdi-eng-042           prod-vc │   host         esxi-a-09                               
+▎blocks  old-vdi-fin-023           prod-vc │   cluster      compute-a                               
+▎blocks  old-vdi-ops-024           prod-vc │   size         2 vCPU · 4G                             
+▎growth  39 VMs                    prod-vc │   datastore    vsan-compute-a                          
+▎growth  esxi-b-10                 prod-vc │   ip address   —                                       
+▎churn   28 snapshots              prod-vc │   guest os     Ubuntu Linux (64-bit)                   
                                            │   uuid         ee15de90-09a5-0e39-31c3-b2e903dffd93    
 
 ←/→ move  b/t end  c clip  1-4 impact  tab panes  esc back  ? help

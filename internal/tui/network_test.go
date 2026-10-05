@@ -252,7 +252,7 @@ func TestNetworksFilterKeepsTheSwitchOfAMatch(t *testing.T) {
 	if got := strings.Join(rowNames(m.rows()), ","); got != "dvs-a,pg-vmotion" {
 		t.Errorf("filtered rows = %s, want the match under its switch", got)
 	}
-	if hint := m.filterHint(); !strings.Contains(hint, "1 here") {
+	if hint := m.filterHint(); !strings.Contains(hint, "1 network in prod") {
 		t.Errorf("the switch kept for its port group is not a match, hint = %q", hint)
 	}
 }

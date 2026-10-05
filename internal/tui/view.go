@@ -16,7 +16,9 @@ import (
 // host and grows from there; nothing below assumes more.
 const (
 	cellGap       = 2
-	glyphGutter   = 3 // cursor mark, status glyph, and the space after it
+	cursorGutter  = 1                // the cursor mark that opens every list row
+	glyphGutter   = cursorGutter + 2 // cursor mark, status glyph, and the space after it
+	tabIndent     = glyphGutter      // the kind bar starts over NAME, not over the glyphs
 	minNameWidth  = 16
 	chromeHeight  = 4 // header, tab bar or rule, message, key line
 	tableChrome   = 2 // the browse rule and its column headings
@@ -247,7 +249,11 @@ func (m *Model) filterHint() string {
 		return ""
 	}
 	if m.mode == modeDatastoreFiles {
-		hint := fmt.Sprintf("  %d here", len(m.visibleDSEntries()))
+		total := 0
+		if m.ds != nil {
+			total = len(m.ds.entries)
+		}
+		hint := fmt.Sprintf("  %d of %d in this folder", len(m.visibleDSEntries()), total)
 		if !m.filtering {
 			hint += " · esc clears"
 		}
@@ -260,13 +266,22 @@ func (m *Model) filterHint() string {
 			here++
 		}
 	}
-	hint := fmt.Sprintf("  %d here", here)
+	hint := "  " + kindCount(m.kind, here) + " in " + m.filterScope()
 	if all := len(m.ensureSearch(m.filter.Value()).rows); all > here {
 		hint += fmt.Sprintf(" · %d in the estate — tab to widen", all)
 	} else if !m.filtering {
 		hint += " · esc clears"
 	}
 	return hint
+}
+
+// filterScope names the vCenters the table's filter count is taken over, in
+// the words the header uses for the same thing.
+func (m *Model) filterScope() string {
+	if m.allScope {
+		return "all vCenters"
+	}
+	return m.scopeName()
 }
 
 func (m *Model) viewKeys() string {
@@ -381,7 +396,7 @@ found:
 		}
 		parts = append(parts, style.Render(label))
 	}
-	return truncate(" "+strings.Join(parts, strings.Repeat(" ", gap)), w)
+	return truncate(strings.Repeat(" ", tabIndent)+strings.Join(parts, strings.Repeat(" ", gap)), w)
 }
 
 // tabDensity is how much of a kind's label the bar can afford. Something
@@ -417,7 +432,7 @@ func (m *Model) tabLabels(d tabDensity) []string {
 }
 
 func tabsWidth(labels []string, gap int) int {
-	w := 1 // the bar is indented one column, like the table's glyph gutter
+	w := tabIndent
 	for i, l := range labels {
 		w += ansi.StringWidth(l)
 		if i > 0 {

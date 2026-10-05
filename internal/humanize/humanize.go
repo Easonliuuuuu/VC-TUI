@@ -69,20 +69,34 @@ func GB(gb float64) string {
 	return Bytes(int64(gb * (1 << 30)))
 }
 
-// MHz renders a CPU frequency or capacity: 2.4GHz for a core, 76GHz for a
-// host's total, which is how vCenter itself reports aggregate compute.
+// MHz renders a CPU frequency or capacity: 2.4GHz for a core, 115.0GHz for a
+// host's total. A gigahertz figure always carries one decimal, however large,
+// so a column or a used/total pair never mixes 18.5GHz with 115GHz.
 func MHz(mhz int64) string {
 	switch {
 	case mhz <= 0:
 		return "-"
 	case mhz >= 1000:
-		g := float64(mhz) / 1000
-		if g >= 100 {
-			return strconv.FormatFloat(g, 'f', 0, 64) + "GHz"
-		}
-		return strconv.FormatFloat(g, 'f', 1, 64) + "GHz"
+		return strconv.FormatFloat(float64(mhz)/1000, 'f', 1, 64) + "GHz"
 	default:
 		return strconv.FormatInt(mhz, 10) + "MHz"
+	}
+}
+
+// MBPrecise renders a measured memory quantity, such as the memory a host is
+// using, by the same one-decimal rule MHz applies to gigahertz: 120.5G of
+// 256.0G, never 120.5G of 256G. MB stays the renderer for configured sizes,
+// where a whole 32G is exact and a trailing .0 would only be noise.
+func MBPrecise(mb int64) string {
+	switch {
+	case mb <= 0:
+		return "-"
+	case mb >= 1<<20:
+		return strconv.FormatFloat(float64(mb)/(1<<20), 'f', 1, 64) + "T"
+	case mb >= 1024:
+		return strconv.FormatFloat(float64(mb)/1024, 'f', 1, 64) + "G"
+	default:
+		return strconv.FormatInt(mb, 10) + "M"
 	}
 }
 

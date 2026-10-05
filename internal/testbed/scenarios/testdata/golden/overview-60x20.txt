@@ -1,5 +1,5 @@
 vsfleet  DEMO · SAMPLE DATA  all 3 vCenters  ·  2 connected…
- 1 VM   2 Tpl   3 Host   4 Clus   5 DS   6 Net   7 vApp
+   1 VM   2 Tpl   3 Host   4 Clus   5 DS   6 Net   7 vApp
 ────────────────────────────────────────────────────────────
    VCENTER         NAME                     POWER        CPU
 ▸● prod-vc         ad-dc-01                 on             2

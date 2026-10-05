@@ -496,7 +496,7 @@ normal inventory remains available.
 
 1. Press `/` to filter the current view by name.
 2. If matches exist outside the current view, the query line reports them:
-   `/ubuntu   0 here · 2 in the estate — tab to widen`.
+   `/ubuntu   0 VMs in prod · 2 in the estate — tab to widen`.
 3. Press `Tab` to search every vCenter and resource kind in cached inventory.
 4. Press `Tab` again or `Esc` to narrow back while preserving the query.
 

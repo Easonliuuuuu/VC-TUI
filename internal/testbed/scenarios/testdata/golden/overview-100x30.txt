@@ -1,5 +1,5 @@
 vsfleet  DEMO · SAMPLE DATA  all 3 vCenters  ·  2 connected · 1 failed                    sort: name
- 1 VMs 1180  2 Templates 24  3 Hosts 68  4 Clusters 8  5 Datastores 48  6 Networks 46  7 vApps 30
+   1 VMs 1180  2 Templates 24  3 Hosts 68  4 Clusters 8  5 Datastores 48  6 Networks 46  7 vApps 30
 ────────────────────────────────────────────────────────────────────────────────────────────────────
    VCENTER         NAME               POWER        CPU     MEM  IP ADDRESS        HOST              
 ▸● prod-vc         ad-dc-01           on             2      8G  -                 esxi-mgmt-02      
