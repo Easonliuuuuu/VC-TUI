@@ -127,6 +127,21 @@ type keyMap struct {
 	// key.Matches never matches them directly.
 	RunAction    key.Binding
 	CancelAction key.Binding
+
+	// The next group is display-only too, and exists for one reason: while a
+	// text input has focus, every other key is typed into it, so the footer
+	// must list only what the input itself answers to. FilterApply and
+	// FilterClear are the filter's enter and esc, FindRun the datastore Find
+	// prompt's enter, SaveRun the run label/note editor's. Continue,
+	// SwitchField and ForceQuit are the credential and SSH prompts, which
+	// own the keyboard ahead of everything else.
+	FilterApply key.Binding
+	FilterClear key.Binding
+	FindRun     key.Binding
+	SaveRun     key.Binding
+	Continue    key.Binding
+	SwitchField key.Binding
+	ForceQuit   key.Binding
 }
 
 func defaultKeys() keyMap {
@@ -204,6 +219,14 @@ func defaultKeys() keyMap {
 
 		RunAction:    key.NewBinding(key.WithHelp("enter", "run")),
 		CancelAction: key.NewBinding(key.WithHelp("esc", "cancel")),
+
+		FilterApply: key.NewBinding(key.WithHelp("enter", "apply")),
+		FilterClear: key.NewBinding(key.WithHelp("esc", "clear")),
+		FindRun:     key.NewBinding(key.WithHelp("enter", "search")),
+		SaveRun:     key.NewBinding(key.WithHelp("enter", "save")),
+		Continue:    key.NewBinding(key.WithHelp("enter", "continue")),
+		SwitchField: key.NewBinding(key.WithHelp("tab", "switch field")),
+		ForceQuit:   key.NewBinding(key.WithHelp("ctrl+c", "quit")),
 	}
 }
 
@@ -244,6 +267,33 @@ type helpSection struct {
 // footerHints is the always-visible key line, kept short enough to survive an
 // 80 column terminal without an ellipsis.
 func (k keyMap) footerHints(m *Model) []key.Binding {
+	// A focused text input takes every printable key, so the screen's own
+	// shortcuts are not available until it lets go. Advertising them anyway
+	// meant the line said "H history" while "H" was being typed into a filter.
+	// The same precedence handleKey applies: the credential and SSH overlays
+	// first, then the filter, then the per-mode inputs below.
+	if m.credPrompt != nil {
+		return []key.Binding{k.Continue, k.CancelAction, k.ForceQuit}
+	}
+	if m.sshPrompt != nil {
+		return []key.Binding{k.Continue, k.SwitchField, k.CancelAction, k.ForceQuit}
+	}
+	if m.filtering {
+		switch m.mode {
+		case modeSearch:
+			// Esc leaves the search with the query kept, so it is "back" and
+			// not "clear" here.
+			return []key.Binding{k.FormMove, k.FilterApply, k.Back}
+		case modeDatastoreFiles:
+			return []key.Binding{k.FormMove, k.FilterApply, k.FilterClear}
+		case modeBrowse:
+			return []key.Binding{k.FormMove, k.FilterApply, k.Search, k.FilterClear}
+		default:
+			// The other panes keep their own cursors; up and down reach the
+			// input, not a list.
+			return []key.Binding{k.FilterApply, k.FilterClear}
+		}
+	}
 	switch m.mode {
 	case modeDetail:
 		if m.actions != nil {
@@ -301,7 +351,9 @@ func (k keyMap) footerHints(m *Model) []key.Binding {
 	case modeHistoryRuns:
 		return []key.Binding{k.Up, k.Down, k.Open, k.EditRun, k.NoteRun, k.PinRun, k.Back, k.Help, k.Quit}
 	case modeHistoryRunEdit:
-		return []key.Binding{k.FormActivate, k.Back, k.Help, k.Quit}
+		// The editor is a text input: "?" and "q" are typed into it, so
+		// neither help nor quit is offered.
+		return []key.Binding{k.SaveRun, k.CancelAction}
 	case modeHistoryTimeline:
 		return []key.Binding{k.Up, k.Down, k.Open, k.TimelineAll, k.Back, k.Help, k.Quit}
 	case modeHistoryTimelineDetail:
@@ -314,6 +366,10 @@ func (k keyMap) footerHints(m *Model) []key.Binding {
 	case modeDatastoreEntry:
 		return []key.Binding{k.Up, k.Down, k.Open, k.CopyPath, k.Back, k.Quit}
 	case modeDatastoreFind:
+		if m.ds != nil && m.ds.findPrompt {
+			// "f" and "y" are letters of the query while the prompt is open.
+			return []key.Binding{k.FindRun, k.Back}
+		}
 		return []key.Binding{k.Up, k.Down, k.Open, k.FindFiles, k.CopyPath, k.Back, k.Quit}
 	default:
 		// History comes before lower-priority browse hints so it remains
