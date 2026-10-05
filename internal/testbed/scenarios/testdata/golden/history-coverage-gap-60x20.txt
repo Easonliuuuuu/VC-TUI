@@ -17,4 +17,4 @@ vsfleet  DEMO · SAMPLE DATA  history  ·  Changes
 ▸blocks  old-api-22                   prod-vc vanished     
 ▎blocks  old-batch-17                 prod-vc vanished     
 
-←/→ move  b/t end  c clip  1-4 impact  tab panes  esc back …
+←/→ move  b/t end  c clip  tab panes  esc back  ? help
