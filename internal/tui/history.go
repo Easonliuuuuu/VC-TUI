@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/easonliuuuuu/vsfleet/internal/assessment"
 	"github.com/easonliuuuuu/vsfleet/internal/config"
@@ -957,21 +958,38 @@ func (m *Model) viewHistoryHealth() []string {
 	}
 	r := m.historyHealth
 	readiness := health.Readiness(*r)
-	lines = append(lines, fmt.Sprintf("  assessment %-5s  %s · %d finding(s) · %d info · %d warning · %d critical", historyRunLabel(r.RunID), strings.ToUpper(readiness.Verdict), r.Counts.Total, r.Counts.Info, r.Counts.Warning, r.Counts.Critical), "")
+	// Critical leads the counts and the total comes last. The line is cut at
+	// the terminal width, and on an 80 column terminal the figure that goes
+	// missing must be the least actionable one, never the critical count.
+	c := r.Counts
+	sep := t.faint.Render(" · ")
+	summary := "  assessment " + historyRunLabel(r.RunID) + "  " + strings.ToUpper(readiness.Verdict) + sep +
+		countSegment(t, c.Critical, "critical", t.bad) + sep +
+		countSegment(t, c.Warning, "warning", t.warn) + sep +
+		countSegment(t, c.Info, "info", t.dim) + sep +
+		t.faint.Render(fmt.Sprintf("%d total", c.Total))
+	lines = append(lines, truncate(summary, m.width), "")
 	if len(r.Findings) == 0 {
 		lines = append(lines, t.ok.Render("  no findings"))
 	} else {
-		lines = append(lines, t.header.Render("  SEVERITY   CONFIDENCE                 CATEGORY       RULE                         OBJECT                         MESSAGE"))
-		for _, finding := range r.Findings {
-			object := finding.Object.Kind + "/" + finding.Object.Name
-			line := fmt.Sprintf("  %-10s %-26s %-14s %-28s %-30s %s", finding.Severity, finding.Confidence, finding.Category, finding.Rule, object, finding.Message)
+		cols := healthColumns(r.Findings, m.width)
+		head := make([]string, 0, len(cols))
+		for _, col := range cols {
+			head = append(head, pad(col.title, col.width, false))
+		}
+		lines = append(lines, t.header.Render(truncate("  "+strings.Join(head, " "), m.width)))
+		for _, finding := range sortFindingsBySeverity(r.Findings) {
+			cells := make([]string, 0, len(cols))
+			for _, col := range cols {
+				cells = append(cells, pad(col.cell(finding), col.width, false))
+			}
 			style := t.warn
 			if finding.Severity == health.SeverityCritical {
 				style = t.bad
 			} else if finding.Severity == health.SeverityInfo {
 				style = t.dim
 			}
-			lines = append(lines, style.Render(truncate(line, m.width)))
+			lines = append(lines, style.Render(truncate("  "+strings.Join(cells, " "), m.width)))
 		}
 	}
 	for _, rule := range r.Rules {
@@ -984,6 +1002,119 @@ func (m *Model) viewHistoryHealth() []string {
 		}
 	}
 	return scrollLines(lines, m.offset, m.bodyHeight())
+}
+
+// sortFindingsBySeverity lists critical findings first. The stored order is
+// by rule, which on a real estate puts hundreds of informational findings in
+// front of the handful that block a migration, and the pane scrolls: the
+// critical rows were off the bottom of the screen. The sort is stable, so
+// within a severity the report's own order is kept and the list does not
+// shuffle between renders.
+func sortFindingsBySeverity(in []health.Finding) []health.Finding {
+	out := append([]health.Finding(nil), in...)
+	sort.SliceStable(out, func(i, j int) bool {
+		return findingSeverityRank(out[i].Severity) > findingSeverityRank(out[j].Severity)
+	})
+	return out
+}
+
+func findingSeverityRank(s health.Severity) int {
+	switch s {
+	case health.SeverityCritical:
+		return 2
+	case health.SeverityWarning:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// healthColumn is one column of the findings table: its heading, how to read
+// it off a finding, and the width it is drawn at.
+type healthColumn struct {
+	title string
+	width int
+	cell  func(health.Finding) string
+}
+
+// healthMessageMin is the least width the MESSAGE column is given before
+// lower-value columns are dropped to make room. The message is what tells the
+// operator what to do, so it is worth more than CATEGORY or CONFIDENCE.
+const healthMessageMin = 24
+
+// healthMessageSqueezed is the floor once RULE and OBJECT are being
+// shortened as well: below it a message is too clipped to read.
+const healthMessageSqueezed = 20
+
+// healthColumns sizes the findings table to the data and the terminal.
+// Columns take the width of their longest value rather than a fixed
+// allotment, and a column with no values at all is not drawn: CONFIDENCE is
+// only ever set by the orphan-VMDK rule, and reserving 26 columns for it
+// pushed OBJECT off an 80 column screen. When even that is too wide,
+// CONFIDENCE goes first, then CATEGORY, and last RULE and OBJECT are
+// shortened. OBJECT is never dropped: a finding that does not say what it is
+// about cannot be acted on.
+func healthColumns(findings []health.Finding, width int) []healthColumn {
+	sev := healthColumn{"SEVERITY", 8, func(f health.Finding) string { return string(f.Severity) }}
+	conf := healthColumn{title: "CONFIDENCE", cell: func(f health.Finding) string { return string(f.Confidence) }}
+	cat := healthColumn{title: "CATEGORY", cell: func(f health.Finding) string { return string(f.Category) }}
+	rule := healthColumn{title: "RULE", cell: func(f health.Finding) string { return f.Rule }}
+	obj := healthColumn{title: "OBJECT", cell: func(f health.Finding) string { return f.Object.Kind + "/" + f.Object.Name }}
+	msg := healthColumn{"MESSAGE", 0, func(f health.Finding) string { return f.Message }}
+
+	// fit sets a column to the width of its longest value, never wider than
+	// limit, and reports whether any finding had a value at all.
+	fit := func(c *healthColumn, limit int) bool {
+		c.width = ansi.StringWidth(c.title)
+		found := false
+		for _, f := range findings {
+			if v := c.cell(f); v != "" {
+				found = true
+				c.width = max(c.width, ansi.StringWidth(v))
+			}
+		}
+		c.width = min(c.width, limit)
+		return found
+	}
+	hasConfidence := fit(&conf, 12)
+	fit(&cat, 14)
+	fit(&rule, 28)
+	fit(&obj, 30)
+
+	// fits reports whether the columns, their single-space gaps, the two
+	// column indent and the minimum message width all fit.
+	fits := func(cols []healthColumn) bool {
+		used := 2 + healthMessageMin
+		for _, c := range cols {
+			used += c.width + 1
+		}
+		return used <= width
+	}
+	cols := []healthColumn{sev}
+	if hasConfidence {
+		cols = append(cols, conf)
+	}
+	cols = append(cols, cat, rule, obj)
+	if !fits(cols) && hasConfidence {
+		cols = []healthColumn{sev, cat, rule, obj}
+	}
+	if !fits(cols) {
+		cols = []healthColumn{sev, rule, obj}
+	}
+	if !fits(cols) {
+		// Still too wide: hold the message at a smaller floor, cap RULE (its
+		// ids are the most compressible text here), and give OBJECT what the
+		// rest leaves.
+		rule.width = min(rule.width, 22)
+		obj.width = max(12, min(obj.width, width-2-(sev.width+1)-(rule.width+1)-1-healthMessageSqueezed))
+		cols = []healthColumn{sev, rule, obj}
+	}
+	used := 2
+	for _, c := range cols {
+		used += c.width + 1
+	}
+	msg.width = max(1, width-used)
+	return append(cols, msg)
 }
 
 // changesListHeight is how many rows the change stream can draw — its own
