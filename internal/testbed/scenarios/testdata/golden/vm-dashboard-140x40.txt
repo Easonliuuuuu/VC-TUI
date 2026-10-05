@@ -21,8 +21,8 @@ vsfleet  DEMO · SAMPLE DATA  ◆ prod-vc  ·  1 connected
   Datacenter          Taipei                       │                                                               ▂▃▄▆▇▇████▇▆▅▄▃▂▁      ▁▁
   Folder              /Infrastructure/Core         │ ▁                                        ▁▂▄▅▆▆▆▆▆▆▅▅▄▄▄▄▄▅▆▇████████████████████▇▇████
   Datastores          local-esxi-mgmt-01           │ ██▇▅▄▂▁         ▁▂▃▃▄▄▄▄▄▃▃▂▁      ▁▂▃▄▆███████████████████████████████████████████████
-  Inventory path      /Taipei/vm/Infrastructure/Co │ ████████▇▆▅▅▆▆▇███████████████▇▇▇▇█████████████████████████████████████████████████████
-                      re/ad-dc-01                  │ 23:00                                                                             00:00
+  Inventory path      /Taipei/vm/Infrastructure/   │ ████████▇▆▅▅▆▆▇███████████████▇▇▇▇█████████████████████████████████████████████████████
+                      Core/ad-dc-01                │ 23:00                                                                             00:00
   Managed object      prod-vc-vm-906               │ 
                                                    │ CONTENTION
                                                    │ CPU ready     ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▂▂▂▁▁▁▁▁▁▁▁▁▁▁▁       0.4%     peak 1.9% ✓

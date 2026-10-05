@@ -461,7 +461,7 @@ func (m *Model) viewSearch() []string {
 
 	cols := searchColumns()
 	var lines []string
-	widths := layoutColumns(cols, w-glyphGutter)
+	widths := layoutSearch(st.rows, w-glyphGutter)
 	head := make([]string, 0, len(cols))
 	for i, c := range cols {
 		if widths[i] == 0 {
@@ -682,6 +682,10 @@ func (m *Model) renderRow(r row, cols []column, widths []int, selected bool) str
 	cells := make([]string, 0, len(cols))
 	for i, c := range cols {
 		if widths[i] == 0 || i >= len(r.cells) {
+			continue
+		}
+		if c.keepTail {
+			cells = append(cells, padTail(r.cells[i], widths[i]))
 			continue
 		}
 		cells = append(cells, pad(r.cells[i], widths[i], c.right))
@@ -1171,6 +1175,90 @@ func pad(s string, w int, right bool) string {
 		return strings.Repeat(" ", gap) + s
 	}
 	return s + strings.Repeat(" ", gap)
+}
+
+// padTail fits an inventory path to an exact display width, keeping its end:
+// "/Taipei/host/compute-a/esxi-01" in 20 columns reads "…/compute-a/esxi-01",
+// not "/Taipei/host/compute-…", because the leaf is the part that says which
+// object this is. Whole leading segments are dropped so the cut falls on a
+// "/"; only a leaf too long for the width on its own is cut mid-segment.
+func padTail(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	if ansi.StringWidth(s) > w {
+		s = shortenPath(s, w)
+	}
+	return pad(s, w, false)
+}
+
+// shortenPath returns s unchanged if it fits in w columns, else its tail
+// behind an ellipsis, starting at the first "/" that lets the tail fit.
+func shortenPath(s string, w int) string {
+	if ansi.StringWidth(s) <= w {
+		return s
+	}
+	if w <= 1 {
+		return ansi.Truncate(s, w, "")
+	}
+	for i := 1; i < len(s); i++ {
+		if s[i] == '/' && ansi.StringWidth(s[i:])+1 <= w {
+			return "…" + s[i:]
+		}
+	}
+	// No segment boundary helps: cut the leaf itself from the left.
+	return "…" + ansi.TruncateLeft(s, ansi.StringWidth(s)-(w-1), "")
+}
+
+// isPathLabel reports whether a detail field holds an inventory path. These
+// values have no spaces to wrap at, so they get wrapPath instead.
+func isPathLabel(label string) bool {
+	return label == "Inventory path" || label == "Folder"
+}
+
+// wrapPath wraps an inventory path to w columns, breaking after a "/" so no
+// folder name is split across two lines: "/Taipei/vm/Infrastructure/Core/
+// ad-dc-01" wraps as "/Taipei/vm/Infrastructure/" then "Core/ad-dc-01". A
+// single segment wider than w cannot be kept whole and is broken hard.
+func wrapPath(s string, w int) []string {
+	if w <= 0 || ansi.StringWidth(s) <= w {
+		return []string{s}
+	}
+	var lines []string
+	line := ""
+	flush := func() {
+		if line != "" {
+			lines = append(lines, line)
+			line = ""
+		}
+	}
+	rest := s
+	for rest != "" {
+		// A segment keeps its trailing "/" so the break lands after it.
+		seg := rest
+		if i := strings.IndexByte(rest, '/'); i >= 0 {
+			seg = rest[:i+1]
+		}
+		rest = rest[len(seg):]
+		if ansi.StringWidth(line)+ansi.StringWidth(seg) <= w {
+			line += seg
+			continue
+		}
+		flush()
+		for ansi.StringWidth(seg) > w {
+			head := ansi.Truncate(seg, w, "")
+			if head == "" {
+				// Not even one cell fits (a wide rune in a one column
+				// budget): take it anyway rather than loop forever.
+				head = seg[:len(string([]rune(seg)[:1]))]
+			}
+			lines = append(lines, head)
+			seg = seg[len(head):]
+		}
+		line = seg
+	}
+	flush()
+	return lines
 }
 
 // truncate cuts a rendered line to the terminal width without padding it.

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/easonliuuuuu/vsfleet/internal/humanize"
 	"github.com/easonliuuuuu/vsfleet/internal/vsphere"
 )
@@ -87,6 +88,10 @@ type column struct {
 	title string
 	width int
 	right bool
+	// keepTail truncates an over-long value from the left instead of the
+	// right, so the part that identifies the object (the end of an inventory
+	// path) stays visible.
+	keepTail bool
 }
 
 // field is one label/value pair in a detail pane.
@@ -270,18 +275,89 @@ func tabTitle(kind vsphere.Kind) string {
 	}
 }
 
+// Search column limits. A column is sized to its widest value, but never past
+// its cap: one freakishly long name or vCenter label must not starve PATH,
+// which is the column the operator reads to tell two same-named objects apart.
+const (
+	searchContextMax    = 20
+	searchDatacenterMax = 16
+	searchNameMax       = 40
+	// searchPathMin is the least PATH is worth drawing: "…/compute-a/esxi-01"
+	// still says which host, where a few columns of it say nothing.
+	searchPathMin = 20
+)
+
 // searchColumns are the columns of the estate-wide search result table: the
 // same five, in the same order, that "vsfleet search" prints. It lists seven
 // kinds at once, so it can only use what every object has — which vCenter,
-// what it is, its name, and where it sits.
+// what it is, its name, and where it sits. The widths here are the fallback
+// for a terminal too narrow to draw PATH; layoutSearch sizes them to the
+// results otherwise.
 func searchColumns() []column {
 	return []column{
 		{title: "VCENTER", width: 12},
 		{title: "TYPE", width: 9},
 		{title: "NAME"},
 		{title: "DATACENTER", width: 12},
-		{title: "PATH", width: 26},
+		{title: "PATH", width: 26, keepTail: true},
 	}
+}
+
+// layoutSearch assigns widths to the search columns. Unlike the browse
+// tables, whose NAME column absorbs the slack, search sizes every column to
+// its widest value and hands the slack to PATH: names are short and PATH is
+// the long, discriminating value, so a flexible NAME just wastes columns the
+// path needed. When even that does not fit, DATACENTER (the first segment of
+// PATH) goes first, then NAME shrinks to its floor; PATH is only left out, as
+// it always was, when it cannot reach searchPathMin. The returned slice is
+// aligned with searchColumns, a zero marking a column that is not drawn.
+func layoutSearch(rows []row, total int) []int {
+	cols := searchColumns()
+	if len(rows) == 0 {
+		// Nothing to size to: the headings alone should not reshuffle.
+		return layoutColumns(cols, total)
+	}
+	nat := make([]int, len(cols))
+	for i, c := range cols {
+		nat[i] = ansi.StringWidth(c.title)
+	}
+	for _, r := range rows {
+		for i, cell := range searchCells(r) {
+			nat[i] = max(nat[i], ansi.StringWidth(cell))
+		}
+	}
+	const vcenter, kind, name, datacenter, path = 0, 1, 2, 3, 4
+	nat[vcenter] = min(nat[vcenter], searchContextMax)
+	nat[name] = min(nat[name], searchNameMax)
+	nat[datacenter] = min(nat[datacenter], searchDatacenterMax)
+
+	need := min(searchPathMin, nat[path])
+	for _, attempt := range []struct {
+		datacenter bool
+		name       int
+	}{
+		{true, nat[name]},
+		{false, nat[name]},
+		{false, min(nat[name], minNameWidth)},
+	} {
+		widths := []int{nat[vcenter], nat[kind], attempt.name, 0, 0}
+		if attempt.datacenter {
+			widths[datacenter] = nat[datacenter]
+		}
+		used, drawn := 0, 0
+		for _, w := range widths {
+			if w > 0 {
+				used += w
+				drawn++
+			}
+		}
+		// PATH is drawn after the others, so it adds one more gap.
+		if spare := total - used - cellGap*drawn; spare >= need {
+			widths[path] = spare
+			return widths
+		}
+	}
+	return layoutColumns(cols, total)
 }
 
 // searchCells renders one row for that table.
