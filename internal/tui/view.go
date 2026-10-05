@@ -15,7 +15,7 @@ import (
 // host and grows from there; nothing below assumes more.
 const (
 	cellGap       = 2
-	glyphGutter   = 2 // status glyph plus its separating space
+	glyphGutter   = 3 // cursor mark, status glyph, and the space after it
 	minNameWidth  = 16
 	chromeHeight  = 4 // header, tab bar or rule, message, key line
 	tableChrome   = 2 // the browse rule and its column headings
@@ -597,6 +597,29 @@ func (m *Model) emptyMessage() string {
 	}
 }
 
+// cursorMark is the first column of every table row: the cursor glyph on the
+// selected row, a blank elsewhere. The highlight alone cannot be the cursor.
+// Under NO_COLOR, a dumb terminal or a monochrome palette lipgloss strips the
+// background and the bold, and the selected row became indistinguishable from
+// its neighbours. The mark gets a column of its own, rather than sharing the
+// status glyph's, because that glyph (powered on, powered off, failed) is
+// information the cursor must not hide.
+func (m *Model) cursorMark(selected bool) string {
+	if selected {
+		return m.theme.accent.Render(glyphCursor)
+	}
+	return " "
+}
+
+// listCursor is the same mark for the plain-text lists whose whole line is
+// styled at once, where it has to be unstyled text inside that line.
+func listCursor(selected bool) string {
+	if selected {
+		return glyphCursor
+	}
+	return " "
+}
+
 func (m *Model) renderRow(r row, cols []column, widths []int, selected bool) string {
 	t := m.theme
 	cells := make([]string, 0, len(cols))
@@ -614,7 +637,7 @@ func (m *Model) renderRow(r row, cols []column, widths []int, selected bool) str
 	}
 	// The glyph sits in its own gutter, outside the selection highlight, so a
 	// powered-off VM still reads as powered off while the cursor is on it.
-	return t.statusStyle(r.status).Render(r.glyph) + " " + line
+	return m.cursorMark(selected) + t.statusStyle(r.status).Render(r.glyph) + " " + line
 }
 
 // viewDetail is one object, full width, every property the inventory carries.

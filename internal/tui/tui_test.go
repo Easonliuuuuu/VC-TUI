@@ -1197,11 +1197,12 @@ func TestBrowseTableGetsTheWholeWidth(t *testing.T) {
 		}
 	}
 
-	// The host column costs another two columns beyond that; it should
-	// appear as soon as it fits rather than staying dropped.
-	m.width = 82
+	// The host column costs another three columns beyond that (the cursor
+	// gutter took one); it should appear as soon as it fits rather than
+	// staying dropped.
+	m.width = 83
 	if !strings.Contains(m.View(), "HOST") {
-		t.Errorf("82 columns is enough for the host column:\n%s", m.View())
+		t.Errorf("83 columns is enough for the host column:\n%s", m.View())
 	}
 }
 

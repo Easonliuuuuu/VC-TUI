@@ -12,7 +12,7 @@ vsfleet  history  ·  Changes   tab/⇧tab switch
   10 vanished   39 appeared   0 moved   0 modified   1 infra   28 snapshots
 
   IMPACT  OBJECT                       vCENTER       │ old-api-22                                                                           
-▎blocks  old-api-22                   prod-vc        │   context  prod-vc                                                                   
+▸blocks  old-api-22                   prod-vc        │   context  prod-vc                                                                   
 ▎blocks  old-batch-17                 prod-vc        │   kind     vm                                                                        
 ▎blocks  old-crm-04                   prod-vc        │   change   vanished                                                                  
 ▎blocks  old-jira-22                  prod-vc        │                                                                                      

@@ -765,8 +765,9 @@ func (m *Model) renderScopeStream(rows []scopeRow, width, height int) []string {
 		if i == m.changeCursor {
 			// The cursor row takes one background across the whole line, so
 			// the impact colour gives way to the highlight rather than
-			// fighting it.
-			line = t.focused.Render(truncate(plain, width))
+			// fighting it. Its leading bar becomes the cursor glyph, since a
+			// background alone is gone under NO_COLOR (see cursorMark).
+			line = t.focused.Render(truncate(glyphCursor+strings.TrimPrefix(plain, "▎"), width))
 		}
 		lines = append(lines, line)
 	}

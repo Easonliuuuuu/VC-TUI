@@ -284,10 +284,12 @@ func assertResult(result Result) error {
 	}
 	switch result.Name {
 	case "overview", "duplicate-names", "resize":
-		// A powered-on row starts with the status glyph. This deliberately does
-		// not name a VM: at production scale which rows fit on screen depends
-		// on sort order and terminal height, not on whether inventory rendered.
-		if !strings.Contains(result.View, "\n● ") {
+		// A powered-on row has the status glyph in its second column, after the
+		// cursor column (blank on every row but the selected one). This
+		// deliberately does not name a VM: at production scale which rows fit
+		// on screen depends on sort order and terminal height, not on whether
+		// inventory rendered.
+		if !strings.Contains(result.View, "\n ● ") {
 			return fmt.Errorf("scenario %s did not render inventory", result.Name)
 		}
 	case "partial-failure":
