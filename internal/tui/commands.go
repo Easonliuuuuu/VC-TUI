@@ -2,9 +2,11 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -110,11 +112,12 @@ type historyRunUpdatedMsg struct {
 }
 
 type historyTrendsMsg struct {
-	churn          assessment.ChurnTrend
-	snapshots      assessment.SnapshotTrend
-	capacity       assessment.CapacityTrend
-	capacityReport assessment.CapacityReport
-	err            error
+	churn            assessment.ChurnTrend
+	snapshots        assessment.SnapshotTrend
+	capacity         assessment.CapacityTrend
+	capacityReport   assessment.CapacityReport
+	emptyExplanation []string
+	err              error
 }
 
 type historyHealthMsg struct {
@@ -195,7 +198,13 @@ func loadHistoryTrendsCmd(ctx context.Context, service *assessment.Service, cont
 		opts := assessment.TrendOptions{Limit: 30, Contexts: contexts}
 		churn, err := service.ChurnTrend(ctx, opts)
 		if err != nil {
+			if errors.Is(err, assessment.ErrUnknownStoredContext) {
+				return historyTrendsMsg{err: err, emptyExplanation: trendEmptyExplanation(ctx, service, contexts)}
+			}
 			return historyTrendsMsg{err: err}
+		}
+		if len(churn.Points) == 0 {
+			return historyTrendsMsg{churn: churn, emptyExplanation: trendEmptyExplanation(ctx, service, contexts)}
 		}
 		snapshots, err := service.SnapshotTrend(ctx, opts, 30*24*time.Hour)
 		if err != nil {
@@ -208,6 +217,63 @@ func loadHistoryTrendsCmd(ctx context.Context, service *assessment.Service, cont
 		capacityReport, err := service.CapacityReport(ctx, opts, assessment.CapacityThresholds{FreePercent: 10})
 		return historyTrendsMsg{churn: churn, snapshots: snapshots, capacity: capacity, capacityReport: capacityReport, err: err}
 	}
+}
+
+// trendEmptyExplanation reads stored coverage, not live connection state. A
+// healthy selected vCenter can still have no Trends because a different site
+// made every whole assessment partial.
+func trendEmptyExplanation(ctx context.Context, service *assessment.Service, scope []string) []string {
+	runs, err := service.Runs(ctx)
+	if err != nil {
+		return nil
+	}
+	partial := 0
+	gaps := map[string]bool{}
+	for _, run := range runs {
+		contexts, err := service.ContextRuns(ctx, run.ID)
+		if err != nil {
+			return nil
+		}
+		inScope := len(scope) == 0
+		for _, c := range contexts {
+			for _, name := range scope {
+				if strings.EqualFold(c.Name, name) {
+					inScope = true
+				}
+			}
+		}
+		if !inScope {
+			continue
+		}
+		if run.Status != assessment.RunPartial {
+			continue
+		}
+		partial++
+		for _, c := range contexts {
+			if !assessment.Successful(c.VMStatus) {
+				gaps[c.Name] = true
+			}
+		}
+	}
+	if partial == 0 {
+		return nil
+	}
+	summary := fmt.Sprintf("%d partial assessments excluded from Trends.", partial)
+	if partial == len(runs) {
+		summary = fmt.Sprintf("All %d stored assessments are partial.", partial)
+	}
+	lines := []string{summary, "Trends requires complete assessments, even for one vCenter."}
+	var names []string
+	for name := range gaps {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	if len(names) > 0 {
+		lines = append(lines, "Incomplete VM coverage: "+strings.Join(names, ", "))
+	} else {
+		lines = append(lines, "Some inventory collections were incomplete.")
+	}
+	return lines
 }
 
 func loadHistoryHealthCmd(ctx context.Context, service *assessment.Service, runID int64, opts health.Options) tea.Cmd {

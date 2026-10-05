@@ -664,10 +664,11 @@ type Model struct {
 	historyCapacityReport *assessment.CapacityReport
 	historyHealth         *health.Report
 	historyHealthErr      error
-	// historyTrendsErr is the Trends pane's own failure. Trends and Changes
+	// historyTrendsErr and historyTrendsEmpty belong to the Trends pane. Trends and Changes
 	// read different evidence under the same scope, so one pane having nothing
 	// to show must not put an error banner over the other pane's answer.
-	historyTrendsErr error
+	historyTrendsEmpty []string
+	historyTrendsErr   error
 	// historyCoverage is which vCenters each stored run actually reached,
 	// keyed by run ID then context name with the collection status as the
 	// value. The Changes pane draws it as a matrix under the run axis: a
@@ -1651,6 +1652,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case historyTrendsMsg:
 		m.historyTrendsErr = m.historyScopeError(msg.err, "complete assessments")
+		m.historyTrendsEmpty = msg.emptyExplanation
 		if msg.err == nil {
 			m.historyChurn = &msg.churn
 			m.historySnapshots = &msg.snapshots

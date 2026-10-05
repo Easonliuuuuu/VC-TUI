@@ -35,6 +35,7 @@ func (m *Model) enterChanges() tea.Cmd {
 	m.historyHealth = nil
 	m.historyHealthErr = nil
 	m.historyTrendsErr = nil
+	m.historyTrendsEmpty = nil
 	if m.assessment == nil {
 		m.historyErr = fmt.Errorf("historical assessments are unavailable")
 		m.historyHealthErr = fmt.Errorf("historical assessments are unavailable")
@@ -1272,11 +1273,33 @@ func (m *Model) viewHistoryTrends() []string {
 		sub = scope + " · " + sub
 	}
 	head := []string{t.title.Render("Trends"), "", t.dim.Render("  " + sub)}
+	if len(m.historyTrendsEmpty) > 0 {
+		lines := append(head, "")
+		explanation := append([]string(nil), m.historyTrendsEmpty...)
+		action := "Fix collection failures, then capture a complete assessment."
+		if m.canCapture() {
+			action = "Fix collection failures, then press n to capture again."
+		}
+		if m.demo {
+			action = "Demo history is fixed; complete runs are needed for Trends."
+		}
+		explanation = append(explanation, action)
+		for _, paragraph := range explanation {
+			for _, line := range wrap(paragraph, m.width-4) {
+				lines = append(lines, "  "+t.warn.Render(line))
+			}
+		}
+		m.offset = clamp(m.offset, 0, max(0, len(lines)-m.bodyHeight()))
+		return scrollLines(lines, m.offset, m.bodyHeight())
+	}
 	if m.historyTrendsErr != nil {
 		return append(head, t.warn.Render("  "+m.historyTrendsErr.Error()))
 	}
 	if m.historyChurn == nil || m.historySnapshots == nil {
 		return append(head, t.dim.Render("  loading history trends…"))
+	}
+	if len(m.historyChurn.Points) == 0 {
+		return append(head, t.dim.Render("  no complete assessments stored — capture a complete run"))
 	}
 	lines := append(head, "")
 	lines = append(lines, m.trendCapacityLines()...)
