@@ -572,6 +572,7 @@ func jumpAction(label string, kind vsphere.Kind, matcher, value string) action {
 		m.filter.SetValue("")
 		m.cursor, m.offset = 0, 0
 		m.clearVAppWorkspace()
+		m.clearSwitchWorkspace()
 		m.clearDSWorkspace()
 		m.mode = m.detailFrom
 		return nil
@@ -590,6 +591,7 @@ func jumpToNamed(label string, kind vsphere.Kind, name string) action {
 		m.filter.SetValue(name)
 		m.cursor, m.offset = 0, 0
 		m.clearVAppWorkspace()
+		m.clearSwitchWorkspace()
 		m.clearDSWorkspace()
 		m.mode = m.detailFrom
 		return nil

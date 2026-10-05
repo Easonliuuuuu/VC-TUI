@@ -21,6 +21,7 @@ func mapHostConfig(host *Host, config *types.HostConfigInfo) {
 	}
 	if network := config.Network; network != nil {
 		host.NICs, host.VSwitches, host.PortGroups, host.VMKs = mapHostNetwork(network)
+		host.ProxySwitches = mapHostProxySwitches(network)
 	}
 }
 
@@ -207,12 +208,46 @@ func mapHostVMKernel(value types.HostVirtualNic, serviceConsole bool) HostVMKern
 	if mapped.PortGroup == "" {
 		mapped.PortGroup = value.Spec.Portgroup
 	}
+	if port := value.Spec.DistributedVirtualPort; port != nil {
+		mapped.DVSwitchUUID = port.SwitchUuid
+		mapped.DVPortGroupKey = port.PortgroupKey
+	}
 	if ip := value.Spec.Ip; ip != nil {
 		mapped.DHCP = boolPtr(ip.Dhcp)
 		mapped.IP = ip.IpAddress
 		mapped.SubnetMask = ip.SubnetMask
 	}
 	return mapped
+}
+
+// mapHostProxySwitches maps each distributed switch the host belongs to. An
+// uplink's name comes from UplinkPort, which pairs the uplink port key with
+// the name the switch gives it; the physical NIC comes from the backing
+// spec, which pairs a NIC with the uplink port key it is assigned to.
+func mapHostProxySwitches(network *types.HostNetworkInfo) []HostProxySwitch {
+	out := make([]HostProxySwitch, 0, len(network.ProxySwitch))
+	for _, ps := range network.ProxySwitch {
+		nicByPort := map[string]string{}
+		if backing, ok := ps.Spec.Backing.(*types.DistributedVirtualSwitchHostMemberPnicBacking); ok {
+			for _, spec := range backing.PnicSpec {
+				if spec.UplinkPortKey != "" {
+					nicByPort[spec.UplinkPortKey] = spec.PnicDevice
+				}
+			}
+		}
+		mapped := HostProxySwitch{Key: ps.Key, Switch: ps.DvsName, SwitchUUID: ps.DvsUuid, MTU: ps.Mtu}
+		for _, port := range ps.UplinkPort {
+			mapped.Uplinks = append(mapped.Uplinks, HostProxyUplink{Name: port.Value, NIC: nicByPort[port.Key]})
+		}
+		out = append(out, mapped)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Switch != out[j].Switch {
+			return out[i].Switch < out[j].Switch
+		}
+		return out[i].Key < out[j].Key
+	})
+	return out
 }
 
 func mapHostMultipaths(storage *types.HostStorageDeviceInfo, info *types.HostMultipathInfo) []HostMultipath {

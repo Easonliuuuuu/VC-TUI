@@ -88,6 +88,8 @@ const (
 	modeDatastoreFiles
 	modeDatastoreEntry
 	modeDatastoreFind
+	modeSwitchDetail
+	modeSwitchPGDetail
 )
 
 const (
@@ -156,6 +158,14 @@ type contextState struct {
 	// since that changes the columns.
 	rowCache        map[vsphere.Kind][]row
 	rowCacheContext bool
+	// netTopo is the last topology read behind the Networks tab and the
+	// switch workspace; netSwitchCache and netGroups are built from it and
+	// inv, the way rowCache is from inv alone. See network.go.
+	netTopo          *netTopoEntry
+	netSwitchCache   []netSwitch
+	netGroups        []netRowGroup
+	netGroupsContext bool
+	netGroupsState   netTopoState
 	// lastLoad is how long the previous complete load of this context took.
 	// The refresh cadence is derived from it so that a vCenter slower than
 	// the interval is polled at a rate it can actually answer — see
@@ -257,7 +267,10 @@ func (s *contextState) rowsFor(kind vsphere.Kind, withContext bool) []row {
 
 // invalidateRows drops the cached rows. Every path that changes s.inv has to
 // call it, which is why they all go through applyInventory below.
-func (s *contextState) invalidateRows() { s.rowCache = nil }
+func (s *contextState) invalidateRows() {
+	s.rowCache = nil
+	s.invalidateNetwork()
+}
 
 // showsPartial reports whether a group's pages are worth showing as they
 // arrive: only while the kind has nothing on screen yet. A refresh already
@@ -370,6 +383,7 @@ const (
 func (s *contextState) reset() {
 	s.stopStages()
 	s.inv = nil
+	s.netTopo = nil
 	s.invalidateRows()
 	s.kinds = make(map[vsphere.Kind]*kindState, len(vsphere.AllKinds))
 	for _, kind := range vsphere.AllKinds {
@@ -552,6 +566,7 @@ func (m *Model) Observe() Observation {
 		modeHistoryRuns: "history", modeHistoryTimeline: "history-timeline",
 		modeHistoryTimelineDetail: "history-timeline-detail", modeHistoryRunEdit: "history-edit",
 		modeDatastoreFiles: "datastore", modeDatastoreEntry: "datastore-entry", modeDatastoreFind: "datastore-find",
+		modeSwitchDetail: "switch-detail", modeSwitchPGDetail: "switch-portgroup-detail",
 	}[m.mode]
 	if mode == "" {
 		mode = "unknown"
@@ -731,6 +746,16 @@ type Model struct {
 	// peak CPU instead of start order.
 	vappPerf    map[string]*vappPerfEntry
 	vappBusiest bool
+	// sw is the switch workspace while it is open, and swPG the port group
+	// opened from it, kept apart from the browse cursor the way vapp and
+	// vappVM are. netFolded holds the switches folded in the grouped
+	// Networks tab, by row key; netFlat shows the plain list instead.
+	// netTopoGen stamps each topology read so a superseded reply is dropped.
+	sw         *switchWorkspace
+	swPG       *row
+	netFolded  map[string]bool
+	netFlat    bool
+	netTopoGen uint64
 	// ds holds the read-only datastore file browser while it is open. Like
 	// vapp it is kept apart from the browse cursor, and unlike everything
 	// else on this struct it is the one view whose contents come from a live
@@ -1333,6 +1358,9 @@ func (m *Model) ensureSearch(query string) *searchState {
 
 // rows builds the table for the active tab, across everything in scope.
 func (m *Model) rows() []row {
+	if m.kind == vsphere.KindNetwork && !m.netFlat {
+		return m.networkTreeRows()
+	}
 	// append copies out of the per-context caches, so the filtering and
 	// sorting below rearrange this call's own slice and never the cached one.
 	var out []row
@@ -1467,6 +1495,12 @@ func (m *Model) currentRow() (row, bool) {
 // continue using currentRow so opening a member never changes the resource
 // selection underneath it.
 func (m *Model) detailRow() (row, bool) {
+	if m.mode == modeSwitchPGDetail {
+		if m.swPG == nil {
+			return row{}, false
+		}
+		return *m.swPG, true
+	}
 	if m.mode == modeVAppVMDetail {
 		if m.vappVM == nil {
 			return row{}, false
@@ -1524,7 +1558,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.applyBeginInventory(msg)
 
 	case groupMsg:
-		return m, m.applyGroup(msg)
+		return m, tea.Batch(m.applyGroup(msg), m.ensureNetTopology(false))
+
+	case netTopoMsg:
+		m.applyNetTopo(msg)
+		return m, nil
 
 	case groupPageMsg:
 		return m, m.applyGroupPage(msg)
@@ -1732,7 +1770,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.applyFormDelete(msg)
 
 	case tea.KeyMsg:
-		return m, tea.Batch(m.handleKey(msg), m.resumeVMPerf())
+		return m, tea.Batch(m.handleKey(msg), m.resumeVMPerf(), m.ensureNetTopology(false))
 	}
 	return m, nil
 }
@@ -2281,6 +2319,10 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		return m.handleVAppDetailKey(msg)
 	case modeVAppVMDetail:
 		return m.handleVAppVMDetailKey(msg)
+	case modeSwitchDetail:
+		return m.handleSwitchDetailKey(msg)
+	case modeSwitchPGDetail:
+		return m.handleSwitchPGDetailKey(msg)
 	case modeDoctor:
 		return m.handleDoctorKey(msg)
 	case modeContexts:
@@ -2581,6 +2623,14 @@ func (m *Model) handleBrowseKey(msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, m.keys.Sort):
 		m.sortMode = m.sortMode.next()
 		m.cursor, m.offset = 0, 0
+	case key.Matches(msg, m.keys.Fold):
+		if m.kind == vsphere.KindNetwork && !m.netFlat {
+			m.toggleFold()
+		}
+	case key.Matches(msg, m.keys.NetView):
+		if m.kind == vsphere.KindNetwork {
+			m.preserveCursor(func() { m.netFlat = !m.netFlat })
+		}
 	}
 	return nil
 }
@@ -2817,6 +2867,9 @@ func (m *Model) open() tea.Cmd {
 	}
 	if r.kind == vsphere.KindVApp {
 		return m.openVApp(r)
+	}
+	if r.kind == vsphere.KindNetwork && r.tree.head {
+		return m.openSwitch(r)
 	}
 	m.mode = modeDetail
 	m.detailCursor, m.detailY = 0, 0

@@ -314,6 +314,67 @@ func (e *estate) applyAnchors(s siteSpec) {
 	}
 }
 
+// Demo wiring faults, one of each kind the switch views look for. They are
+// named by host, so they land only on the production site's hosts.
+const (
+	slowUplinkHost   = "esxi-a-07"   // DVS-Production dvUplink2 at 10G
+	unassignedHost   = "esxi-b-04"   // DVS-Production dvUplink2 with no NIC
+	notOnStorageHost = "esxi-db-08"  // in db-cluster but not on DVS-Storage
+	deadLinkHost     = "esxi-dmz-02" // DVS-Storage dvUplink1 has no link
+)
+
+// wireSwitches gives every host its distributed-switch uplinks and a vMotion
+// VMkernel adapter on DVS-Storage: vmnic2 and vmnic3 behind DVS-Production,
+// vmnic4 and vmnic5 behind DVS-Storage, with the faults above.
+func (e *estate) wireSwitches(prod, storage *vsphere.DVSwitch) {
+	vmotionKey := ""
+	for _, pg := range storage.PortGroups {
+		if strings.HasPrefix(pg.Name, "vmotion-") {
+			vmotionKey = pg.Key
+		}
+	}
+	var storageHosts []string
+	for i := range e.inv.Hosts {
+		h := &e.inv.Hosts[i]
+		n := i + 1
+		key := e.inv.Context + "-" + h.Name
+		for j := 2; j < 6; j++ {
+			speed := int32Value(25000)
+			switch {
+			case h.Name == slowUplinkHost && j == 3:
+				speed = int32Value(10000)
+			case h.Name == deadLinkHost && j == 4:
+				speed = nil
+			}
+			nic := vsphere.HostNIC{Key: fmt.Sprintf("%s-pnic-%d", key, j), Device: fmt.Sprintf("vmnic%d", j), PCI: fmt.Sprintf("0000:%02x:00.0", 0x18+j), Driver: "i40en",
+				MAC: fmt.Sprintf("00:50:56:aa:%02x:%02x", n%256, j), LinkSpeedMB: speed}
+			if speed != nil {
+				nic.Duplex = boolValue(true)
+			}
+			h.NICs = append(h.NICs, nic)
+		}
+		second := "vmnic3"
+		if h.Name == unassignedHost {
+			second = ""
+		}
+		h.ProxySwitches = []vsphere.HostProxySwitch{{Key: key + "-proxy-prod", Switch: prod.Name, SwitchUUID: prod.UUID, MTU: prod.MaxMTU,
+			Uplinks: []vsphere.HostProxyUplink{{Name: "dvUplink1", NIC: "vmnic2"}, {Name: "dvUplink2", NIC: second}}}}
+		h.PortGroups = append(h.PortGroups, vsphere.HostPortGroup{Key: key + "-port-vm", Name: "VM Network", Switch: "vSwitch0", Promiscuous: boolValue(false), MACChanges: boolValue(true), ForgedTransmits: boolValue(true)})
+		if h.Name == notOnStorageHost {
+			continue
+		}
+		storageHosts = append(storageHosts, h.Name)
+		h.ProxySwitches = append(h.ProxySwitches, vsphere.HostProxySwitch{Key: key + "-proxy-storage", Switch: storage.Name, SwitchUUID: storage.UUID, MTU: storage.MaxMTU,
+			Uplinks: []vsphere.HostProxyUplink{{Name: "dvUplink1", NIC: "vmnic4"}, {Name: "dvUplink2", NIC: "vmnic5"}}})
+		if vmotionKey != "" {
+			h.VMKs = append(h.VMKs, vsphere.HostVMKernel{Key: key + "-vmk1", Device: "vmk1", DVSwitchUUID: storage.UUID, DVPortGroupKey: vmotionKey,
+				MAC: fmt.Sprintf("00:50:56:ab:%02x:02", n%256), MTU: 9000, TSO: boolValue(true), Netstack: "vmotion", DHCP: boolValue(false),
+				IP: fmt.Sprintf("172.16.30.%d", n), SubnetMask: "255.255.255.0"})
+		}
+	}
+	storage.Hosts = storageHosts
+}
+
 // finishHosts adds the per-host network and storage configuration the host
 // detail pane and the host-configuration sheets read.
 func (e *estate) finishHosts(s siteSpec) {

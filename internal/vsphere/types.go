@@ -399,7 +399,10 @@ type Host struct {
 	VSwitches       []HostVSwitch   `json:"vswitches,omitempty"`
 	PortGroups      []HostPortGroup `json:"port_groups,omitempty"`
 	VMKs            []HostVMKernel  `json:"vmks,omitempty"`
-	Multipaths      []HostMultipath `json:"multipaths,omitempty"`
+	// ProxySwitches are the host's memberships in distributed switches: which
+	// physical NIC backs each of a switch's uplinks on this host.
+	ProxySwitches []HostProxySwitch `json:"proxy_switches,omitempty"`
+	Multipaths    []HostMultipath   `json:"multipaths,omitempty"`
 }
 
 // TotalCPU returns the host's total CPU capacity in MHz.
@@ -524,12 +527,35 @@ type DVPortGroup struct {
 	SegmentID         string   `json:"segment_id,omitempty"`
 }
 
+// HostProxySwitch is one host's membership in a distributed switch. Uplinks
+// lists every uplink the switch defines on the host, in the switch's order,
+// whether or not a physical NIC is assigned to it.
+type HostProxySwitch struct {
+	Key        string            `json:"key,omitempty"`
+	Switch     string            `json:"switch"`
+	SwitchUUID string            `json:"switch_uuid,omitempty"`
+	MTU        int32             `json:"mtu,omitempty"`
+	Uplinks    []HostProxyUplink `json:"uplinks,omitempty"`
+}
+
+// HostProxyUplink is one distributed-switch uplink on one host. NIC is the
+// physical NIC device behind it, empty when none is assigned.
+type HostProxyUplink struct {
+	Name string `json:"name"`
+	NIC  string `json:"nic,omitempty"`
+}
+
 // HostVMKernel is one host VMkernel adapter, including whether it came from
 // the legacy service-console collection.
 type HostVMKernel struct {
-	Key            string `json:"key,omitempty"`
-	Device         string `json:"device"`
-	PortGroup      string `json:"port_group,omitempty"`
+	Key       string `json:"key,omitempty"`
+	Device    string `json:"device"`
+	PortGroup string `json:"port_group,omitempty"`
+	// DVSwitchUUID and DVPortGroupKey identify the distributed port group an
+	// adapter is connected to. PortGroup is empty for those adapters: it only
+	// names standard-switch port groups.
+	DVSwitchUUID   string `json:"dv_switch_uuid,omitempty"`
+	DVPortGroupKey string `json:"dv_portgroup_key,omitempty"`
 	MAC            string `json:"mac,omitempty"`
 	MTU            int32  `json:"mtu"`
 	TSO            *bool  `json:"tso,omitempty"`

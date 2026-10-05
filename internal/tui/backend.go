@@ -297,6 +297,13 @@ func (b *sessionBackend) VMPerfSeries(ctx context.Context, cc *config.Context, v
 	})
 }
 
+// NetworkTopology implements networkTopologyBackend.
+func (b *sessionBackend) NetworkTopology(ctx context.Context, cc *config.Context) (*vsphere.NetworkTopology, error) {
+	return liveQuery(ctx, b, cc, func(client *vsphere.Client, opCtx context.Context) (*vsphere.NetworkTopology, error) {
+		return client.NetworkTopology(opCtx)
+	})
+}
+
 // VMsPerfSeries implements vmsPerfBackend.
 func (b *sessionBackend) VMsPerfSeries(ctx context.Context, cc *config.Context, vms []vsphere.VM, window time.Duration, interval int, now time.Time) ([]vsphere.VMSeriesResult, error) {
 	return liveQuery(ctx, b, cc, func(client *vsphere.Client, opCtx context.Context) ([]vsphere.VMSeriesResult, error) {

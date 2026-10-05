@@ -1,0 +1,20 @@
+vsfleet  DEMO · SAMPLE DATA  ◆ prod-vc  ·  1 connected
+────────────────────────────────────────────────────────────
+DVS-Storage   distributed switch · prod-vc         ✕ 1 · ▲ 5
+ 0 Overview [1 Wiring]                 wiring as of 00:00:00
+
+  UPLINK       SWITCH    PORT GROUP           VLAN     VMS
+  dvUplink1 ━━┐      ┌── iscsi-b-vlan-20…     2011       0
+              │      ├── nfs-vlan-2020 ▲      2020       0
+  dvUplink2 ┄┄┴━━━━━━┴━━ vmotion-vlan-20…     2030  vmk 55
+  3 of 4 port groups shown · j/k scrolls
+
+  ━ active uplink   ┄ standby   ─ not used by the selected …
+
+▸ vmotion-vlan-2030   VLAN 2030 · 0 VMs · 55 VMkernel adapt…
+  teaming failover_explicit · active dvUplink1 · standby dv…
+  security promiscuous reject · MAC changes accept · forged…
+  ▲ vmotion-vlan-2030 runs on its standby uplink only on es…
+  enter opens the port group
+
+↑/k up  ↓/j down  enter open  0/1 page  r reload  esc back …

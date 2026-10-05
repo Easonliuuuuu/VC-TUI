@@ -142,12 +142,19 @@ func buildEstate(s siteSpec) *estate {
 		net := vsphere.Network{Location: loc("network", p.name), ID: id, Name: p.name, Type: "portgroup", Switch: sw.Name, VLAN: vlan, Accessible: true}
 		inv.Networks = append(inv.Networks, net)
 		pgNet[p.name] = net
-		sw.PortGroups = append(sw.PortGroups, vsphere.DVPortGroup{
+		pg := vsphere.DVPortGroup{
 			ID: fmt.Sprintf("%s-dvpg-%d", s.ctx, n), Key: fmt.Sprintf("dvportgroup-%d", n), Name: p.name, Switch: sw.Name, Type: "earlyBinding", BackingType: "standard",
-			NumPorts: 128, VLAN: vlan, Promiscuous: boolValue(false), MACChanges: boolValue(true), ForgedTransmits: boolValue(p.name != "dmz-vlan-400" && p.name != "dmz-web-vlan-410"),
+			// The nested-ESXi lab network is the one that needs promiscuous
+			// mode, and the switch views flag it.
+			NumPorts: 128, VLAN: vlan, Promiscuous: boolValue(p.name == "lab-vlan-900"), MACChanges: boolValue(true), ForgedTransmits: boolValue(p.name != "dmz-vlan-400" && p.name != "dmz-web-vlan-410"),
 			TeamingPolicy: "loadbalance_loadbased", NotifySwitches: boolValue(true), Failback: boolValue(true), IngressShaping: boolValue(false), EgressShaping: boolValue(false),
 			Blocked: boolValue(false), AutoExpand: boolValue(true), ActiveUplinks: []string{"dvUplink1", "dvUplink2"},
-		})
+		}
+		if sw == &storDVS {
+			// Storage and vMotion traffic fail over rather than balance.
+			pg.TeamingPolicy, pg.ActiveUplinks, pg.StandbyUplinks = "failover_explicit", []string{"dvUplink1"}, []string{"dvUplink2"}
+		}
+		sw.PortGroups = append(sw.PortGroups, pg)
 	}
 	for i, p := range s.portgroups {
 		addPG(&dvs, p, i+1)
@@ -281,6 +288,7 @@ func buildEstate(s siteSpec) *estate {
 	e.finishHosts(s)
 	dvs.Hosts = hostNames(inv.Hosts)
 	storDVS.Hosts = dvs.Hosts
+	e.wireSwitches(&dvs, &storDVS)
 	inv.DVSwitches = []vsphere.DVSwitch{dvs, storDVS}
 	return e
 }

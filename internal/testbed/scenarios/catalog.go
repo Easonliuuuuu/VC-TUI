@@ -50,6 +50,7 @@ var definitions = []Definition{
 	{Name: "datastore-browser", Profile: "presentation", Purpose: "directory and recursive-find navigation preserve datastore state"},
 	{Name: "resize", Profile: "presentation", Purpose: "bounded terminal sizes render safely and preserve selection"},
 	{Name: "vm-dashboard", Profile: "presentation", Purpose: "every VM chart page and range stays inside the terminal at each size"},
+	{Name: "network-switches", Profile: "presentation", Purpose: "port groups group under their switch and every switch page stays inside the terminal"},
 }
 
 // Definitions returns the catalogue in display order.
@@ -156,6 +157,13 @@ func Run(ctx context.Context, name string, opts RunOptions) (result Result, runE
 		if err := walkVMDashboard(m); err != nil {
 			return Result{}, err
 		}
+	case "network-switches":
+		if err := press(m, "6"); err != nil {
+			return Result{}, fmt.Errorf("open the Networks tab: %w", err)
+		}
+		if err := walkNetworkSwitches(m); err != nil {
+			return Result{}, err
+		}
 	case "resize":
 		for _, size := range [][2]int{{60, 20}, {100, 30}, {140, 40}} {
 			if err := drive(m, send(m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})); err != nil {
@@ -191,7 +199,7 @@ func Run(ctx context.Context, name string, opts RunOptions) (result Result, runE
 
 func isCriticalScreen(name string) bool {
 	switch name {
-	case "overview", "credential-cancel", "history-coverage-gap", "datastore-browser", "vm-dashboard":
+	case "overview", "credential-cancel", "history-coverage-gap", "datastore-browser", "vm-dashboard", "network-switches":
 		return true
 	default:
 		return false
@@ -234,6 +242,66 @@ func walkVMDashboard(m *tui.Model) error {
 	}
 	if observation := m.Observe(); observation.Mode != "detail" {
 		return fmt.Errorf("vm-dashboard walk left the detail pane (mode %q)", observation.Mode)
+	}
+	return nil
+}
+
+// walkNetworkSwitches checks the grouped Networks tab and both switch
+// workspace pages at each golden size, failing on the first frame wider or
+// taller than the terminal. It leaves DVS-Storage's Wiring page open on its
+// vMotion port group, whose standby path the demo's dead link exercises:
+// the state the goldens record.
+func walkNetworkSwitches(m *tui.Model) error {
+	for _, size := range [][2]int{{60, 20}, {100, 30}, {140, 40}} {
+		if err := drive(m, send(m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})); err != nil {
+			return fmt.Errorf("network-switches resize %dx%d: %w", size[0], size[1], err)
+		}
+		where := fmt.Sprintf("at %dx%d", size[0], size[1])
+		view := m.View()
+		if err := boundedFrame(view, size[0], size[1]); err != nil {
+			return fmt.Errorf("network-switches table %s: %w", where, err)
+		}
+		if !strings.Contains(ansi.Strip(view), "▾ DVS-Prod") {
+			return fmt.Errorf("network-switches table %s does not group under DVS-Production", where)
+		}
+		if err := drive(m, send(m, tea.KeyMsg{Type: tea.KeyEnter})); err != nil {
+			return fmt.Errorf("open DVS-Production: %w", err)
+		}
+		for i, page := range []string{"Overview", "Wiring"} {
+			if err := press(m, strconv.Itoa(i)); err != nil {
+				return err
+			}
+			for step := 0; step < 3; step++ {
+				view := m.View()
+				if err := boundedFrame(view, size[0], size[1]); err != nil {
+					return fmt.Errorf("network-switches %s page step %d %s: %w", page, step, where, err)
+				}
+				if size[0] >= 100 && !strings.Contains(ansi.Strip(view), fmt.Sprintf("[%d %s]", i, page)) {
+					return fmt.Errorf("network-switches %s page %s does not mark its tab", page, where)
+				}
+				if err := press(m, "j"); err != nil {
+					return err
+				}
+			}
+		}
+		if err := press(m, "esc"); err != nil {
+			return err
+		}
+	}
+	// Fold DVS-Production so DVS-Storage is the next row, then open its
+	// Wiring page on the vMotion port group.
+	for _, key := range []string{"g", " ", "j"} {
+		if err := press(m, key); err != nil {
+			return err
+		}
+	}
+	if err := drive(m, send(m, tea.KeyMsg{Type: tea.KeyEnter})); err != nil {
+		return fmt.Errorf("open DVS-Storage: %w", err)
+	}
+	for _, key := range []string{"1", "j", "j", "j"} {
+		if err := press(m, key); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -299,6 +367,15 @@ func assertResult(result Result) error {
 	case "history-coverage-gap":
 		if result.Observation.Mode != "history" && !strings.Contains(result.View, "HISTORY") {
 			return fmt.Errorf("scenario %s did not enter History", result.Name)
+		}
+	case "network-switches":
+		if result.Observation.Mode != "switch-detail" {
+			return fmt.Errorf("scenario %s left the switch workspace (mode %q)", result.Name, result.Observation.Mode)
+		}
+		for _, want := range []string{"DVS-Storage", "[1 Wiring]", "vmotion-vlan-2030"} {
+			if !strings.Contains(result.View, want) {
+				return fmt.Errorf("scenario %s is missing %q from the wiring page", result.Name, want)
+			}
 		}
 	case "vm-dashboard":
 		if result.Observation.Mode != "detail" {
