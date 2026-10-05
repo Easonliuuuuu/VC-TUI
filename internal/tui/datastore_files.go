@@ -780,7 +780,7 @@ func (m *Model) viewDatastoreEntry() []string {
 			if ref.Template {
 				label += " (template)"
 			}
-			line := fmt.Sprintf("  %s @ %s", label, ref.Context)
+			line := fmt.Sprintf("%s %s @ %s", listCursor(i == d.cursor), label, ref.Context)
 			if ref.DiskLabel != "" {
 				line += " · " + ref.DiskLabel
 			}
@@ -926,7 +926,9 @@ func (m *Model) renderDSEntry(entry vsphere.DatastoreEntry, cols []column, width
 	kind, glyph, name := "FILE", " ", entry.Name
 	size := humanize.FileBytes(entry.SizeBytes)
 	if entry.Type == vsphere.DatastoreEntryFolder {
-		kind, glyph, name, size = "DIR", "▸", entry.Name+"/", "—"
+		// Not glyphCursor: a folder row with the cursor on it would otherwise
+		// read "▸▸", and a folder two rows down would look like the cursor.
+		kind, glyph, name, size = "DIR", "▪", entry.Name+"/", "—"
 	}
 	if showPath {
 		if _, relative, ok := vsphere.SplitBrowsePath(entry.Path); ok && relative != "" {
@@ -950,7 +952,7 @@ func (m *Model) renderDSEntry(entry vsphere.DatastoreEntry, cols []column, width
 	} else {
 		line = m.theme.text.Render(line)
 	}
-	return m.theme.accent.Render(glyph) + " " + line
+	return m.cursorMark(selected) + m.theme.accent.Render(glyph) + " " + line
 }
 
 // dsBreadcrumb is where the operator is, said plainly.

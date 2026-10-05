@@ -576,7 +576,7 @@ func (m *Model) renderVAppMember(member vappMember, cols []column, widths []int,
 	} else {
 		line = m.theme.text.Render(line)
 	}
-	return m.theme.statusStyle(member.status).Render(member.glyph) + " " + line
+	return m.cursorMark(selected) + m.theme.statusStyle(member.status).Render(member.glyph) + " " + line
 }
 
 func (m *Model) handleVAppDetailKey(msg tea.KeyMsg) tea.Cmd {

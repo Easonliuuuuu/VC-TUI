@@ -837,13 +837,17 @@ func (m *Model) viewHistoryRuns() []string {
 	}
 	lines := []string{t.title.Render("Select " + role + " assessment"), "", t.dim.Render("  newest first · enter selects · esc cancels")}
 	for i, r := range m.runs {
-		marker := "  "
+		// The cursor takes the first column and the B/T role the second, so
+		// a row can be both under the cursor and the baseline, and the
+		// cursor survives a palette with no highlight (see cursorMark).
+		role := " "
 		if r.ID == m.baseRun {
-			marker = "B "
+			role = "B"
 		}
 		if r.ID == m.targetRun {
-			marker = "T "
+			role = "T"
 		}
+		marker := listCursor(i == m.runCursor) + role + " "
 		label := r.Label
 		if label == "" {
 			label = "—"
@@ -1193,7 +1197,7 @@ func (m *Model) viewHistoryHubRuns() []string {
 		if r.Pinned {
 			label = "📌 " + label
 		}
-		line := fmt.Sprintf("  %-5s %-18s %-9s %s", historyRunLabel(r.ID), truncate(label, 18), r.Status, r.StartedAt.Local().Format("2006-01-02 15:04"))
+		line := fmt.Sprintf("%s%-5s %-18s %-9s %s", listCursor(i == m.runCursor)+" ", historyRunLabel(r.ID), truncate(label, 18), r.Status, r.StartedAt.Local().Format("2006-01-02 15:04"))
 		if i == m.runCursor {
 			line = t.focused.Render(line)
 		} else {
@@ -1619,7 +1623,7 @@ func (m *Model) viewHistoryTimeline() []string {
 			}
 			detail = strings.Join(parts, " ")
 		}
-		line := fmt.Sprintf("  %-16s %-16s %-12s %s", e.Run.StartedAt.Local().Format("2006-01-02 15:04"), e.Kind, e.Context, truncate(detail, max(1, m.width-52)))
+		line := fmt.Sprintf("%s %-16s %-16s %-12s %s", listCursor(i == m.timelineCursor), e.Run.StartedAt.Local().Format("2006-01-02 15:04"), e.Kind, e.Context, truncate(detail, max(1, m.width-52)))
 		if i == m.timelineCursor {
 			line = t.focused.Render(line)
 		} else {

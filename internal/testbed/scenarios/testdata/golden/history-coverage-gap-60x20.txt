@@ -14,7 +14,7 @@ vsfleet  history  ·  Changes   tab/⇧tab switch
   10 vanished   39 appeared   0 moved   0 modified   1 infr…
 
   IMPACT  OBJECT                       vCENTER WHAT MOVED   
-▎blocks  old-api-22                   prod-vc vanished     
+▸blocks  old-api-22                   prod-vc vanished     
 ▎blocks  old-batch-17                 prod-vc vanished     
 
 ←/→ move end  b baseline  t target  c clip to shared covera…
