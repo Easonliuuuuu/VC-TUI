@@ -997,7 +997,7 @@ func (m *Model) viewHistoryHealth() []string {
 		for _, col := range cols {
 			head = append(head, pad(col.title, col.width, false))
 		}
-		lines = append(lines, t.header.Render(truncate("  "+strings.Join(head, " "), m.width)))
+		lines = append(lines, t.header.Render(truncate("  "+strings.Join(head, healthGap), m.width)))
 		for _, finding := range sortFindingsBySeverity(r.Findings) {
 			cells := make([]string, 0, len(cols))
 			for _, col := range cols {
@@ -1009,7 +1009,7 @@ func (m *Model) viewHistoryHealth() []string {
 			} else if finding.Severity == health.SeverityInfo {
 				style = t.dim
 			}
-			lines = append(lines, style.Render(truncate("  "+strings.Join(cells, " "), m.width)))
+			lines = append(lines, style.Render(truncate("  "+strings.Join(cells, healthGap), m.width)))
 		}
 	}
 	for _, rule := range r.Rules {
@@ -1057,14 +1057,21 @@ type healthColumn struct {
 	cell  func(health.Finding) string
 }
 
+// healthGap separates the findings columns by the same gap every other table
+// uses; a single space ran SEVERITY into RULE ("critical datastore-…").
+var healthGap = strings.Repeat(" ", cellGap)
+
 // healthMessageMin is the least width the MESSAGE column is given before
 // lower-value columns are dropped to make room. The message is what tells the
 // operator what to do, so it is worth more than CATEGORY or CONFIDENCE.
 const healthMessageMin = 24
 
 // healthMessageSqueezed is the floor once RULE and OBJECT are being
-// shortened as well: below it a message is too clipped to read.
-const healthMessageSqueezed = 20
+// shortened as well: below it a message is too clipped to read. It gave up
+// three columns when the findings columns moved from a one space gap to the
+// shared cellGap, so that an 80 column terminal still shows the whole of a
+// 25 column OBJECT such as "datastore/vsan-archive-01".
+const healthMessageSqueezed = 17
 
 // healthColumns sizes the findings table to the data and the terminal.
 // Columns take the width of their longest value rather than a fixed
@@ -1101,12 +1108,12 @@ func healthColumns(findings []health.Finding, width int) []healthColumn {
 	fit(&rule, 28)
 	fit(&obj, 30)
 
-	// fits reports whether the columns, their single-space gaps, the two
+	// fits reports whether the columns, their gaps, the two
 	// column indent and the minimum message width all fit.
 	fits := func(cols []healthColumn) bool {
 		used := 2 + healthMessageMin
 		for _, c := range cols {
-			used += c.width + 1
+			used += c.width + cellGap
 		}
 		return used <= width
 	}
@@ -1126,12 +1133,12 @@ func healthColumns(findings []health.Finding, width int) []healthColumn {
 		// ids are the most compressible text here), and give OBJECT what the
 		// rest leaves.
 		rule.width = min(rule.width, 22)
-		obj.width = max(12, min(obj.width, width-2-(sev.width+1)-(rule.width+1)-1-healthMessageSqueezed))
+		obj.width = max(12, min(obj.width, width-2-(sev.width+cellGap)-(rule.width+cellGap)-cellGap-healthMessageSqueezed))
 		cols = []healthColumn{sev, rule, obj}
 	}
 	used := 2
 	for _, c := range cols {
-		used += c.width + 1
+		used += c.width + cellGap
 	}
 	msg.width = max(1, width-used)
 	return append(cols, msg)

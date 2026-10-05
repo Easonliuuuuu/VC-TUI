@@ -520,16 +520,30 @@ func (m *Model) vmPropertyLines(r row, withActions bool) ([]string, []detailSpan
 		}
 		labelW := min(labelColumnPad, max(0, leftW-3))
 		valueW := max(1, leftW-2-labelW)
-		value := t.value.Render(f.value)
+		wrapValue := func(w int) []string {
+			if isPathLabel(f.label) {
+				// Plain lines, styled one at a time below like any other.
+				lines := wrapPath(f.value, w)
+				for i := range lines {
+					lines[i] = t.value.Render(lines[i])
+				}
+				return lines
+			}
+			return strings.Split(ansi.Wrap(t.value.Render(f.value), w, ""), "\n")
+		}
 		// The mark follows the value's last line. If it does not fit there,
 		// re-wrap the value narrower at word boundaries to make room; if
 		// that would break a word (as reserving the mark's width on every
 		// line used to do to "guestToolsNotRunning"), the mark gets a line
 		// of its own instead.
-		parts := strings.Split(ansi.Wrap(value, valueW, ""), "\n")
+		parts := wrapValue(valueW)
 		markAt := len(parts) - 1
 		if markW := ansi.StringWidth(suffix); suffix != "" && ansi.StringWidth(parts[markAt])+markW > valueW {
-			if narrow := strings.Split(ansi.Wordwrap(value, valueW-markW, ""), "\n"); valueW > markW && widest(narrow) <= valueW-markW {
+			narrow := wrapValue(valueW - markW)
+			if !isPathLabel(f.label) {
+				narrow = strings.Split(ansi.Wordwrap(t.value.Render(f.value), valueW-markW, ""), "\n")
+			}
+			if valueW > markW && widest(narrow) <= valueW-markW {
 				parts, markAt = narrow, len(narrow)-1
 			} else {
 				suffix = ansi.Truncate(strings.TrimLeft(suffix, " "), valueW, "…")
