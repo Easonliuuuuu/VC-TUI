@@ -137,12 +137,21 @@ with several opens a short list to choose from.
 | Where the cursor is | What `Enter` offers |
 |---|---|
 | A VM's or host's own header | SSH, open in the vSphere/Host Client, copy the managed object reference |
-| A VM with an IP address | Add it as a vCenter context, or switch to its existing context |
+| A VM that looks like a vCenter (see below) | Add it as a vCenter context, or switch to its existing context |
 | A VM's IP address or DNS name | SSH to it, configure an SSH user or key, copy an `ssh user@host` command, copy the value |
 | A host, datastore, network, or cluster's own header | "Show VMs on this …" — narrows the VM table to exactly what belongs to it |
 | A datastore's own header | "Browse files" and "Find in datastore" — see below |
 | A VM's Host or Cluster field | Jump straight to that host's or cluster's own row |
 | Any other field | Copy the value |
+
+The list opens with the cursor on the first action that can run, and the arrow
+keys skip actions that cannot. Actions that apply to the object but cannot run
+right now are listed last with their reason; actions that do not apply to the
+object at all are not listed. "Add as a vCenter context" applies to a VM whose
+name or guest DNS name has a part starting with `vcsa`, `vcenter` or `vcentre`,
+or equal to `vc` or `vc` plus digits, and to any VM that already is a saved
+nested context (which offers "Switch to context"). Any other VM does not offer
+it; add that vCenter with `vsfleet context add` or the contexts screen.
 
 An action that cannot run says why instead of doing nothing: a proxied
 vCenter has no route for your own browser, so its "open in …" actions are
@@ -376,8 +385,8 @@ with a `START` column. A vApp's limit is shared by all of its members together,
 so a capped vApp can throttle VMs whose own settings are unlimited. Use
 the arrow keys to select nested vApps, VMs, and resource pools; `Enter` opens a
 VM detail inspector and `Esc` returns to the previous level. A VM's header has
-the same SSH and copy actions as a regular VM, plus an action to seed a new
-vCenter context from its IP. The parent context's route is copied, and the
+the same SSH and copy actions as a regular VM, plus, for a VM that looks like a
+vCenter, an action to seed a new vCenter context from its IP. The parent context's route is copied, and the
 saved context records the VM's managed object reference; once saved, the
 member row is annotated with the context name.
 

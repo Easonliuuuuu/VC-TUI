@@ -1674,12 +1674,11 @@ func TestEditingANestedContextKeepsItsProvenance(t *testing.T) {
 
 func TestSavingANestedContextReturnsToTheMemberPane(t *testing.T) {
 	b := twoHealthy()
+	asVCenters(b, "app-01")
 	m := newTestModel(t, b, Options{Current: "prod"})
 	press(t, m, "7", "enter", "enter", "enter")
-	// The member header's actions are SSH, SSH with a different user or key,
-	// add-context,
-	// open, MoRef, copy.
-	press(t, m, "down", "down", "enter")
+	selectAction(t, m, `Add "app-01" as a vCenter context`)
+	press(t, m, "enter")
 	settleForm(m)
 	if m.form == nil {
 		t.Fatal("adding a nested context did not open the form")

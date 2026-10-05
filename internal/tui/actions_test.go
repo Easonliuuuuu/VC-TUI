@@ -95,6 +95,36 @@ func findRow(t *testing.T, m *Model, kind vsphere.Kind, name string) row {
 	return row{}
 }
 
+// asVCenters gives every VM named vm in b's inventories a guest DNS name that
+// reads as a vCenter appliance, the evidence that makes "Add as a vCenter
+// context" apply to it. The guest name is offered as an SSH target first, so
+// anything that needs a fixed action position should look the action up by
+// label.
+func asVCenters(b *fakeBackend, vm string) {
+	for _, inv := range b.inventories {
+		for i := range inv.VMs {
+			if inv.VMs[i].Name == vm {
+				inv.VMs[i].GuestHostName = "vcsa-" + vm + ".lab.internal"
+			}
+		}
+	}
+}
+
+// selectAction moves the open popup's cursor onto the action labelled label.
+func selectAction(t *testing.T, m *Model, label string) {
+	t.Helper()
+	if m.actions == nil {
+		t.Fatal("no action popup is open")
+	}
+	for i, a := range m.actions.items {
+		if a.label == label {
+			m.actions.cursor = i
+			return
+		}
+	}
+	t.Fatalf("popup has no action %q: %v", label, labels(m.actions.items))
+}
+
 func findAction(items []action, label string) (action, bool) {
 	for _, a := range items {
 		if a.label == label {
@@ -331,7 +361,9 @@ func TestSSHFailureRetainsLastDiagnostic(t *testing.T) {
 }
 
 func TestVMHeaderOffersAddingItAsAContext(t *testing.T) {
-	m := newTestModel(t, twoHealthy(), Options{Current: "prod"})
+	b := twoHealthy()
+	asVCenters(b, "app-01")
+	m := newTestModel(t, b, Options{Current: "prod"})
 	r := findRow(t, m, vsphere.KindVM, "app-01")
 
 	if _, ok := findAction(m.actionsFor(r, 0), `Add "app-01" as a vCenter context`); !ok {
@@ -340,7 +372,9 @@ func TestVMHeaderOffersAddingItAsAContext(t *testing.T) {
 }
 
 func TestAddAsContextIsDisabledWithoutAnAddress(t *testing.T) {
-	m := newTestModel(t, twoHealthy(), Options{Current: "prod"})
+	b := twoHealthy()
+	asVCenters(b, "build-runner-3")
+	m := newTestModel(t, b, Options{Current: "prod"})
 	r := findRow(t, m, vsphere.KindVM, "build-runner-3")
 	a, ok := findAction(m.actionsFor(r, 0), `Add "build-runner-3" as a vCenter context`)
 	if !ok {
@@ -354,6 +388,7 @@ func TestAddAsContextIsDisabledWithoutAnAddress(t *testing.T) {
 func TestAddAsContextSlugDeduplicatesAgainstExistingNames(t *testing.T) {
 	b := twoHealthy()
 	b.contexts = append(b.contexts, ctx("app-01", "https://vcsa.app-01.internal"))
+	asVCenters(b, "app-01")
 	m := newTestModel(t, b, Options{Current: "prod"})
 	r := findRow(t, m, vsphere.KindVM, "app-01")
 
@@ -365,6 +400,7 @@ func TestAddAsContextSlugDeduplicatesAgainstExistingNames(t *testing.T) {
 func TestAddAsContextSeedsTheFormFromTheVM(t *testing.T) {
 	b := twoHealthy()
 	b.contexts[1].Transport = config.TransportConfig{Type: config.TransportSOCKS5, Address: "127.0.0.1:1080", RemoteDNS: true}
+	asVCenters(b, "app-01")
 	m := newTestModel(t, b, Options{Current: "prod"})
 	press(t, m, "7", "enter", "enter")
 
@@ -412,7 +448,9 @@ func TestAddAsContextSwitchesToItsExistingContext(t *testing.T) {
 }
 
 func TestAddAsContextDisabledInDemo(t *testing.T) {
-	m := newTestModel(t, twoHealthy(), Options{Current: "prod", Demo: true})
+	b := twoHealthy()
+	asVCenters(b, "app-01")
+	m := newTestModel(t, b, Options{Current: "prod", Demo: true})
 	r := findRow(t, m, vsphere.KindVM, "app-01")
 	a, ok := findAction(m.actionsFor(r, 0), `Add "app-01" as a vCenter context`)
 	if !ok {
@@ -782,5 +820,122 @@ func TestDemoSSHRouteLaunchesNothing(t *testing.T) {
 	}
 	if len(fake.ssh) != 0 {
 		t.Errorf("demo mode launched ssh: %+v", fake.ssh)
+	}
+}
+
+func TestOrdinaryVMDoesNotOfferToBeAddedAsAContext(t *testing.T) {
+	// app-01 has an address but nothing marks it as a vCenter, the way a
+	// domain controller does not.
+	m := newTestModel(t, twoHealthy(), Options{Current: "prod"})
+	r := findRow(t, m, vsphere.KindVM, "app-01")
+	for _, a := range m.actionsFor(r, 0) {
+		if strings.Contains(a.label, "vCenter context") {
+			t.Fatalf("ordinary VM was offered %q: %v", a.label, labels(m.actionsFor(r, 0)))
+		}
+	}
+	press(t, m, "enter", "enter")
+	if m.actions == nil || m.actions.cursor != 0 || !m.actions.items[0].runnable() {
+		t.Fatalf("popup on an ordinary VM did not start on its first runnable action: %+v", m.actions)
+	}
+}
+
+func TestVCenterNameEvidence(t *testing.T) {
+	for name, want := range map[string]bool{
+		"vcsa":                 true,
+		"prod-vcsa-01":         true,
+		"VCSA01":               true,
+		"vcenter.lab.local":    true,
+		"vCenter Server 8":     true,
+		"vc01":                 true,
+		"dc-vc-02":             true,
+		"ad-dc-01":             false,
+		"vcls-1":               false,
+		"abc01":                false,
+		"build-runner-3":       false,
+		"app-01":               false,
+		"vcard-service":        false,
+		"":                     false,
+		"nvcenter-lookalike-x": false,
+	} {
+		if got := vcenterNameEvidence(name); got != want {
+			t.Errorf("vcenterNameEvidence(%q) = %v, want %v", name, got, want)
+		}
+	}
+}
+
+func TestUnavailableActionsSortAfterRunnableOnes(t *testing.T) {
+	// build-runner-3 looks like a vCenter but has no address: the add action
+	// applies and cannot run yet, so it stays listed, last, with its reason.
+	b := twoHealthy()
+	asVCenters(b, "build-runner-3")
+	m := newTestModel(t, b, Options{Current: "prod"})
+	r := findRow(t, m, vsphere.KindVM, "build-runner-3")
+	items := m.actionsFor(r, 0)
+	seenDisabled := false
+	for _, a := range items {
+		if !a.runnable() {
+			seenDisabled = true
+		} else if seenDisabled {
+			t.Fatalf("runnable %q listed after an unavailable action: %v", a.label, labels(items))
+		}
+	}
+	add, ok := findAction(items, `Add "build-runner-3" as a vCenter context`)
+	if !ok || add.disabled != "no address available" {
+		t.Fatalf("applicable but unavailable action missing or lost its reason: %+v", items)
+	}
+	if last := items[len(items)-1]; last.runnable() {
+		t.Fatalf("expected the list to end with an unavailable action, got %q", last.label)
+	}
+}
+
+func TestActionPopupCursorSkipsUnavailableActions(t *testing.T) {
+	// In demo mode every launching action is disabled and used to be listed
+	// first: the cursor must start on, and never leave, the runnable entries.
+	b := twoHealthy()
+	asVCenters(b, "app-01")
+	m := newTestModel(t, b, Options{Current: "prod", Demo: true})
+	m.width, m.height = 80, 24
+	press(t, m, "enter", "enter")
+	if m.actions == nil {
+		t.Fatal("expected a popup on the VM header")
+	}
+	if !m.actions.items[m.actions.cursor].runnable() || m.actions.cursor != 0 {
+		t.Fatalf("cursor starts on %d (%q), want the first runnable action", m.actions.cursor, m.actions.items[m.actions.cursor].label)
+	}
+	for i := 0; i < len(m.actions.items)+2; i++ {
+		press(t, m, "down")
+		if !m.actions.items[m.actions.cursor].runnable() {
+			t.Fatalf("down moved the cursor onto unavailable %q", m.actions.items[m.actions.cursor].label)
+		}
+	}
+	for i := 0; i < len(m.actions.items)+2; i++ {
+		press(t, m, "up")
+		if !m.actions.items[m.actions.cursor].runnable() {
+			t.Fatalf("up moved the cursor onto unavailable %q", m.actions.items[m.actions.cursor].label)
+		}
+	}
+	for _, line := range m.actionListLines() {
+		if strings.Contains(line, "▸") && strings.Contains(line, "demo —") {
+			t.Errorf("popup marks an unavailable action as the cursor row: %q", line)
+		}
+	}
+	press(t, m, "enter")
+	if m.actions != nil {
+		t.Error("Enter on the runnable entry did not run and close the popup")
+	}
+}
+
+func TestOpenActionListWithNothingRunnableExplainsWhy(t *testing.T) {
+	m := newTestModel(t, twoHealthy(), Options{Current: "prod"})
+	press(t, m, "enter")
+	cmd := m.openActionList([]action{
+		{label: "SSH to 10.20.0.11", disabled: "no route"},
+		{label: "Open in vSphere Client", disabled: "vCenter not in scope"},
+	})
+	if cmd != nil || m.actions != nil {
+		t.Fatalf("popup opened with nothing to run: cmd=%v actions=%+v", cmd, m.actions)
+	}
+	if !m.messageBad || !strings.Contains(m.message, "no route") {
+		t.Errorf("message does not give the reason: %q", m.message)
 	}
 }
