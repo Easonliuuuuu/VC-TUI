@@ -2275,28 +2275,11 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		m.quitting = true
 		return tea.Quit
 	}
-	// The SSH prompt owns the keyboard too, ahead of the filter, the form and
-	// every shortcut, for the same reason: a "q" typed into a user name must
-	// not quit. Ctrl+C above still does, and a credential request above still
-	// preempts it.
-	if m.sshPrompt != nil {
-		return m.handleSSHPromptKey(msg)
-	}
-	if m.filtering {
-		return m.handleFilterKey(msg)
-	}
-	// The form and its delete confirmation own every key while they are
-	// open: both can hold free text, where a global "q" or "?" shortcut
-	// would be a keystroke that silently never reaches the field it was
-	// typed into.
-	if m.mode == modeForm {
-		return m.handleFormKey(msg)
-	}
-	if m.mode == modeConfirmDelete {
-		return m.handleConfirmDeleteKey(msg)
-	}
-	if m.mode == modeHistoryRunEdit {
-		return m.handleHistoryRunEditKey(msg)
+	// Every other input that can hold free text, and the delete confirmation,
+	// owns the keyboard ahead of the global "q" and "?" shortcuts: a letter
+	// typed into a field must reach it, not quit or open the help.
+	if cmd, owned := m.handleInputKey(msg); owned {
+		return cmd
 	}
 	if key.Matches(msg, m.keys.Quit) {
 		m.quitting = true
@@ -2355,6 +2338,35 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 	default:
 		return m.handleBrowseKey(msg)
 	}
+}
+
+// handleInputKey routes a key to the free-text input or confirmation that has
+// the keyboard, and reports whether one did. handleKey calls it before the
+// global "q" (quit) and "?" (help) shortcuts, so a letter typed into a field
+// is never taken as a shortcut (issues #26, #301). Ctrl+C is answered before
+// this and still quits from every input. A new text input belongs here, and
+// in textInputFocused's callers' tests (TestFreeTextInputsOwnQuitAndHelpKeys).
+//
+// The order is the priority of the overlays: the SSH prompt ranks below the
+// credential prompt (the caller answers it first) but above everything else, then
+// the filter, the context form and its delete confirmation, the run label
+// editor and the datastore Find prompt.
+func (m *Model) handleInputKey(msg tea.KeyMsg) (tea.Cmd, bool) {
+	switch {
+	case m.sshPrompt != nil:
+		return m.handleSSHPromptKey(msg), true
+	case m.filtering:
+		return m.handleFilterKey(msg), true
+	case m.mode == modeForm:
+		return m.handleFormKey(msg), true
+	case m.mode == modeConfirmDelete:
+		return m.handleConfirmDeleteKey(msg), true
+	case m.mode == modeHistoryRunEdit:
+		return m.handleHistoryRunEditKey(msg), true
+	case m.mode == modeDatastoreFind && m.ds != nil && m.ds.findPrompt:
+		return m.handleDatastoreFindKey(msg), true
+	}
+	return nil, false
 }
 
 // handleCredPromptKey drives the credential overlay. Enter answers the

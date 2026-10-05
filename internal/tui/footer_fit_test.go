@@ -91,7 +91,7 @@ func footerVariants() []footerVariant {
 		}), modal: true},
 		footerVariant{name: "datastore find prompt", build: plain(func(m *Model) {
 			m.mode, m.ds = modeDatastoreFind, &dsWorkspace{findPrompt: true}
-		}), modal: true},
+		})},
 		footerVariant{name: "credential prompt", build: plain(func(m *Model) { m.credPrompt = &credPromptState{} })},
 		footerVariant{name: "ssh prompt", build: plain(func(m *Model) { m.sshPrompt = &sshPromptState{} })},
 	)
@@ -169,6 +169,11 @@ func TestEveryFooterFitsAndKeepsBackAndHelp(t *testing.T) {
 				}
 				press(t, m, "?")
 				if m.mode != modeHelp {
+					// "?" is a letter of the text being typed here, so the line
+					// must not send the reader to a key that does not work.
+					if hasHelp {
+						t.Errorf("%q advertises ? help but %q did not open it", got, "?")
+					}
 					return
 				}
 				if !hasHelp && !v.modal {
