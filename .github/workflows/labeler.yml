@@ -48,7 +48,7 @@ jobs:
                 color: "0075ca",
                 description: "Documentation and examples"
               },
-              ci: {
+              workflows: {
                 color: "6f42c1",
                 description: "CI, GitHub Actions, and repository automation"
               },
@@ -101,7 +101,7 @@ jobs:
             const title = (item.title ?? "").trim();
             const components = [
               "tui", "assessment", "compatibility", "vsphere",
-              "docs", "ci", "release", "config", "deps", "other"
+              "docs", "workflows", "release", "config", "deps", "other"
             ];
             let component;
             if (context.payload.pull_request) {
@@ -116,10 +116,10 @@ jobs:
               }
               // Only feat and fix reach the release notes, so they must not
               // describe CI-only work. Use the ci action for that instead.
-              if (prTitle[2] === "ci" && ["feat", "fix"].includes(prTitle[1])) {
+              if (prTitle[2] === "workflows" && ["feat", "fix"].includes(prTitle[1])) {
                 core.setFailed(
-                  `"${prTitle[1]}(ci)" would appear in the release notes. ` +
-                  "Use ci(ci): summary for workflow and tooling changes, or test(component): summary for test-only changes."
+                  `"${prTitle[1]}(workflows)" would appear in the release notes. ` +
+                  "Use ci(workflows): summary for workflow and tooling changes, or test(component): summary for test-only changes."
                 );
                 return;
               }
