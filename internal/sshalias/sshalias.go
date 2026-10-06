@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 )
 
 // Limits bound how much configuration this package will read before giving
@@ -118,8 +119,8 @@ func (p *parser) processFile(path string, depth int) error {
 	p.filesSeen++
 	data, err := os.ReadFile(path)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
-			// A dangling or unreadable Include target is not this parser's
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, fs.ErrPermission) || errors.Is(err, syscall.EISDIR) {
+			// A dangling, unreadable, or directory Include target is not this parser's
 			// problem to report — ssh(1) would fail the same way, and the
 			// candidate set just stays whatever it already has.
 			return nil
