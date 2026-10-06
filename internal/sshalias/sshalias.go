@@ -116,6 +116,12 @@ func (p *parser) processFile(path string, depth int) error {
 		return nil
 	}
 	p.filesSeen++
+	if info, statErr := os.Stat(path); statErr == nil && info.IsDir() {
+		// ReadFile on a directory fails with a platform-specific error
+		// (EISDIR on Unix, "Incorrect function" on Windows), so detect it
+		// up front. ssh(1) cannot use a directory as config either.
+		return nil
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) || errors.Is(err, fs.ErrPermission) {

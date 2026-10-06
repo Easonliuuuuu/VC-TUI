@@ -20,6 +20,7 @@ func FuzzDiscover(f *testing.F) {
 	f.Add("Include extra.conf\n", "Include extra.conf\nHost loop\n HostName 10.0.0.1\n")
 	f.Add("Match host x\n  Include extra.conf\nHost *.lab ?x !y z\n  HostName 10.0.0.1 # comment\n", "")
 	f.Add("Host \"quoted alias\"\n\tHostName ::ffff:10.0.0.1\n", "")
+	f.Add("Host 0! !neg a%h b*\n\tHostName 10.0.0.1\n", "")
 	target := netip.MustParseAddr("10.0.0.1")
 	lim := Limits{MaxDepth: 3, MaxFiles: 4, MaxBytes: 4096, MaxCandidates: 3}
 	f.Fuzz(func(t *testing.T, config, extra string) {
@@ -45,7 +46,8 @@ func FuzzDiscover(f *testing.F) {
 		}
 		seen := map[string]bool{}
 		for _, alias := range aliases {
-			if alias == "" || strings.ContainsAny(alias, "*?!") {
+			// ssh(1) negates only with a leading "!"; "0!" is a literal host.
+			if alias == "" || strings.ContainsAny(alias, "*?%") || strings.HasPrefix(alias, "!") {
 				t.Fatalf("non-literal alias %q", alias)
 			}
 			if seen[alias] {

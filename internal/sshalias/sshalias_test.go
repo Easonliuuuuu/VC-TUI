@@ -46,6 +46,33 @@ Host app-prod
 	}
 }
 
+func TestDiscoverIncludeOfDirectoryIsSkipped(t *testing.T) {
+	home := t.TempDir()
+	writeConfig(t, home, "config", "Include conf.d\nHost app-prod\n  HostName 172.31.7.122\n")
+	if err := os.MkdirAll(filepath.Join(home, ".ssh", "conf.d"), 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	got, err := Discover(home, mustAddr(t, "172.31.7.122"), DefaultLimits())
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if len(got) != 1 || got[0] != "app-prod" {
+		t.Fatalf("got %v, want [app-prod]", got)
+	}
+}
+
+func TestDiscoverBangOnlyNegatesAsPrefix(t *testing.T) {
+	home := t.TempDir()
+	writeConfig(t, home, "config", "Host 0! !neg\n  HostName 172.31.7.122\n")
+	got, err := Discover(home, mustAddr(t, "172.31.7.122"), DefaultLimits())
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if len(got) != 1 || got[0] != "0!" {
+		t.Fatalf("got %v, want [0!]", got)
+	}
+}
+
 func TestDiscoverNoMatch(t *testing.T) {
 	home := t.TempDir()
 	writeConfig(t, home, "config", `
