@@ -730,9 +730,19 @@ func (m *Model) viewDetailRow(r row) []string {
 		return scrollLines(m.vmDetailLines(r, true), m.detailY, m.bodyHeight())
 	}
 	t := m.theme
-	lines := []string{m.detailHeaderLine(r), ""}
+	header := m.detailHeaderLine(r)
+	if r.cluster != nil {
+		cv := m.clusterState(r)
+		if cv.page != 0 {
+			return m.viewClusterPage(r, cv)
+		}
+		header = joinEnds(header, m.clusterPageTabs(cv.page), m.width)
+	}
+	lines := []string{header, ""}
 	for i, f := range r.detail {
-		lines = append(lines, m.detailFieldLine(2+i, f))
+		// A value too long for the terminal is cut rather than left to wrap
+		// the terminal's own line; the field's copy action still has it whole.
+		lines = append(lines, truncate(m.detailFieldLine(2+i, f, r.marks), m.width))
 	}
 	for _, n := range r.notes {
 		lines = append(lines, "", t.label.Render("  "+n.label))
@@ -766,13 +776,20 @@ func (m *Model) detailHeaderLine(r row) string {
 // detailFieldLine renders one detail field, keeping the label dimmer than
 // its value when the line is not focused — the same distinction the pane
 // always drew — and collapsing both into one highlighted line when it is.
-func (m *Model) detailFieldLine(idx int, f field) string {
+func (m *Model) detailFieldLine(idx int, f field, marks map[string]fieldMark) string {
 	t := m.theme
+	if f.heading() {
+		return t.header.Render(f.label)
+	}
+	suffix := ""
+	if mk, ok := marks[f.label]; ok {
+		suffix = m.markSuffix(mk)
+	}
 	label := pad(f.label, labelColumnPad, false)
 	if idx == m.detailCursor {
-		return t.focused.Render("▸ " + label + f.value)
+		return t.focused.Render("▸ "+label+f.value) + suffix
 	}
-	return "  " + t.label.Render(label) + t.value.Render(f.value)
+	return "  " + t.label.Render(label) + t.value.Render(f.value) + suffix
 }
 
 // spliceLines inserts insert immediately after position at in base, pushing

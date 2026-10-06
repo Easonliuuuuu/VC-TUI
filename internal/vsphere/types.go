@@ -375,30 +375,32 @@ type VMSnapshot struct {
 // Host is an ESXi host.
 type Host struct {
 	Location
-	Metadata        Metadata        `json:"metadata"`
-	ID              string          `json:"id"`
-	Name            string          `json:"name"`
-	Cluster         string          `json:"cluster"`
-	PowerState      string          `json:"power_state"`
-	ConnectionState string          `json:"connection_state"`
-	InMaintenance   bool            `json:"in_maintenance"`
-	Vendor          string          `json:"vendor"`
-	Model           string          `json:"model"`
-	Version         string          `json:"version"`
-	Build           string          `json:"build"`
-	CPUCores        int32           `json:"cpu_cores"`
-	CPUThreads      int32           `json:"cpu_threads"`
-	CPUMHz          int32           `json:"cpu_mhz"`
-	TotalCPUMHz     int64           `json:"total_cpu_mhz"`
-	MemoryMB        int64           `json:"memory_mb"`
-	CPUUsageMHz     int64           `json:"cpu_usage_mhz"`
-	MemoryUsageMB   int64           `json:"memory_usage_mb"`
-	VMCount         int             `json:"vm_count"`
-	HBAs            []HostHBA       `json:"hbas,omitempty"`
-	NICs            []HostNIC       `json:"nics,omitempty"`
-	VSwitches       []HostVSwitch   `json:"vswitches,omitempty"`
-	PortGroups      []HostPortGroup `json:"port_groups,omitempty"`
-	VMKs            []HostVMKernel  `json:"vmks,omitempty"`
+	Metadata        Metadata `json:"metadata"`
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	Cluster         string   `json:"cluster"`
+	PowerState      string   `json:"power_state"`
+	ConnectionState string   `json:"connection_state"`
+	InMaintenance   bool     `json:"in_maintenance"`
+	Vendor          string   `json:"vendor"`
+	Model           string   `json:"model"`
+	Version         string   `json:"version"`
+	Build           string   `json:"build"`
+	CPUCores        int32    `json:"cpu_cores"`
+	CPUThreads      int32    `json:"cpu_threads"`
+	CPUMHz          int32    `json:"cpu_mhz"`
+	TotalCPUMHz     int64    `json:"total_cpu_mhz"`
+	MemoryMB        int64    `json:"memory_mb"`
+	CPUUsageMHz     int64    `json:"cpu_usage_mhz"`
+	MemoryUsageMB   int64    `json:"memory_usage_mb"`
+	VMCount         int      `json:"vm_count"`
+	// Datastores are the datastores mounted on the host, by name.
+	Datastores []string        `json:"datastores,omitempty"`
+	HBAs       []HostHBA       `json:"hbas,omitempty"`
+	NICs       []HostNIC       `json:"nics,omitempty"`
+	VSwitches  []HostVSwitch   `json:"vswitches,omitempty"`
+	PortGroups []HostPortGroup `json:"port_groups,omitempty"`
+	VMKs       []HostVMKernel  `json:"vmks,omitempty"`
 	// ProxySwitches are the host's memberships in distributed switches: which
 	// physical NIC backs each of a switch's uplinks on this host.
 	ProxySwitches []HostProxySwitch `json:"proxy_switches,omitempty"`
@@ -597,6 +599,60 @@ type Cluster struct {
 	TotalMemoryMB int64    `json:"total_memory_mb"`
 	DRSEnabled    bool     `json:"drs_enabled"`
 	HAEnabled     bool     `json:"ha_enabled"`
+	// OverallStatus is vSphere's own colour for the cluster (green, yellow,
+	// red or gray), and ConfigIssues the messages behind a yellow or red one.
+	OverallStatus string   `json:"overall_status,omitempty"`
+	ConfigIssues  []string `json:"config_issues,omitempty"`
+	// EffectiveCPUMHz and EffectiveMemoryMB are what the cluster can hand to
+	// VMs: the total less hosts in maintenance or not responding and less the
+	// virtualization overhead. Zero means the server did not report them.
+	EffectiveCPUMHz   int64 `json:"effective_cpu_mhz,omitempty"`
+	EffectiveMemoryMB int64 `json:"effective_memory_mb,omitempty"`
+	// EVCMode is the current Enhanced vMotion Compatibility baseline; empty
+	// means EVC is off.
+	EVCMode string `json:"evc_mode,omitempty"`
+	// DRSBehavior is DRS's default automation level: manual,
+	// partiallyAutomated or fullyAutomated.
+	DRSBehavior string `json:"drs_behavior,omitempty"`
+	// DRSScore is the cluster's DRS score in percent, reported by vSphere 7.0
+	// and later; zero means not reported.
+	DRSScore int32 `json:"drs_score,omitempty"`
+	// HA is the vSphere HA configuration and failover state, nil when it was
+	// not read or the compute resource is a standalone host.
+	HA *ClusterHA `json:"ha,omitempty"`
+}
+
+// Admission control policies a cluster's HA configuration can use.
+const (
+	HAPolicyHostFailures  = "hostFailures"
+	HAPolicyResources     = "resourcePercent"
+	HAPolicyFailoverHosts = "failoverHosts"
+)
+
+// ClusterHA is how a cluster's vSphere HA is configured and how much
+// failover capacity it has right now.
+type ClusterHA struct {
+	HostMonitoring string `json:"host_monitoring,omitempty"`
+	VMMonitoring   string `json:"vm_monitoring,omitempty"`
+	// AdmissionControl reports whether HA refuses power-ons that would eat
+	// into failover capacity.
+	AdmissionControl bool `json:"admission_control"`
+	// Policy is one of the HAPolicy constants, or empty when unknown.
+	Policy string `json:"policy,omitempty"`
+	// FailoverLevel is the number of host failures the policy is configured
+	// to tolerate, and CurrentFailoverLevel how many the cluster can tolerate
+	// now, both under the host-failures policy.
+	FailoverLevel        int32 `json:"failover_level,omitempty"`
+	CurrentFailoverLevel int32 `json:"current_failover_level,omitempty"`
+	// The resource-percent policy reserves CPUReservePct and MemReservePct
+	// of the cluster for failover; CPUFailoverPct and MemFailoverPct are the
+	// shares currently free for it.
+	CPUReservePct  int32 `json:"cpu_reserve_pct,omitempty"`
+	MemReservePct  int32 `json:"mem_reserve_pct,omitempty"`
+	CPUFailoverPct int32 `json:"cpu_failover_pct,omitempty"`
+	MemFailoverPct int32 `json:"mem_failover_pct,omitempty"`
+	// FailoverHosts are the hosts dedicated to failover under that policy.
+	FailoverHosts []string `json:"failover_hosts,omitempty"`
 }
 
 // ResourcePool is a vSphere resource-pool configuration record. It is

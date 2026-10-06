@@ -3,6 +3,7 @@ package vsphere
 import (
 	"context"
 	"sort"
+	"strings"
 
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
@@ -10,7 +11,7 @@ import (
 
 var computeResourceKinds = []string{"ComputeResource", "ClusterComputeResource"}
 
-var clusterProps = []string{"name", "parent", "summary", "host", "customValue"}
+var clusterProps = []string{"name", "parent", "summary", "host", "customValue", "overallStatus", "configIssue"}
 
 // ListClusters returns the clusters in a vCenter. A host that is not in a
 // cluster appears as a standalone compute resource and is reported with
@@ -28,7 +29,7 @@ func (c *Client) listClusters(ctx context.Context, idx *index) ([]Cluster, error
 	if err := retrieve(ctx, c, idx.root, computeResourceKinds, []string{"ComputeResource"}, clusterProps, &raw); err != nil {
 		return nil, err
 	}
-	settings, err := c.clusterSettings(ctx, idx.root)
+	settings, err := c.clusterSettings(ctx, idx)
 	if err != nil {
 		return nil, err
 	}
@@ -51,11 +52,17 @@ func (c *Client) listClusters(ctx context.Context, idx *index) ([]Cluster, error
 			// fills it in; the member list is the fallback.
 			Hosts: len(m.Host),
 		}
-		applyComputeSummary(&cl, m.Summary)
+		cl.OverallStatus = string(m.OverallStatus)
+		cl.ConfigIssues = issueMessages(m.ConfigIssue)
 		if st, ok := settings[m.Self]; ok {
 			cl.DRSEnabled = st.drs
 			cl.HAEnabled = st.ha
+			if st.drs {
+				cl.DRSBehavior = st.drsBehavior
+			}
+			cl.HA = st.haConfig
 		}
+		applyComputeSummary(&cl, m.Summary)
 		cl.Metadata = metadata[m.Self]
 		out = append(out, cl)
 	}
@@ -85,18 +92,66 @@ func applyComputeSummary(cl *Cluster, summary types.BaseComputeResourceSummary) 
 	cl.TotalCPUMHz = int64(s.TotalCpu)
 	cl.TotalMemoryMB = s.TotalMemory / (1 << 20)
 	cl.EffectiveHost = int(s.NumEffectiveHosts)
+	cl.EffectiveCPUMHz = int64(s.EffectiveCpu)
+	cl.EffectiveMemoryMB = s.EffectiveMemory
 	if s.NumHosts > 0 {
 		cl.Hosts = int(s.NumHosts)
 	}
+	cs, ok := summary.(*types.ClusterComputeResourceSummary)
+	if !ok {
+		return
+	}
+	cl.EVCMode = cs.CurrentEVCModeKey
+	cl.DRSScore = cs.DrsScore
+	if cl.HA == nil {
+		return
+	}
+	switch info := cs.AdmissionControlInfo.(type) {
+	case *types.ClusterFailoverLevelAdmissionControlInfo:
+		if info != nil {
+			cl.HA.CurrentFailoverLevel = info.CurrentFailoverLevel
+		}
+	case *types.ClusterFailoverResourcesAdmissionControlInfo:
+		if info != nil {
+			cl.HA.CPUFailoverPct = info.CurrentCpuFailoverResourcesPercent
+			cl.HA.MemFailoverPct = info.CurrentMemoryFailoverResourcesPercent
+		}
+	}
+	if cl.HA.Policy == HAPolicyHostFailures && cl.HA.CurrentFailoverLevel == 0 {
+		cl.HA.CurrentFailoverLevel = cs.CurrentFailoverLevel
+	}
 }
 
-type clusterSetting struct{ drs, ha bool }
+// issueMessages renders a managed entity's configIssue events as the
+// sentences the vSphere Client shows for them.
+func issueMessages(events []types.BaseEvent) []string {
+	var out []string
+	for _, e := range events {
+		if e == nil {
+			continue
+		}
+		ev := e.GetEvent()
+		if ev == nil {
+			continue
+		}
+		if msg := strings.TrimSpace(ev.FullFormattedMessage); msg != "" {
+			out = append(out, msg)
+		}
+	}
+	return out
+}
 
-// clusterSettings reads DRS and HA state, which only exists on the cluster
-// subtype and so cannot be part of the ComputeResource property set.
-func (c *Client) clusterSettings(ctx context.Context, root types.ManagedObjectReference) (map[types.ManagedObjectReference]clusterSetting, error) {
+type clusterSetting struct {
+	drs, ha     bool
+	drsBehavior string
+	haConfig    *ClusterHA
+}
+
+// clusterSettings reads DRS and HA configuration, which only exists on the
+// cluster subtype and so cannot be part of the ComputeResource property set.
+func (c *Client) clusterSettings(ctx context.Context, idx *index) (map[types.ManagedObjectReference]clusterSetting, error) {
 	var raw []mo.ClusterComputeResource
-	err := retrieve(ctx, c, root, []string{"ClusterComputeResource"}, []string{"ClusterComputeResource"}, []string{"configurationEx"}, &raw)
+	err := retrieve(ctx, c, idx.root, []string{"ClusterComputeResource"}, []string{"ClusterComputeResource"}, []string{"configurationEx"}, &raw)
 	if err != nil {
 		return nil, err
 	}
@@ -110,10 +165,47 @@ func (c *Client) clusterSettings(ctx context.Context, root types.ManagedObjectRe
 		if cfg.DrsConfig.Enabled != nil {
 			s.drs = *cfg.DrsConfig.Enabled
 		}
+		s.drsBehavior = string(cfg.DrsConfig.DefaultVmBehavior)
 		if cfg.DasConfig.Enabled != nil {
 			s.ha = *cfg.DasConfig.Enabled
+		}
+		if s.ha {
+			s.haConfig = haConfig(idx, &cfg.DasConfig)
 		}
 		out[raw[i].Self] = s
 	}
 	return out, nil
+}
+
+// haConfig reads the HA settings that decide whether the cluster survives a
+// host failure. Admission control defaults to on when the server omits it,
+// as the vSphere API documents.
+func haConfig(idx *index, das *types.ClusterDasConfigInfo) *ClusterHA {
+	ha := &ClusterHA{
+		HostMonitoring:   das.HostMonitoring,
+		VMMonitoring:     das.VmMonitoring,
+		AdmissionControl: das.AdmissionControlEnabled == nil || *das.AdmissionControlEnabled,
+	}
+	switch p := das.AdmissionControlPolicy.(type) {
+	case *types.ClusterFailoverLevelAdmissionControlPolicy:
+		if p != nil {
+			ha.Policy, ha.FailoverLevel = HAPolicyHostFailures, p.FailoverLevel
+		}
+	case *types.ClusterFailoverResourcesAdmissionControlPolicy:
+		if p != nil {
+			ha.Policy = HAPolicyResources
+			ha.CPUReservePct, ha.MemReservePct = p.CpuFailoverResourcesPercent, p.MemoryFailoverResourcesPercent
+			ha.FailoverLevel = p.FailoverLevel
+		}
+	case *types.ClusterFailoverHostAdmissionControlPolicy:
+		if p != nil {
+			ha.Policy = HAPolicyFailoverHosts
+			ha.FailoverHosts = idx.names(p.FailoverHosts)
+			ha.FailoverLevel = p.FailoverLevel
+		}
+	}
+	if ha.Policy == "" && das.FailoverLevel > 0 {
+		ha.Policy, ha.FailoverLevel = HAPolicyHostFailures, das.FailoverLevel
+	}
+	return ha
 }

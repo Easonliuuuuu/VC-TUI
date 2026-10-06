@@ -283,6 +283,7 @@ func buildEstate(s siteSpec) *estate {
 	e.finishVApps(s, placed, loc)
 	e.applyAnchors(s)
 	e.finishClusters(s, hostIdx)
+	e.mountDatastores(s, hostIdx)
 	e.finishDatastores(s)
 	e.finishPools(s, placed, loc)
 	e.finishHosts(s)
@@ -669,8 +670,79 @@ func (e *estate) finishClusters(s siteSpec, hostIdx map[string][]int) {
 			cl.CPUCores += h.CPUCores
 			cl.TotalCPUMHz += h.TotalCPUMHz
 			cl.TotalMemoryMB += h.MemoryMB
+			if h.ConnectionState == "connected" && !h.InMaintenance {
+				// What vSphere reports as effective is the healthy hosts'
+				// capacity less the hypervisor's own share.
+				cl.EffectiveCPUMHz += h.TotalCPUMHz * 92 / 100
+				cl.EffectiveMemoryMB += h.MemoryMB * 94 / 100
+			}
 		}
+		clusterHealth(&cl, c, ci, s)
 		inv.Clusters = append(inv.Clusters, cl)
+	}
+}
+
+// clusterHealth gives each cluster the HA, DRS and EVC settings its role
+// suggests, with the evidence the cluster workspace is built to surface: the
+// second cluster has lost a host and can no longer cover a failure, and the
+// management cluster runs with admission control off.
+func clusterHealth(cl *vsphere.Cluster, c *clusterSpec, ci int, s siteSpec) {
+	cl.OverallStatus = "green"
+	if c.role != "dmz" {
+		cl.EVCMode = "intel-icelake"
+		cl.DRSBehavior = "fullyAutomated"
+		if c.role == "db" {
+			cl.DRSBehavior = "partiallyAutomated"
+		}
+		cl.DRSScore = int32(78 + pickN(20, s.ctx, c.name, "drs"))
+	}
+	ha := &vsphere.ClusterHA{
+		HostMonitoring: "enabled", VMMonitoring: "vmMonitoringOnly", AdmissionControl: true,
+		Policy: vsphere.HAPolicyResources, CPUReservePct: 25, MemReservePct: 25, FailoverLevel: 1,
+		CPUFailoverPct: int32(30 + pickN(30, s.ctx, c.name, "cpu-fo")), MemFailoverPct: int32(28 + pickN(25, s.ctx, c.name, "mem-fo")),
+	}
+	switch {
+	case ci == 1:
+		ha.MemFailoverPct = 11
+		cl.OverallStatus = "red"
+		cl.ConfigIssues = []string{"Insufficient vSphere HA failover resources"}
+	case c.role == "mgmt":
+		ha.AdmissionControl = false
+		cl.OverallStatus = "yellow"
+	case c.role == "dmz":
+		ha.Policy, ha.CPUReservePct, ha.MemReservePct, ha.CPUFailoverPct, ha.MemFailoverPct = vsphere.HAPolicyHostFailures, 0, 0, 0, 0
+		ha.CurrentFailoverLevel = 1
+		ha.VMMonitoring = "vmMonitoringDisabled"
+	}
+	cl.HA = ha
+}
+
+// mountDatastores mounts each cluster's datastores on its hosts, a local
+// datastore only on the host it is named after. The first cluster's host in
+// maintenance came back without its last datastore: the kind of gap the
+// cluster Storage page exists to show.
+func (e *estate) mountDatastores(s siteSpec, hostIdx map[string][]int) {
+	local := map[string]bool{}
+	for _, d := range s.datastores {
+		local[d.name] = d.local
+	}
+	for ci := range s.clusters {
+		c := &s.clusters[ci]
+		for _, i := range hostIdx[c.name] {
+			h := &e.inv.Hosts[i]
+			var mounts []string
+			for _, ds := range c.datastores {
+				if local[ds] && ds != "local-"+h.Name {
+					continue
+				}
+				mounts = append(mounts, ds)
+			}
+			if ci == 0 && h.InMaintenance && len(mounts) > 1 {
+				mounts = mounts[:len(mounts)-1]
+			}
+			sort.Strings(mounts)
+			h.Datastores = mounts
+		}
 	}
 }
 

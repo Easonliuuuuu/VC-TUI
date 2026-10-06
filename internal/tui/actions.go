@@ -723,6 +723,15 @@ func (m *Model) fieldActions(r row, f field) []action {
 		return []action{jumpToNamed("Show this host", vsphere.KindHost, f.value), copyAction(f.value)}
 	case r.kind == vsphere.KindVM && f.label == "Cluster":
 		return []action{jumpToNamed("Show this cluster", vsphere.KindCluster, f.value), copyAction(f.value)}
+	case r.cluster != nil && !r.cluster.Standalone && f.label == "VMs":
+		return []action{jumpAction("Show VMs in cluster", vsphere.KindVM, "cluster", r.name), copyAction(f.value)}
+	case r.cluster != nil && !r.cluster.Standalone && (f.label == "Hosts" || f.label == "Host states"):
+		return []action{jumpAction("Show hosts in cluster", vsphere.KindHost, "cluster", r.name), copyAction(f.value)}
+	case r.cluster != nil && f.label == "Datastores":
+		return []action{{label: "Open the Storage page", run: func(m *Model) tea.Cmd {
+			m.clusterState(r).page = 2
+			return nil
+		}}, copyAction(f.value)}
 	case f.label == "Managed object":
 		return []action{copyNamed("Copy MoRef", f.value)}
 	default:

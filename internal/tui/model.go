@@ -756,6 +756,10 @@ type Model struct {
 	netFolded  map[string]bool
 	netFlat    bool
 	netTopoGen uint64
+
+	// cl is the open cluster pane's page, host cursor and folds; see
+	// cluster.go.
+	cl *clusterView
 	// ds holds the read-only datastore file browser while it is open. Like
 	// vapp it is kept apart from the browse cursor, and unlike everything
 	// else on this struct it is the one view whose contents come from a live
@@ -2885,6 +2889,7 @@ func (m *Model) open() tea.Cmd {
 	}
 	m.mode = modeDetail
 	m.detailCursor, m.detailY = 0, 0
+	m.cl = nil
 	return m.ensureVMPerf(false)
 }
 
@@ -2954,6 +2959,11 @@ func (m *Model) handleDetailKey(msg tea.KeyMsg) tea.Cmd {
 	if m.actions != nil {
 		return m.handleActionsKey(msg)
 	}
+	if r, ok := m.currentRow(); ok && r.cluster != nil {
+		if cmd, handled := m.handleClusterKey(msg, r); handled {
+			return cmd
+		}
+	}
 	switch {
 	case key.Matches(msg, m.keys.Back):
 		m.mode = m.detailFrom
@@ -3011,7 +3021,7 @@ func detailFocusable(r row) []bool {
 	out := make([]bool, 2+len(r.detail))
 	out[0] = true
 	for i, f := range r.detail {
-		out[2+i] = f.value != "-"
+		out[2+i] = f.value != "-" && !f.heading()
 	}
 	return out
 }

@@ -115,6 +115,11 @@ type keyMap struct {
 	Fold       key.Binding
 	NetView    key.Binding
 	SwitchPage key.Binding
+	// ClusterPage picks a cluster detail pane's page, and FoldHost folds a
+	// host on its Hosts & VMs page. Both share their keys with bindings the
+	// pane otherwise ignores.
+	ClusterPage key.Binding
+	FoldHost    key.Binding
 	// NetKeys is Fold and NetView's shared help line. The help overlay has to
 	// fit the minimum terminal height, and one line more than this moves the
 	// Connection keys below the bottom of it.
@@ -219,13 +224,15 @@ func defaultKeys() keyMap {
 		FindFiles: key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "find in datastore")),
 		CopyPath:  key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy datastore path")),
 
-		Sort:       key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort: name/status")),
-		Fold:       key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "fold switch")),
-		NetView:    key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "networks: tree/list")),
-		SwitchPage: key.NewBinding(key.WithKeys("0", "1"), key.WithHelp("0/1", "page")),
-		NetKeys:    key.NewBinding(key.WithHelp("space/t", "networks: fold, list")),
-		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
-		Quit:       key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+		Sort:        key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort: name/status")),
+		Fold:        key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "fold switch")),
+		NetView:     key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "networks: tree/list")),
+		SwitchPage:  key.NewBinding(key.WithKeys("0", "1"), key.WithHelp("0/1", "page")),
+		ClusterPage: key.NewBinding(key.WithKeys("0", "1", "2"), key.WithHelp("0-2", "page")),
+		FoldHost:    key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "fold")),
+		NetKeys:     key.NewBinding(key.WithHelp("space/t", "networks: fold, list")),
+		Help:        key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
+		Quit:        key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 
 		UseContext:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "use")),
 		NewContext:    key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new")),
@@ -391,6 +398,15 @@ func (k keyMap) footerHints(m *Model) []key.Binding {
 	case modeDetail:
 		if m.actions != nil {
 			return []key.Binding{k.Up, k.Down, k.RunAction, k.CancelAction}
+		}
+		if r, ok := m.detailRow(); ok && r.cluster != nil {
+			switch m.clusterState(r).page {
+			case 1:
+				return []key.Binding{k.Up, k.Down, k.FoldHost, k.Open, k.ClusterPage, k.Back, k.Help, k.Quit}
+			case 2:
+				return []key.Binding{k.Up, k.Down, k.ClusterPage, k.Back, k.Help, k.Quit}
+			}
+			return []key.Binding{k.Up, k.Down, k.Open, k.ClusterPage, k.Back, k.Help, k.Quit}
 		}
 		if m.vmChartsDrawn() {
 			return []key.Binding{k.Up, k.Down, k.Open, k.PerfRange, k.Timeline, k.Back, k.Help, k.Quit}
