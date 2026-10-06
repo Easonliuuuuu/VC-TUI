@@ -22,7 +22,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 )
 
 // Limits bound how much configuration this package will read before giving
@@ -117,10 +116,16 @@ func (p *parser) processFile(path string, depth int) error {
 		return nil
 	}
 	p.filesSeen++
+	if info, statErr := os.Stat(path); statErr == nil && info.IsDir() {
+		// ReadFile on a directory fails with a platform-specific error
+		// (EISDIR on Unix, "Incorrect function" on Windows), so detect it
+		// up front. ssh(1) cannot use a directory as config either.
+		return nil
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) || errors.Is(err, fs.ErrPermission) || errors.Is(err, syscall.EISDIR) {
-			// A dangling, unreadable, or directory Include target is not this parser's
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
+			// A dangling or unreadable Include target is not this parser's
 			// problem to report — ssh(1) would fail the same way, and the
 			// candidate set just stays whatever it already has.
 			return nil
