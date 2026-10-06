@@ -18,7 +18,7 @@ scripts/testbed test partial-failure
 ```
 
 The scenario layer asserts user-visible semantics, model observations, and
-read-only/credential-safety invariants. Five stable screens also have
+read-only/credential-safety invariants. Six stable screens also have
 ANSI-normalized render contracts at `60x20`, `100x30`, and `140x40`. Goldens
 are changed only with the explicit `--update-goldens` flag.
 

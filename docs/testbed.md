@@ -57,7 +57,8 @@ addition, datastore browsing, and terminal resizing.
 
 Only critical screens have goldens. They are ANSI-normalized and checked at
 `60x20`, `100x30`, and `140x40`. Behavior is asserted semantically; goldens
-are not a replacement for state assertions.
+are not a replacement for state assertions. A longer journey can capture its
+golden at an explicit checkpoint before completing its final assertions.
 
 Review a change before rewriting files. Regeneration requires an explicit
 flag:
