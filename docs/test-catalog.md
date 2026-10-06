@@ -124,6 +124,7 @@ only with `--update-goldens`, and review the diff.
 | `resize` | presentation | resize through `60x20`, `100x30`, `140x40` | inventory still renders and selection is kept | no |
 | `vm-dashboard` | presentation | open the first VM, then visit chart pages `0`–`4` and step ranges `1h`→`30d`→`1h` at each size | every frame fits the terminal's width and height, the selected page tab is shown whole, and the pane stays in detail mode | yes |
 | `network-switches` | presentation | open the Networks tab, open DVS-Production and visit both workspace pages at each size; then fold it and open DVS-Storage's Wiring page on its vMotion port group | every frame fits the terminal, both page tabs are shown, and the wiring page names the switch and port group | yes |
+| `cluster-workspace` | presentation | open the Clusters tab, open compute-a and visit Summary, Hosts & VMs (unfolding a host) and Storage at each size; then open compute-b | every frame fits the terminal, each page tab is shown, Storage names the host missing a datastore, and compute-b's Summary flags its HA failover capacity below the reserve | yes |
 
 ## PTY journeys
 

@@ -1,0 +1,20 @@
+vsfleet  DEMO · SAMPLE DATA  ◆ prod-vc  ·  1 connected
+────────────────────────────────────────────────────────────
+▸ compute-b   Cluster · prod-vc
+
+Health (live)
+  Status              red  ✕
+  Config issues       1 · Insufficient vSphere HA failover …
+
+Resilience
+  HA                  on
+  Host monitoring     on
+  VM monitoring       on
+  HA failover         CPU 44% · memory 11% free for failove…
+  Admission control   reserve CPU 25% · memory 25%
+
+Hosts
+  Hosts               12 total · 10 effective
+  Host states         10 connected · 1 maintenance · 1 not …
+
+↑/k up  ↓/j down  enter open  0-2 page  esc back  ? help
