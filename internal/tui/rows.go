@@ -100,6 +100,16 @@ type field struct {
 	value string
 }
 
+// sectionValue is the value that makes a field a section heading rather than
+// a value: drawn in the header style, never focused, never acted on. A
+// heading with no label is the blank line between sections. It is a value
+// no vCenter string can hold, so every kind keeps its two-element literals.
+const sectionValue = "\x00section"
+
+func heading(label string) field { return field{label: label, value: sectionValue} }
+
+func (f field) heading() bool { return f.value == sectionValue }
+
 // actionTarget is a row's own structured identity — the values a handoff
 // action needs, as opposed to their rendered form in row.detail. row.detail
 // exists to be read; actionTarget exists to be acted on, which is why the
@@ -172,6 +182,12 @@ type row struct {
 	// vm is the virtual machine a VM row was built from, so the detail pane
 	// can judge its fields and chart its counters. Nil for every other kind.
 	vm *vsphere.VM
+	// cluster is the cluster a cluster row was built from, so its pane can
+	// draw the Hosts & VMs and Storage pages. Nil for every other kind.
+	cluster *vsphere.Cluster
+	// marks are verdicts on detail fields, by label, drawn after the value
+	// the way a VM's field marks are. Kinds without any leave it nil.
+	marks map[string]fieldMark
 	// tree places a row in the grouped Networks tab; see network.go.
 	tree treeInfo
 }
@@ -495,7 +511,7 @@ func rowsFor(inv *vsphere.Inventory, kind vsphere.Kind, withContext bool) []row 
 		}
 	case vsphere.KindCluster:
 		for _, c := range inv.Clusters {
-			out = append(out, clusterRow(c, withContext))
+			out = append(out, clusterRow(c, inv, withContext))
 		}
 	case vsphere.KindVApp:
 		for _, v := range inv.VApps {
@@ -503,7 +519,7 @@ func rowsFor(inv *vsphere.Inventory, kind vsphere.Kind, withContext bool) []row 
 		}
 	case vsphere.KindDatastore:
 		for _, d := range inv.Datastores {
-			out = append(out, datastoreRow(d, withContext))
+			out = append(out, datastoreRow(d, inv, withContext))
 		}
 	case vsphere.KindNetwork:
 		for _, n := range inv.Networks {
@@ -685,49 +701,6 @@ func hostRow(h vsphere.Host, withContext bool) row {
 	}
 }
 
-func clusterRow(c vsphere.Cluster, withContext bool) row {
-	st, glyph := statusGood, glyphOnline
-	if c.Hosts == 0 {
-		st, glyph = statusWarn, glyphOffline
-	}
-	kind := "Cluster"
-	if c.Standalone {
-		kind = "Standalone host"
-	}
-	return row{
-		key:     c.Context + "/" + c.ID,
-		context: c.Context,
-		where:   c.Location,
-		name:    c.Name,
-		glyph:   glyph,
-		status:  st,
-		cells: lead(withContext, c.Context,
-			c.Name,
-			strconv.Itoa(c.Hosts),
-			strconv.FormatInt(int64(c.CPUCores), 10),
-			humanize.MB(c.TotalMemoryMB),
-			yesNo(c.DRSEnabled),
-			yesNo(c.HAEnabled),
-			humanize.Dash(c.Datacenter),
-		),
-		detail: []field{
-			{"vCenter", c.Context},
-			{"Kind", kind},
-			{"Hosts", strconv.Itoa(c.Hosts)},
-			{"Effective hosts", strconv.Itoa(c.EffectiveHost)},
-			{"CPU cores", strconv.FormatInt(int64(c.CPUCores), 10)},
-			{"Total CPU", humanize.MHz(c.TotalCPUMHz)},
-			{"Total memory", humanize.MB(c.TotalMemoryMB)},
-			{"DRS", yesNo(c.DRSEnabled)},
-			{"HA", yesNo(c.HAEnabled)},
-			{"Datacenter", humanize.Dash(c.Datacenter)},
-			{"Inventory path", humanize.Dash(c.Path)},
-			{"Managed object", c.ID},
-		},
-		target: actionTarget{moref: c.ID, morefKind: clusterMorefKind(c.Standalone), path: c.Path},
-	}
-}
-
 // clusterMorefKind names the managed object type behind a Cluster row.
 // listClusters retrieves both ComputeResource and ClusterComputeResource and
 // tells them apart by Self.Type (cluster.go); Standalone survives that one
@@ -788,7 +761,7 @@ func listOrDash(items []string) string {
 	return humanize.Dash(strings.Join(items, ", "))
 }
 
-func datastoreRow(d vsphere.Datastore, withContext bool) row {
+func datastoreRow(d vsphere.Datastore, inv *vsphere.Inventory, withContext bool) row {
 	st, glyph := statusGood, glyphOnline
 	switch {
 	case !d.Accessible:
@@ -797,6 +770,11 @@ func datastoreRow(d vsphere.Datastore, withContext bool) row {
 		st, glyph = statusBad, glyphOnline
 	case d.UsedPercent() >= 75:
 		st, glyph = statusWarn, glyphOnline
+	}
+	hostsValue, mark, marked := datastoreHosts(d, inv)
+	var marks map[string]fieldMark
+	if marked {
+		marks = map[string]fieldMark{"Hosts": mark}
 	}
 	return row{
 		key:     d.Context + "/" + d.ID,
@@ -820,11 +798,13 @@ func datastoreRow(d vsphere.Datastore, withContext bool) row {
 			{"Capacity", humanize.Bytes(d.CapacityBytes)},
 			{"Used", fmt.Sprintf("%s (%.0f%%)", humanize.Bytes(d.UsedBytes()), d.UsedPercent())},
 			{"Free", humanize.Bytes(d.FreeBytes)},
+			{"Hosts", hostsValue},
 			{"Maintenance", humanize.Dash(d.Maintenance)},
 			{"Datacenter", humanize.Dash(d.Datacenter)},
 			{"Inventory path", humanize.Dash(d.Path)},
 			{"Managed object", d.ID},
 		},
+		marks:  marks,
 		target: actionTarget{moref: d.ID, morefKind: "Datastore", path: "[" + d.Name + "]", inaccessible: !d.Accessible},
 	}
 }

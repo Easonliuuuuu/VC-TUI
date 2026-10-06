@@ -142,6 +142,8 @@ with several opens a short list to choose from.
 | A host, datastore, network, or cluster's own header | "Show VMs on this …" — narrows the VM table to exactly what belongs to it |
 | A datastore's own header | "Browse files" and "Find in datastore" — see below |
 | A VM's Host or Cluster field | Jump straight to that host's or cluster's own row |
+| A cluster's Hosts, Host states or VMs field | "Show hosts in cluster" or "Show VMs in cluster" |
+| A cluster's Datastores field | Open its Storage page |
 | Any other field | Copy the value |
 
 The list opens with the cursor on the first action that can run, and the arrow
@@ -372,6 +374,44 @@ inventory load. Until that read lands the table says `reading wiring…`, and
 when it fails the workspace says why rather than showing a switch with
 nothing on it. The read is read-only and needs no privilege beyond those the
 inventory already uses.
+
+## Cluster workspace
+
+`Enter` on a cluster opens its detail pane on the first of three pages,
+chosen with `0`, `1` and `2`. Moving to the next or previous cluster with
+`←`/`→` keeps the page, so two clusters can be compared side by side; opening
+one from the table starts on Summary.
+
+- **Summary** groups the fields in the order you would check them: live
+  health (vSphere's own status and configuration issues), resilience (HA,
+  host and VM monitoring, failover capacity and admission control), hosts
+  (how many are effective and why the rest are not, EVC mode), capacity, DRS
+  and contents. A `✓`, `▲` or `✕` after a field is a verdict on it: failover
+  capacity below what HA reserves, admission control off, a host not
+  responding, effective capacity above 80% or 90% in use, a manual DRS, or a
+  datastore not mounted on every host. Capacity is shown used out of the
+  total, as the vSphere Client shows it, with the effective capacity (the
+  total less unavailable hosts and the hypervisor's share) and its use on
+  their own lines. A standalone host has no Resilience, EVC or DRS section.
+- **Hosts & VMs** lists the cluster's hosts with their state, CPU and memory
+  use and VM count. `space` unfolds a host into the VMs running on it, and
+  `Enter` shows the host in the Hosts tab.
+- **Storage** lists the datastores the hosts mount, with how many of them do
+  and the free space. A datastore most hosts mount but some do not comes
+  first and names the hosts without it: VMs on it cannot restart or run on
+  those hosts. A datastore on exactly one host is that host's local disk and
+  is not flagged. Network coverage is the switch workspace's job; see
+  Networks and switches above.
+
+The datastore detail pane has a matching Hosts field: how many of each
+cluster's hosts mount it, naming the ones that do not.
+
+Every page draws from the inventory already loaded. Health, HA, DRS and EVC
+come from the cluster's summary and configuration, and the mounts from each
+host's datastore list, all part of the ordinary load. An older capture or an
+imported RVTools workbook has none of them, so those fields read `-` and the
+Storage page says the mounts were not read, rather than showing a cluster
+with nothing wrong.
 
 ## Contexts and vApps
 

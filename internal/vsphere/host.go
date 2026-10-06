@@ -19,6 +19,7 @@ var hostProps = []string{
 	"summary.quickStats",
 	"summary.config.product",
 	"vm",
+	"datastore",
 }
 
 var hostConfigProps = []string{"config.storageDevice", "config.network"}
@@ -83,6 +84,9 @@ func newHostWithConfig(c *Client, idx *index, m *mo.HostSystem, withConfig bool)
 		PowerState:      string(m.Runtime.PowerState),
 		ConnectionState: string(m.Runtime.ConnectionState),
 		VMCount:         len(m.Vm),
+	}
+	if len(m.Datastore) > 0 {
+		h.Datastores = idx.names(m.Datastore)
 	}
 	if m.Runtime.InMaintenanceMode {
 		h.InMaintenance = true

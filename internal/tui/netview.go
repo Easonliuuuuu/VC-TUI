@@ -184,10 +184,13 @@ func (m *Model) switchVerdict(sw *netSwitch) string {
 	return t.statusStyle(sw.status()).Render(notes)
 }
 
-func (m *Model) switchPageTabs(page int) string {
+func (m *Model) switchPageTabs(page int) string { return m.pageTabs(switchPages, page) }
+
+// pageTabs draws a workspace's page bar, the current page bracketed.
+func (m *Model) pageTabs(pages []string, page int) string {
 	t := m.theme
 	var b strings.Builder
-	for i, name := range switchPages {
+	for i, name := range pages {
 		label := fmt.Sprintf("%d %s", i, name)
 		if i == page {
 			b.WriteString(t.accent.Render("[" + label + "]"))
