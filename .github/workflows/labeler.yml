@@ -114,6 +114,15 @@ jobs:
                 );
                 return;
               }
+              // Only feat and fix reach the release notes, so they must not
+              // describe CI-only work. Use the ci action for that instead.
+              if (prTitle[2] === "ci" && ["feat", "fix"].includes(prTitle[1])) {
+                core.setFailed(
+                  `"${prTitle[1]}(ci)" would appear in the release notes. ` +
+                  "Use ci(ci): summary for workflow and tooling changes, or test(component): summary for test-only changes."
+                );
+                return;
+              }
               component = prTitle[2];
             } else {
               // GitHub issue forms put the first dropdown at the start of the
