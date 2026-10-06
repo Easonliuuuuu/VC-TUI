@@ -12,7 +12,7 @@ body:
         - compatibility
         - vsphere
         - docs
-        - ci
+        - workflows
         - release
         - config
         - deps
