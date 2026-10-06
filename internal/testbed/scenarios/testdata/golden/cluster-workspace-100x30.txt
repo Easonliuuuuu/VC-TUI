@@ -1,0 +1,30 @@
+vsfleet  DEMO · SAMPLE DATA  ◆ prod-vc  ·  1 connected
+────────────────────────────────────────────────────────────────────────────────────────────────────
+▸ compute-b   Cluster · prod-vc                                [0 Summary] 1 Hosts & VMs  2 Storage 
+
+Health (live)
+  Status              red  ✕
+  Config issues       1 · Insufficient vSphere HA failover resources  ✕
+
+Resilience
+  HA                  on
+  Host monitoring     on
+  VM monitoring       on
+  HA failover         CPU 44% · memory 11% free for failover  ✕ below the reserve
+  Admission control   reserve CPU 25% · memory 25%
+
+Hosts
+  Hosts               12 total · 10 effective
+  Host states         10 connected · 1 maintenance · 1 not responding  ✕
+  EVC mode            intel-icelake
+
+Capacity
+  CPU                 275.2GHz used of 710.4GHz (39%)
+  Memory              2837.5G used of 5376G (53%)
+  Effective CPU       582.9GHz · 47% used
+  Effective memory    4812.8G · 59% used
+  CPU cores           296
+
+DRS
+
+↑/k up  ↓/j down  enter open  0-2 page  esc back  ? help  q quit

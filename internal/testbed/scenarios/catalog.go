@@ -51,6 +51,7 @@ var definitions = []Definition{
 	{Name: "resize", Profile: "presentation", Purpose: "bounded terminal sizes render safely and preserve selection"},
 	{Name: "vm-dashboard", Profile: "presentation", Purpose: "every VM chart page and range stays inside the terminal at each size"},
 	{Name: "network-switches", Profile: "presentation", Purpose: "port groups group under their switch and every switch page stays inside the terminal"},
+	{Name: "cluster-workspace", Profile: "presentation", Purpose: "a cluster's Summary, Hosts & VMs and Storage pages stay inside the terminal and surface its failover and storage gaps"},
 }
 
 // Definitions returns the catalogue in display order.
@@ -164,6 +165,13 @@ func Run(ctx context.Context, name string, opts RunOptions) (result Result, runE
 		if err := walkNetworkSwitches(m); err != nil {
 			return Result{}, err
 		}
+	case "cluster-workspace":
+		if err := press(m, "4"); err != nil {
+			return Result{}, fmt.Errorf("open the Clusters tab: %w", err)
+		}
+		if err := walkClusterWorkspace(m); err != nil {
+			return Result{}, err
+		}
 	case "resize":
 		for _, size := range [][2]int{{60, 20}, {100, 30}, {140, 40}} {
 			if err := drive(m, send(m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})); err != nil {
@@ -199,7 +207,7 @@ func Run(ctx context.Context, name string, opts RunOptions) (result Result, runE
 
 func isCriticalScreen(name string) bool {
 	switch name {
-	case "overview", "credential-cancel", "history-coverage-gap", "datastore-browser", "vm-dashboard", "network-switches":
+	case "overview", "credential-cancel", "history-coverage-gap", "datastore-browser", "vm-dashboard", "network-switches", "cluster-workspace":
 		return true
 	default:
 		return false
@@ -306,6 +314,60 @@ func walkNetworkSwitches(m *tui.Model) error {
 	return nil
 }
 
+// walkClusterWorkspace opens compute-a and visits all three pages at each
+// size, folding a host open on Hosts & VMs and checking that Storage names
+// the host that lacks a datastore. It ends on compute-b's Summary, whose HA
+// failover capacity has fallen below its reserve.
+func walkClusterWorkspace(m *tui.Model) error {
+	pages := []string{"Summary", "Hosts & VMs", "Storage"}
+	for _, size := range [][2]int{{60, 20}, {100, 30}, {140, 40}} {
+		if err := drive(m, send(m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})); err != nil {
+			return fmt.Errorf("cluster-workspace resize %dx%d: %w", size[0], size[1], err)
+		}
+		where := fmt.Sprintf("at %dx%d", size[0], size[1])
+		if err := drive(m, send(m, tea.KeyMsg{Type: tea.KeyEnter})); err != nil {
+			return fmt.Errorf("open compute-a: %w", err)
+		}
+		for i, page := range pages {
+			if err := press(m, strconv.Itoa(i)); err != nil {
+				return err
+			}
+			for step := 0; step < 3; step++ {
+				view := m.View()
+				if err := boundedFrame(view, size[0], size[1]); err != nil {
+					return fmt.Errorf("cluster-workspace %s page step %d %s: %w", page, step, where, err)
+				}
+				plain := ansi.Strip(view)
+				if size[0] >= 100 && !strings.Contains(plain, fmt.Sprintf("[%d %s]", i, page)) {
+					return fmt.Errorf("cluster-workspace %s page %s does not mark its tab", page, where)
+				}
+				if page == "Storage" && step == 0 && size[1] >= 30 && !strings.Contains(plain, "not on esxi-a-") {
+					return fmt.Errorf("cluster-workspace Storage page %s does not name the host missing a datastore", where)
+				}
+				keys := []string{"j"}
+				if page == "Hosts & VMs" && step == 0 {
+					keys = append(keys, " ")
+				}
+				for _, k := range keys {
+					if err := press(m, k); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		if err := press(m, "esc"); err != nil {
+			return err
+		}
+	}
+	if err := press(m, "j"); err != nil {
+		return err
+	}
+	if err := drive(m, send(m, tea.KeyMsg{Type: tea.KeyEnter})); err != nil {
+		return fmt.Errorf("open compute-b: %w", err)
+	}
+	return nil
+}
+
 // boundedFrame reports a rendered frame that would wrap or scroll the
 // terminal it was drawn for.
 func boundedFrame(view string, width, height int) error {
@@ -375,6 +437,15 @@ func assertResult(result Result) error {
 		for _, want := range []string{"DVS-Storage", "[1 Wiring]", "vmotion-vlan-2030"} {
 			if !strings.Contains(result.View, want) {
 				return fmt.Errorf("scenario %s is missing %q from the wiring page", result.Name, want)
+			}
+		}
+	case "cluster-workspace":
+		if result.Observation.Mode != "detail" {
+			return fmt.Errorf("scenario %s left the cluster pane (mode %q)", result.Name, result.Observation.Mode)
+		}
+		for _, want := range []string{"compute-b", "[0 Summary]", "HA failover", "below the reserve"} {
+			if !strings.Contains(result.View, want) {
+				return fmt.Errorf("scenario %s is missing %q from compute-b's Summary", result.Name, want)
 			}
 		}
 	case "vm-dashboard":
