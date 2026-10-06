@@ -7,7 +7,7 @@ whole estate in one run — from Linux, macOS or Windows, with no GUI and no .NE
 runtime. It organizes each vCenter into a named context, so you can search the
 estate and compare changes without juggling browser tabs or scripts.
 
-![vsfleet inspecting inventory across three vCenters](assets/vsfleet.gif){ width="1200" }
+![vsfleet inspecting VM performance and network wiring across three vCenters, then searching the estate and diagnosing an unavailable site](assets/vsfleet.gif){ width="1200" }
 
 ## Try it without a vCenter
 
