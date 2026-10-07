@@ -41,11 +41,17 @@ type RunStatus string
 // Schema 20 adds the "vapp" collection: each vApp's membership, CPU and memory
 // allocation, status colours and startup order. Older runs have no vApp
 // observations, which readers must treat as "not recorded", never as "no
-// vApps".
-const CurrentInventorySchemaVersion = "20"
+// vApps". Schema 21 records the datastores each host mounts (Host.Datastores);
+// older runs have no mounts, which readers must treat as "not read", never as
+// "mounted nowhere".
+const CurrentInventorySchemaVersion = "21"
 
 // InventoryVAppSchema is the first inventory schema that records vApps.
 const InventoryVAppSchema = 20
+
+// InventoryHostMountSchema is the first inventory schema that records the
+// datastores each host mounts.
+const InventoryHostMountSchema = 21
 
 const (
 	RunRunning  RunStatus = "running"

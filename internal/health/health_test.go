@@ -126,6 +126,72 @@ func TestEvaluateMigrationReadinessRules(t *testing.T) {
 	}
 }
 
+func TestDatastoreHostCoverage(t *testing.T) {
+	host := func(id, name, cluster string, datastores ...string) assessment.ResourceObservation {
+		payload, _ := json.Marshal(vsphere.Host{Location: vsphere.Location{Datacenter: "dc-a"}, ID: id, Name: name, Cluster: cluster, Datastores: datastores})
+		return assessment.ResourceObservation{Context: "prod", VCenterID: "vc-1", Kind: "host", ID: id, Name: name, Payload: payload}
+	}
+	data := func(schema string, hosts ...assessment.ResourceObservation) assessment.ExportData {
+		return assessment.ExportData{Run: assessment.Run{ID: 52, InventorySchemaVersion: schema}, Contexts: []assessment.ContextRun{{Name: "prod", VMStatus: "empty", Collections: []assessment.CollectionRun{{Kind: "vm", Status: "empty"}, {Kind: "host", Status: "success"}}}}, Resources: hosts}
+	}
+	findings := func(report Report) []Finding {
+		var out []Finding
+		for _, f := range report.Findings {
+			if f.Rule == "datastore-host-coverage" {
+				out = append(out, f)
+			}
+		}
+		return out
+	}
+	status := func(report Report) RuleStatus {
+		for _, s := range report.Rules {
+			if s.Rule == "datastore-host-coverage" {
+				return s
+			}
+		}
+		t.Fatal("datastore-host-coverage status was not reported")
+		return RuleStatus{}
+	}
+
+	hosts := []assessment.ResourceObservation{
+		host("host-1", "esx-1", "cluster-a", "shared", "partial", "local-1"),
+		host("host-2", "esx-2", "cluster-a", "shared", "partial"),
+		host("host-3", "esx-3", "cluster-a", "shared"),
+		// A different cluster that does not mount "partial" is not a gap in cluster-a.
+		host("host-4", "esx-4", "cluster-b", "shared"),
+	}
+	report := Evaluate(data(assessment.CurrentInventorySchemaVersion, hosts...), Options{})
+	got := findings(report)
+	if len(got) != 1 {
+		t.Fatalf("findings=%+v, want one for the partially mounted datastore", got)
+	}
+	f := got[0]
+	if f.Object.Kind != "cluster" || f.Object.Name != "cluster-a" || f.Severity != SeverityWarning || f.Category != CategoryAvailability {
+		t.Errorf("finding object/severity = %+v", f)
+	}
+	if !strings.Contains(f.Message, `"partial"`) || !strings.Contains(f.Message, "not on esx-3") || f.Recommendation == "" {
+		t.Errorf("finding should name the datastore and the host without it: %+v", f)
+	}
+	if s := status(report); s.Status != "evaluated" || s.Result != "fail" {
+		t.Errorf("status=%+v, want evaluated fail", s)
+	}
+
+	// A cluster whose hosts carry no mounts was not read: no finding.
+	unread := Evaluate(data(assessment.CurrentInventorySchemaVersion, host("host-1", "esx-1", "cluster-a"), host("host-2", "esx-2", "cluster-a")), Options{})
+	if got := findings(unread); len(got) != 0 {
+		t.Errorf("unread mounts produced findings: %+v", got)
+	}
+
+	// Runs from before host mounts were captured cannot pass the rule.
+	old := Evaluate(data("20", hosts...), Options{})
+	if got := findings(old); len(got) != 0 {
+		t.Errorf("schema 20 produced findings: %+v", got)
+	}
+	if s := status(old); s.Status != "not-evaluated" || s.Result != "unknown" {
+		t.Errorf("schema 20 status=%+v, want not-evaluated unknown", s)
+	}
+}
+
 func TestDVPortGroupPromiscuousSkipsUplinkPortGroups(t *testing.T) {
 	trueValue := true
 	dvs, _ := json.Marshal(vsphere.DVSwitch{Location: vsphere.Location{Datacenter: "dc-a"}, ID: "dvs-1", Name: "dvSwitch0", PortGroups: []vsphere.DVPortGroup{
@@ -403,7 +469,7 @@ func TestMigrationReadinessDoesNotTreatAdvisoriesOrMissingConfigurationAsReady(t
 
 func TestRulesUseStableAlphabeticalOrder(t *testing.T) {
 	want := []string{
-		"bios-firmware", "cdrom-connected", "cluster-network-inconsistent", "custom-cpu-topology", "custom-resource-allocation", "datastore-inaccessible", "datastore-space-low", "datastore-zombie-vmdk",
+		"bios-firmware", "cdrom-connected", "cluster-network-inconsistent", "custom-cpu-topology", "custom-resource-allocation", "datastore-host-coverage", "datastore-inaccessible", "datastore-space-low", "datastore-zombie-vmdk",
 		"dvportgroup-promiscuous", "dvswitch-host-coverage", "extension-managed-vm", "floppy-present", "guest-disk-space-low", "host-device-passthrough", "host-disconnected", "host-in-maintenance", "host-path-redundancy", "manual-mac-address", "portgroup-promiscuous",
 		"rdm-present", "secure-boot-enabled", "shared-disk", "snapshot-age", "tools-not-installed", "tools-not-running", "tools-outdated", "usb-connected", "vm-inaccessible", "vm-orphaned", "vtpm-present",
 	}

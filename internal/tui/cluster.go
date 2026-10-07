@@ -63,64 +63,6 @@ func membersOf(c vsphere.Cluster, inv *vsphere.Inventory) clusterMembers {
 	return out
 }
 
-// mountsRead reports whether any host carries its datastore mounts. Older
-// captures and imported RVTools workbooks have none, which must not read as
-// "mounted nowhere".
-func mountsRead(hosts []vsphere.Host) bool {
-	for _, h := range hosts {
-		if len(h.Datastores) > 0 {
-			return true
-		}
-	}
-	return false
-}
-
-// dsCoverage is one datastore as the hosts of one cluster see it.
-type dsCoverage struct {
-	name    string
-	mounted []string
-	missing []string
-}
-
-// gap reports a datastore most hosts share but some do not: the case that
-// breaks HA restart and vMotion onto those hosts. A datastore on exactly one
-// host of several is that host's local disk, not a gap.
-func (d dsCoverage) gap() bool { return len(d.missing) > 0 && len(d.mounted) > 1 }
-
-func (d dsCoverage) local() bool { return len(d.mounted) == 1 && len(d.missing) > 0 }
-
-// coverage lists every datastore any of hosts mounts, gaps first.
-func coverage(hosts []vsphere.Host) []dsCoverage {
-	byName := map[string]*dsCoverage{}
-	for _, h := range hosts {
-		for _, ds := range h.Datastores {
-			if byName[ds] == nil {
-				byName[ds] = &dsCoverage{name: ds}
-			}
-		}
-	}
-	for _, d := range byName {
-		for _, h := range hosts {
-			if containsString(h.Datastores, d.name) {
-				d.mounted = append(d.mounted, h.Name)
-			} else {
-				d.missing = append(d.missing, h.Name)
-			}
-		}
-	}
-	out := make([]dsCoverage, 0, len(byName))
-	for _, d := range byName {
-		out = append(out, *d)
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].gap() != out[j].gap() {
-			return out[i].gap()
-		}
-		return out[i].name < out[j].name
-	})
-	return out
-}
-
 // alarmSummary counts a cluster's triggered alarms by severity and names the
 // worst one, with where it fired when that is not the cluster itself.
 func alarmSummary(c vsphere.Cluster) string {
@@ -357,11 +299,11 @@ func clusterFields(c vsphere.Cluster, mem clusterMembers) ([]field, map[string]f
 	} else {
 		add("VMs", "-")
 	}
-	if mountsRead(mem.hosts) {
-		cov := coverage(mem.hosts)
+	if vsphere.HostMountsRead(mem.hosts) {
+		cov := vsphere.ClusterDatastoreCoverage(mem.hosts)
 		gaps := 0
 		for _, d := range cov {
-			if d.gap() {
+			if d.Gap() {
 				gaps++
 			}
 		}
@@ -484,7 +426,7 @@ func effective(label string, capacity int64, unit func(int64) string, add func(s
 // datastoreHosts is a datastore's Hosts field: how many of each cluster's
 // hosts mount it, naming the ones that do not when the rest do.
 func datastoreHosts(d vsphere.Datastore, inv *vsphere.Inventory) (string, fieldMark, bool) {
-	if inv == nil || !mountsRead(inv.Hosts) {
+	if inv == nil || !vsphere.HostMountsRead(inv.Hosts) {
 		return "-", fieldMark{}, false
 	}
 	groups := map[string][]vsphere.Host{}
@@ -503,17 +445,17 @@ func datastoreHosts(d vsphere.Datastore, inv *vsphere.Inventory) (string, fieldM
 	var parts []string
 	gap := false
 	for _, g := range order {
-		for _, c := range coverage(groups[g]) {
-			if c.name != d.Name {
+		for _, c := range vsphere.ClusterDatastoreCoverage(groups[g]) {
+			if c.Name != d.Name {
 				continue
 			}
-			total := len(c.mounted) + len(c.missing)
-			p := fmt.Sprintf("%d of %d in %s", len(c.mounted), total, g)
+			total := len(c.Mounted) + len(c.Missing)
+			p := fmt.Sprintf("%d of %d in %s", len(c.Mounted), total, g)
 			if total == 1 {
 				p = g
 			}
-			if c.gap() {
-				p += " · not on " + hostNameList(c.missing)
+			if c.Gap() {
+				p += " · not on " + hostNameList(c.Missing)
 				gap = true
 			}
 			parts = append(parts, p)
@@ -723,7 +665,7 @@ func hostStateWord(h vsphere.Host) (string, rowStatus) {
 // ones some hosts lack first, with free space from the datastore inventory.
 func (m *Model) clusterStorageLines(mem clusterMembers) []string {
 	t := m.theme
-	if !mountsRead(mem.hosts) {
+	if !vsphere.HostMountsRead(mem.hosts) {
 		return []string{t.dim.Render("  Host datastore mounts were not read for this vCenter.")}
 	}
 	free := map[string]vsphere.Datastore{}
@@ -732,10 +674,10 @@ func (m *Model) clusterStorageLines(mem clusterMembers) []string {
 			free[d.Name] = d
 		}
 	}
-	cov := coverage(mem.hosts)
+	cov := vsphere.ClusterDatastoreCoverage(mem.hosts)
 	gaps := 0
 	for _, d := range cov {
-		if d.gap() {
+		if d.Gap() {
 			gaps++
 		}
 	}
@@ -757,17 +699,17 @@ func (m *Model) clusterStorageLines(mem clusterMembers) []string {
 	nameW := clamp(m.width-50, 16, 36)
 	out = append(out, t.header.Render(truncate("  "+pad("DATASTORE", nameW+2, false)+pad("HOSTS", 9, false)+pad("FREE", 7, false)+"NOTES", m.width)))
 	for _, d := range cov {
-		total := len(d.mounted) + len(d.missing)
+		total := len(d.Mounted) + len(d.Missing)
 		freeCell := "-"
-		if ds, ok := free[d.name]; ok && ds.CapacityBytes > 0 {
+		if ds, ok := free[d.Name]; ok && ds.CapacityBytes > 0 {
 			freeCell = fmt.Sprintf("%.0f%%", 100-ds.UsedPercent())
 		}
-		line := "  " + pad(d.name, nameW+2, false) + pad(fmt.Sprintf("%d/%d", len(d.mounted), total), 9, false) + pad(freeCell, 7, false)
+		line := "  " + pad(d.Name, nameW+2, false) + pad(fmt.Sprintf("%d/%d", len(d.Mounted), total), 9, false) + pad(freeCell, 7, false)
 		switch {
-		case d.gap():
-			out = append(out, truncate(t.warn.Render(line+glyphCheckWarn+" not on "+hostNameList(d.missing)), m.width))
-		case d.local():
-			out = append(out, truncate(t.dim.Render(line+"only on "+d.mounted[0]), m.width))
+		case d.Gap():
+			out = append(out, truncate(t.warn.Render(line+glyphCheckWarn+" not on "+hostNameList(d.Missing)), m.width))
+		case d.Local():
+			out = append(out, truncate(t.dim.Render(line+"only on "+d.Mounted[0]), m.width))
 		default:
 			out = append(out, truncate(line, m.width))
 		}

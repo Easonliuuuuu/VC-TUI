@@ -159,26 +159,6 @@ func TestStandaloneHostHasNoClusterSections(t *testing.T) {
 	}
 }
 
-func TestCoverageTellsGapsFromLocalDisks(t *testing.T) {
-	hosts := []vsphere.Host{
-		{Name: "a", Datastores: []string{"shared", "local-a"}},
-		{Name: "b", Datastores: []string{"shared", "partial"}},
-		{Name: "c", Datastores: []string{"shared", "partial"}},
-	}
-	cov := coverage(hosts)
-	if cov[0].name != "partial" || !cov[0].gap() || strings.Join(cov[0].missing, ",") != "a" {
-		t.Fatalf("gap should sort first and name the host without it: %+v", cov)
-	}
-	for _, d := range cov {
-		if d.name == "local-a" && (d.gap() || !d.local()) {
-			t.Fatalf("a datastore on one host is local, not a gap: %+v", d)
-		}
-		if d.name == "shared" && (d.gap() || d.local()) {
-			t.Fatalf("a datastore on every host is neither: %+v", d)
-		}
-	}
-}
-
 func TestDatastoreHostsNamesTheHostWithoutIt(t *testing.T) {
 	inv := &vsphere.Inventory{Hosts: []vsphere.Host{
 		{Name: "esx-1", Cluster: "prod", Datastores: []string{"ds"}},
