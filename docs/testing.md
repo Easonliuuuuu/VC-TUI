@@ -166,3 +166,7 @@ kernel/storage semantics, real VMXNET3 or UPT behavior, SR-IOV/vGPU/RDM,
 patch-release quirks, or actual VM migration. k3s remains deferred until a
 concrete test requirement justifies adding it; containers are not a goal of
 this integration tier.
+
+## Real vCenter validation
+
+Tested against vCenter Server 8.0.3.
