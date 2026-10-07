@@ -128,14 +128,25 @@ PerformanceManager's `perfCounter` and `historicalInterval` properties. The
 finest historical interval that still retains the whole `--window` is used
 unless `--interval` names one.
 
-| Metric | vSphere counter | Stored unit | What one sample is |
-| --- | --- | --- | --- |
-| `cpu.usage` | `cpu.usage.average` | percent | interval average of VM CPU usage |
-| `cpu.ready` | `cpu.ready.summation` | percent | interval sum of ready milliseconds, divided by interval length and vCPU count: the average share of the interval one vCPU waited to be scheduled |
-| `mem.active` | `mem.active.average` | MiB | interval average of recently touched guest memory |
-| `mem.consumed` | `mem.consumed.average` | MiB | interval average of host memory backing the VM |
-| `mem.balloon` | `mem.vmmemctl.average` | MiB | interval average reclaimed by the balloon driver |
-| `mem.swapped` | `mem.swapped.average` | MiB | interval average swapped to the host swap file |
+| Metric | vSphere counter | Level | Stored unit | What one sample is |
+| --- | --- | --- | --- | --- |
+| `cpu.usage` | `cpu.usage.average` | 1 | percent | interval average of VM CPU usage |
+| `cpu.ready` | `cpu.ready.summation` | 1 | percent | interval sum of ready milliseconds, divided by interval length and vCPU count: the average share of the interval one vCPU waited to be scheduled |
+| `mem.active` | `mem.active.average` | 2 | MiB | interval average of recently touched guest memory |
+| `mem.consumed` | `mem.consumed.average` | 1 | MiB | interval average of host memory backing the VM |
+| `mem.balloon` | `mem.vmmemctl.average` | 1 | MiB | interval average reclaimed by the balloon driver |
+| `mem.swapped` | `mem.swapped.average` | 2 | MiB | interval average swapped to the host swap file |
+| `mem.swapinRate` | `mem.swapinRate.average` | 1 | KBps | interval average rate memory was read back in from the host swap file |
+
+**Level** is the vCenter statistics level that keeps the counter in its
+historical intervals. vCenter's default is level 1 on every interval, so
+`mem.active` and `mem.swapped` are usually not kept. `perf collect` reads each
+counter's level and the chosen interval's level from the PerformanceManager,
+does not request a counter the interval does not keep, and records it as
+unavailable with the level it needs. The interval's level is part of the
+window's `Source`. To get active memory, raise the statistics level of the
+interval you collect from (vCenter > Configure > General > Statistics) to 2
+and wait for history to accumulate; vsfleet never changes it.
 
 Every value is aggregated over the roll-up interval (typically 5 minutes to 2
 hours), so a reported **peak is the highest interval average** and can understate
@@ -151,7 +162,7 @@ not sampled, and never truncates silently. A permission denial stops further
 queries rather than retrying against every VM. Each collection records its
 requests used, runtime, VMs sampled against requested, and the source API and
 server version, and `perf collect` prints them. Storage is bounded by VMs
-times six counters per window; only summaries are kept, never raw samples.
+times seven counters per window; only summaries are kept, never raw samples.
 
 ### Unknown is never zero
 
@@ -159,12 +170,14 @@ A sample of `-1` (no value: powered off, history rolled off, counter not
 collected) is missing, not a measurement of zero, and never enters an average.
 Statistics are omitted rather than approximated:
 
-* **unavailable**: the counter was denied, not offered by the server, or vCenter
-  returned no samples for it (for example because its statistics level does not
-  collect it).
+* **unavailable**: the counter was denied, not offered by the server, not kept
+  at the interval's statistics level, or vCenter returned no samples for it
+  while returning other counters for the same VM.
 * **insufficient-data**: fewer than 12 samples, or samples covering under half of
   the window. Powered-off periods count as missing, so a VM that ran for a small
-  part of the window is not summarised as if it had run throughout.
+  part of the window is not summarised as if it had run throughout. A VM with
+  no samples for any counter, usually one powered off throughout, is
+  insufficient data too.
 * The 95th percentile (nearest rank over interval averages) appears only with at
   least 50 successful samples.
 
@@ -175,16 +188,17 @@ instruction:
 
 | Signal | Meaning |
 | --- | --- |
-| `contention-observed` | CPU ready peaked at 5% per vCPU or more, or ballooned or swapped memory reached 1 MiB. Outranks utilisation: a starved VM looks idle. |
+| `contention-observed` | CPU ready peaked at 5% per vCPU or more, ballooned or swapped memory reached 1 MiB, or swap-in reached 1 KBps. Outranks utilisation: a starved VM looks idle. |
 | `peaks-observed` | Typical CPU or active memory is under 30%, but a peak reached 60% or more. A current sample would understate demand. |
 | `in-use` | Usage is not low. |
 | `sustained-low` | Peaks stayed under 30% of CPU and of configured memory across the window, with supporting samples. |
-| `insufficient-data` | Samples were returned but do not support a reading, including VMs that were not sampled. |
-| `unavailable` | A required counter (`cpu.usage`, `mem.active`) could not be read. |
+| `cpu-only` | `cpu.usage` has enough samples but `mem.active` could not be read, usually because of the statistics level. The reason gives CPU average and peak; memory is unknown, not low. |
+| `insufficient-data` | Samples were returned but do not support a reading, including VMs that were not sampled or were powered off. |
+| `unavailable` | `cpu.usage` could not be read. |
 
-A `sustained-low` signal is only produced when both required counters have enough
-samples; any missing, denied or sparse input yields `unavailable` or
-`insufficient-data`.
+A `sustained-low` signal is only produced when `cpu.usage` and `mem.active` both
+have enough samples; any missing, denied or sparse input yields `cpu-only`,
+`unavailable` or `insufficient-data`, never a low reading.
 
 ### In reports
 
@@ -202,11 +216,21 @@ keeps the newest usable window of each context.
 ### Validation status
 
 The collection, units and signals are exercised against the govmomi simulator,
-whose statistics are synthetic, and against synthetic fixtures. They have **not**
-yet been validated against a real vSphere. Which counters a real vCenter returns
-depends on its statistics level, and QueryPerf limits vary by version, so treat
-sizing signals as unvalidated until a real-vSphere run is recorded on
-[issue #214](https://github.com/Easonliuuuuu/vsfleet/issues/214).
+whose statistics are synthetic, and against synthetic fixtures. They have also
+been run against a real vCenter Server 8.0.3 at the default statistics level 1
+([issue #214](https://github.com/Easonliuuuuu/vsfleet/issues/214)):
+
+* `cpu.usage`, `cpu.ready`, `mem.consumed`, `mem.vmmemctl` and `mem.swapinRate`
+  return 5-minute history; `mem.active` and `mem.swapped` are level 2 and are
+  not kept, so running VMs read `cpu-only`.
+* VMs powered off for the window return no samples and read
+  `insufficient-data`.
+* 7-day and 30-day windows on a vCenter that was only running part of that time
+  read `insufficient-data` (under half the expected samples), not zero.
+
+The thresholds behind `sustained-low`, `peaks-observed` and `in-use` have not
+yet been checked against a real vCenter at statistics level 2, so treat those
+signals as unvalidated.
 
 ## Deterministic exports
 

@@ -22,7 +22,7 @@ func syntheticPerfCounter(t *testing.T, m perf.Metric) perf.Counter {
 
 // seedPerformance stores a synthetic window for "prod": one VM that is idle
 // in its latest sample but peaks briefly and periodically, one whose memory
-// counter was denied, and one with too little history. "edge" gets none.
+// counter was denied (so it reads cpu-only), and one with too little history. "edge" gets none.
 func seedPerformance(t *testing.T, dbPath string) {
 	t.Helper()
 	store, err := assessment.Open(dbPath)
@@ -84,8 +84,8 @@ func TestPerfShowDoesNotInferSizingFromOneSampleOrMissingData(t *testing.T) {
 	if !strings.Contains(lines["spiky"], "peaks-observed") {
 		t.Errorf("spiky VM must not read as idle from its last sample: %q", lines["spiky"])
 	}
-	if !strings.Contains(lines["denied"], "unavailable") || strings.Contains(strings.Fields(lines["denied"])[5], "0.0") {
-		t.Errorf("denied counter must be unavailable, not zero: %q", lines["denied"])
+	if f := strings.Fields(lines["denied"]); f[1] != string(perf.SignalCPUOnly) || f[5] != "-" || f[6] != "-" {
+		t.Errorf("denied memory counter must read cpu-only with memory unknown, not zero: %q", lines["denied"])
 	}
 	if !strings.Contains(lines["sparse"], "insufficient-data") {
 		t.Errorf("three samples must not support a signal: %q", lines["sparse"])

@@ -46,12 +46,14 @@ func newAssessmentPerfCollectCommand(a *App) *cobra.Command {
 	var interval, maxSamples, maxVMs, maxRequests int
 	cmd := &cobra.Command{Use: "collect", Short: "Collect a bounded window of VM performance history", Long: strings.TrimSpace(`
 Query vCenter's historical statistics for CPU usage, CPU ready, active and
-consumed memory, ballooning and swapping over --window, and store per-VM
-summaries and provenance. Nothing on the vCenter is changed.
+consumed memory, ballooning, swapping and swap-in rate over --window, and
+store per-VM summaries and provenance. Nothing on the vCenter is changed.
 
 The finest historical interval that still retains the whole window is used,
 unless --interval names one. vCenter only keeps counters that its statistics
-level enables; a counter it does not return is recorded as unavailable.
+level enables. Active memory and swapped memory need level 2, above the
+default of 1; a counter the interval does not keep is not requested and is
+recorded as unavailable, and VMs then get a "cpu-only" reading.
 
 Collection stops, and the window is recorded as partial, when any bound is
 reached: --max-vms, --max-requests or --max-runtime. VMs that were not
@@ -139,15 +141,26 @@ func printPerfWindowSummary(a *App, w perf.Window) {
 	fmt.Fprintf(a.out(), "  cost:      %d of %d requests, %s\n", w.RequestsUsed, w.Budget.MaxRequests, w.FinishedAt.Sub(w.StartedAt).Round(time.Second))
 	counts := map[perf.Signal]int{}
 	unavailable := 0
+	var belowLevel []string
+	seen := map[perf.Metric]bool{}
 	for _, vm := range w.VMs {
 		counts[vm.Signal]++
 		for _, s := range vm.Summaries {
-			if s.Status == perf.StatusUnavailable {
+			switch {
+			case perf.BelowLevel(s):
+				if !seen[s.Metric] {
+					seen[s.Metric] = true
+					belowLevel = append(belowLevel, string(s.Metric))
+				}
+			case s.Status == perf.StatusUnavailable:
 				unavailable++
 			}
 		}
 	}
 	fmt.Fprintf(a.out(), "  signals:   %s\n", signalCounts(counts))
+	if len(belowLevel) > 0 {
+		fmt.Fprintf(a.out(), "  not kept:  %s, above this interval's statistics level (see \"assessment perf show %d\")\n", strings.Join(belowLevel, ", "), w.ID)
+	}
 	if unavailable > 0 {
 		fmt.Fprintf(a.out(), "  unavailable counters: %d (see \"assessment perf show %d\")\n", unavailable, w.ID)
 	}
@@ -157,7 +170,7 @@ func printPerfWindowSummary(a *App, w perf.Window) {
 }
 
 func signalCounts(counts map[perf.Signal]int) string {
-	order := []perf.Signal{perf.SignalContention, perf.SignalPeaksObserved, perf.SignalInUse, perf.SignalSustainedLow, perf.SignalInsufficient, perf.SignalUnavailable}
+	order := []perf.Signal{perf.SignalContention, perf.SignalPeaksObserved, perf.SignalInUse, perf.SignalSustainedLow, perf.SignalCPUOnly, perf.SignalInsufficient, perf.SignalUnavailable}
 	var parts []string
 	for _, s := range order {
 		if counts[s] > 0 {
@@ -233,12 +246,13 @@ explain themselves below the table.`), Example: `  vsfleet assessment perf show 
 		}
 		printPerfWindowSummary(a, w)
 		fmt.Fprintln(a.out())
-		t := newTable(a.out(), "VM", "SIGNAL", "CPU% AVG", "PEAK", "P95", "ACTIVE MiB AVG", "PEAK", "READY% PEAK", "BALLOON MiB", "SWAP MiB", "SAMPLES")
+		t := newTable(a.out(), "VM", "SIGNAL", "CPU% AVG", "PEAK", "P95", "ACTIVE MiB AVG", "PEAK", "READY% PEAK", "BALLOON MiB", "SWAP MiB", "SWAP-IN KBps", "SAMPLES")
 		for _, vm := range w.VMs {
 			cpu, mem := perfSummary(vm, perf.CPUUsage), perfSummary(vm, perf.MemActive)
 			t.row(vm.Name, string(vm.Signal), perfNum(cpu.Average), perfNum(cpu.Peak), perfNum(cpu.P95),
 				perfNum(mem.Average), perfNum(mem.Peak), perfNum(perfSummary(vm, perf.CPUReady).Peak),
-				perfNum(perfSummary(vm, perf.MemBalloon).Peak), perfNum(perfSummary(vm, perf.MemSwapped).Peak), perfSamples(cpu))
+				perfNum(perfSummary(vm, perf.MemBalloon).Peak), perfNum(perfSummary(vm, perf.MemSwapped).Peak),
+				perfNum(perfSummary(vm, perf.MemSwapinRate).Peak), perfSamples(cpu))
 		}
 		t.flush()
 		notes := false

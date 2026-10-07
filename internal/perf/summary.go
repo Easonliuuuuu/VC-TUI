@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 )
 
 // Status says whether a summary carries numbers.
@@ -128,6 +129,33 @@ func Unavailable(c Counter, interval, expected int, reason string) Summary {
 		Status:      StatusUnavailable,
 		Reason:      reason,
 	}
+}
+
+// NoSamples builds the summary for a counter the server offered and was
+// asked for but returned nothing for. It is insufficient data rather than
+// unavailable: the usual cause is a VM that was powered off for the window,
+// not a counter that cannot be read.
+func NoSamples(c Counter, interval, expected int, reason string) Summary {
+	s := Unavailable(c, interval, expected, reason)
+	s.Status = StatusInsufficient
+	return s
+}
+
+// belowLevelPhrase marks the reason of a counter skipped because the
+// interval's statistics level does not keep it. BelowLevel looks for it.
+const belowLevelPhrase = "needs statistics level"
+
+// BelowLevelReason explains a counter that was not requested because the
+// interval keeps a lower statistics level than the counter needs.
+func BelowLevelReason(c Counter, need, have int32, interval int) string {
+	return fmt.Sprintf("%s %s %d; this vCenter keeps level %d for the %ds interval",
+		c.VSphereName(), belowLevelPhrase, need, have, interval)
+}
+
+// BelowLevel reports whether s is unavailable only because of the
+// statistics level, which is a vCenter setting rather than a fault.
+func BelowLevel(s Summary) bool {
+	return s.Status == StatusUnavailable && strings.Contains(s.Reason, belowLevelPhrase)
 }
 
 // percentile is the nearest-rank percentile of values (0 < p <= 1). It does

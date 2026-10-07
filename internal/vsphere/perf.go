@@ -22,8 +22,8 @@ const (
 	DefaultPerfMaxVMs      = 500
 	DefaultPerfMaxRequests = 1000
 	// DefaultPerfBatchVMs keeps metrics-per-request under vCenter's default
-	// config.vpxd.stats.maxQueryMetrics of 64 (six counters x ten VMs).
-	DefaultPerfBatchVMs = 10
+	// config.vpxd.stats.maxQueryMetrics of 64 (seven counters x nine VMs).
+	DefaultPerfBatchVMs = 9
 )
 
 // PerfOptions bound one performance collection.
@@ -103,17 +103,22 @@ func collectPerf(ctx context.Context, api perfAPI, about string, vms []VM, opts 
 	sort.SliceStable(targets, func(i, j int) bool { return targets[i].ID < targets[j].ID })
 	w.VMsRequested = len(targets)
 
-	counterKeys, err := resolveCounters(ctx, api)
+	counters, err := resolveCounters(ctx, api)
 	if err != nil {
 		return finish(perf.WindowFailed, err.Error())
 	}
-	interval, err := chooseInterval(ctx, api, opts)
+	iv, err := chooseInterval(ctx, api, opts)
 	if err != nil {
 		return finish(perf.WindowFailed, err.Error())
 	}
+	interval := int(iv.SamplingPeriod)
 	w.IntervalSeconds = interval
 	w.ExpectedSamples = int(opts.Window.Seconds()) / interval
-	w.Source = fmt.Sprintf("PerformanceManager.QueryPerf, historical interval %ds; %s", interval, about)
+	w.Source = fmt.Sprintf("PerformanceManager.QueryPerf, historical interval %ds", interval)
+	if iv.Level > 0 {
+		w.Source += fmt.Sprintf(", statistics level %d", iv.Level)
+	}
+	w.Source += "; " + about
 	if w.ExpectedSamples < 1 {
 		return finish(perf.WindowFailed, fmt.Sprintf("a %s window holds no %ds samples", opts.Window, interval))
 	}
@@ -122,9 +127,23 @@ func collectPerf(ctx context.Context, api perfAPI, about string, vms []VM, opts 
 			opts.Window, interval, w.ExpectedSamples, opts.MaxSamples))
 	}
 
+	// A counter above the interval's statistics level is never kept, so it
+	// is not requested: the answer is known, and it costs query metrics.
+	keys, belowLevel := map[perf.Metric]int32{}, map[perf.Metric]int32{}
+	for m, info := range counters {
+		if iv.Level > 0 && info.Level > iv.Level {
+			belowLevel[m] = info.Level
+			continue
+		}
+		keys[m] = info.Key
+	}
+	if len(keys) == 0 {
+		return finish(perf.WindowFailed, fmt.Sprintf("the %ds interval keeps statistics level %d, which includes none of the requested counters", interval, iv.Level))
+	}
+
 	run := &perfRun{
-		api: api, opts: opts, window: &w, keys: counterKeys, start: w.WindowStart, end: end,
-		results: map[string]*perf.VMResult{},
+		api: api, opts: opts, window: &w, keys: keys, belowLevel: belowLevel, intervalLevel: iv.Level,
+		start: w.WindowStart, end: end, results: map[string]*perf.VMResult{},
 	}
 	for _, vm := range targets {
 		run.results[vm.ID] = &perf.VMResult{
@@ -171,15 +190,18 @@ func collectPerf(ctx context.Context, api perfAPI, about string, vms []VM, opts 
 }
 
 type perfRun struct {
-	api      perfAPI
-	opts     PerfOptions
-	window   *perf.Window
-	keys     map[perf.Metric]int32
-	start    time.Time
-	end      time.Time
-	results  map[string]*perf.VMResult
-	requests int
-	errs     []string
+	api    perfAPI
+	opts   PerfOptions
+	window *perf.Window
+	keys   map[perf.Metric]int32
+	// belowLevel holds the statistics level each skipped counter needs.
+	belowLevel    map[perf.Metric]int32
+	intervalLevel int32
+	start         time.Time
+	end           time.Time
+	results       map[string]*perf.VMResult
+	requests      int
+	errs          []string
 }
 
 func (r *perfRun) errorSummary(skipped int) string {
@@ -302,16 +324,29 @@ func (r *perfRun) record(vms []VM, out []types.BasePerfEntityMetricBase) {
 	for _, vm := range vms {
 		res := r.results[vm.ID]
 		series, entityReturned := byEntity[vm.ID]
+		// A VM with no samples for any counter was almost always powered
+		// off for the window; a single empty counter beside others that
+		// returned data points at the counter instead.
+		anySamples := false
+		for _, raw := range series {
+			anySamples = anySamples || len(raw) > 0
+		}
 		for _, c := range perf.Counters {
 			key, offered := r.keys[c.Metric]
 			var raw []int64
 			if offered && entityReturned {
 				raw = series[key]
 			}
+			need, skipped := r.belowLevel[c.Metric]
 			switch {
+			case skipped:
+				res.Summaries = append(res.Summaries, perf.Unavailable(c, r.window.IntervalSeconds, r.window.ExpectedSamples,
+					perf.BelowLevelReason(c, need, r.intervalLevel, r.window.IntervalSeconds)))
 			case !offered:
 				res.Summaries = append(res.Summaries, perf.Unavailable(c, r.window.IntervalSeconds, r.window.ExpectedSamples,
 					"this server does not offer the "+c.VSphereName()+" counter"))
+			case len(raw) == 0 && !anySamples:
+				res.Summaries = append(res.Summaries, perf.NoSamples(c, r.window.IntervalSeconds, r.window.ExpectedSamples, noSamplesReason(vm)))
 			case len(raw) == 0:
 				res.Summaries = append(res.Summaries, perf.Unavailable(c, r.window.IntervalSeconds, r.window.ExpectedSamples,
 					c.VSphereName()+" returned no samples; it may not be collected at this statistics level or not permitted"))
@@ -325,6 +360,13 @@ func (r *perfRun) record(vms []VM, out []types.BasePerfEntityMetricBase) {
 	}
 }
 
+func noSamplesReason(vm VM) string {
+	if vm.PowerState == "poweredOff" {
+		return "vSphere returned no samples for this VM in the window; it is powered off now and was probably off throughout"
+	}
+	return "vSphere returned no samples for this VM in the window; it may have been powered off or history is not retained"
+}
+
 // fail records every counter of vms as unavailable with the error text.
 func (r *perfRun) fail(vms []VM, err error) {
 	for _, vm := range vms {
@@ -336,41 +378,56 @@ func (r *perfRun) fail(vms []VM, err error) {
 	}
 }
 
-func resolveCounters(ctx context.Context, api perfAPI) (map[perf.Metric]int32, error) {
-	return resolveCounterKeys(ctx, api, perf.Counters)
+func resolveCounters(ctx context.Context, api perfAPI) (map[perf.Metric]types.PerfCounterInfo, error) {
+	return resolveCounterInfo(ctx, api, perf.Counters)
 }
 
 // resolveCounterKeys maps each of counters to the numeric id this server
 // gives it, leaving out any the server does not offer.
 func resolveCounterKeys(ctx context.Context, api perfAPI, counters []perf.Counter) (map[perf.Metric]int32, error) {
+	infos, err := resolveCounterInfo(ctx, api, counters)
+	if err != nil {
+		return nil, err
+	}
+	keys := make(map[perf.Metric]int32, len(infos))
+	for m, info := range infos {
+		keys[m] = info.Key
+	}
+	return keys, nil
+}
+
+// resolveCounterInfo maps each of counters to this server's definition of
+// it, which carries its numeric id and statistics level.
+func resolveCounterInfo(ctx context.Context, api perfAPI, counters []perf.Counter) (map[perf.Metric]types.PerfCounterInfo, error) {
 	infos, err := api.counters(ctx)
 	if err != nil {
 		return nil, err
 	}
-	byName := map[string]int32{}
+	byName := map[string]types.PerfCounterInfo{}
 	for _, info := range infos {
 		if info.NameInfo == nil || info.GroupInfo == nil {
 			continue
 		}
 		name := info.GroupInfo.GetElementDescription().Key + "." + info.NameInfo.GetElementDescription().Key + "." + string(info.RollupType)
-		byName[name] = info.Key
+		byName[name] = info
 	}
-	keys := map[perf.Metric]int32{}
+	out := map[perf.Metric]types.PerfCounterInfo{}
 	for _, c := range counters {
-		if key, ok := byName[c.VSphereName()]; ok {
-			keys[c.Metric] = key
+		if info, ok := byName[c.VSphereName()]; ok {
+			out[c.Metric] = info
 		}
 	}
-	if len(keys) == 0 {
+	if len(out) == 0 {
 		return nil, errors.New("this server offers none of the requested performance counters")
 	}
-	return keys, nil
+	return out, nil
 }
 
-func chooseInterval(ctx context.Context, api perfAPI, opts PerfOptions) (int, error) {
+func chooseInterval(ctx context.Context, api perfAPI, opts PerfOptions) (types.PerfInterval, error) {
+	none := types.PerfInterval{}
 	intervals, err := api.intervals(ctx)
 	if err != nil {
-		return 0, err
+		return none, err
 	}
 	sort.Slice(intervals, func(i, j int) bool { return intervals[i].SamplingPeriod < intervals[j].SamplingPeriod })
 	window := int32(opts.Window.Seconds())
@@ -382,17 +439,17 @@ func chooseInterval(ctx context.Context, api perfAPI, opts PerfOptions) (int, er
 			continue
 		}
 		if iv.Length >= window {
-			return int(iv.SamplingPeriod), nil
+			return iv, nil
 		}
 		if opts.Interval > 0 {
-			return 0, fmt.Errorf("the %ds interval retains only %s of history, less than the requested %s window",
+			return none, fmt.Errorf("the %ds interval retains only %s of history, less than the requested %s window",
 				iv.SamplingPeriod, time.Duration(iv.Length)*time.Second, opts.Window)
 		}
 	}
 	if opts.Interval > 0 {
-		return 0, fmt.Errorf("this server has no %ds historical interval", opts.Interval)
+		return none, fmt.Errorf("this server has no %ds historical interval", opts.Interval)
 	}
-	return 0, fmt.Errorf("no historical interval on this server retains a %s window", opts.Window)
+	return none, fmt.Errorf("no historical interval on this server retains a %s window", opts.Window)
 }
 
 func isDenied(err error) bool {
