@@ -217,8 +217,7 @@ func (m *Model) scopeName() string {
 
 func (m *Model) viewMessage() string {
 	t := m.theme
-	browserPane := m.mode == modeDatastoreEntry || m.mode == modeDatastoreFind
-	if !browserPane && (m.filtering || m.filter.Value() != "") {
+	if m.showsFilter() && (m.filtering || m.filter.Value() != "") {
 		return truncate(t.accent.Render(m.filter.View())+t.dim.Render(m.filterHint()), m.width)
 	}
 	if m.jump != nil && m.jump.kind == m.kind && m.mode == modeBrowse {
@@ -238,6 +237,18 @@ func (m *Model) viewMessage() string {
 		style = t.bad
 	}
 	return truncate(style.Render(m.message), m.width)
+}
+
+// showsFilter reports whether this screen is narrowed by the query and can
+// edit it. A detail page opened from a filtered table or a search keeps the
+// query for the way back, but printing it there — with "esc clears" when esc
+// means back — reads as a search bar that failed to close.
+func (m *Model) showsFilter() bool {
+	switch m.mode {
+	case modeBrowse, modeSearch, modeDatastoreFiles, modeChanges:
+		return true
+	}
+	return false
 }
 
 // filterHint is what the query line says about its own reach. In the table it

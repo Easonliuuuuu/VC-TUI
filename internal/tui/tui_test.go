@@ -555,6 +555,26 @@ func TestArrowKeysMoveSelectionWhileSearchIsFocused(t *testing.T) {
 	}
 }
 
+func TestOpenedSearchResultDoesNotShowTheQueryLine(t *testing.T) {
+	m := newTestModel(t, twoHealthy(), Options{Current: "prod"})
+
+	press(t, m, "tab")
+	typeText(t, m, "build")
+	press(t, m, "enter") // apply
+	press(t, m, "enter") // open the result
+	if m.mode != modeDetail {
+		t.Fatalf("enter on a search result should open its detail, got %v", m.mode)
+	}
+	if got := m.viewMessage(); got != "" {
+		t.Errorf("the detail page should not keep the query line, got %q", got)
+	}
+
+	press(t, m, "esc")
+	if m.mode != modeBrowse || !strings.Contains(m.viewMessage(), "build") {
+		t.Errorf("back on the table the query still narrows it and should show, mode=%v line=%q", m.mode, m.viewMessage())
+	}
+}
+
 func TestFocusedFilterEscapeClearsLocalFilter(t *testing.T) {
 	m := newTestModel(t, twoHealthy(), Options{Current: "prod"})
 
