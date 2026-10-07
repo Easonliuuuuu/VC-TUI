@@ -388,11 +388,12 @@ one from the table starts on Summary.
   (how many are effective and why the rest are not, EVC mode), capacity, DRS
   and contents. A `✓`, `▲` or `✕` after a field is a verdict on it: failover
   capacity below what HA reserves, admission control off, a host not
-  responding, effective capacity above 80% or 90% in use, a manual DRS, or a
-  datastore not mounted on every host. Capacity is shown used out of the
-  total, as the vSphere Client shows it, with the effective capacity (the
-  total less unavailable hosts and the hypervisor's share) and its use on
-  their own lines. A standalone host has no Resilience, EVC or DRS section.
+  responding, a manual DRS, or a datastore not mounted on every host.
+  Capacity is shown used out of the total, as the vSphere Client shows it.
+  Effective capacity (the total less unavailable hosts and the hypervisor's
+  share) is shown on its own lines without a usage percentage because host
+  usage includes the hypervisor. A standalone host has no Resilience, EVC or
+  DRS section.
 - **Hosts & VMs** lists the cluster's hosts with their state, CPU and memory
   use and VM count. `space` unfolds a host into the VMs running on it, and
   `Enter` shows the host in the Hosts tab.
