@@ -1301,41 +1301,156 @@ func (s *Store) History(ctx context.Context, query, contextName string) ([]VMHis
 // HistoryForContexts searches stored VM history across the selected ledger
 // contexts. Selectors are validated against all recorded runs.
 func (s *Store) HistoryForContexts(ctx context.Context, query string, selectors []string) ([]VMHistoryEntry, error) {
+	selected, err := s.validateHistoryContexts(ctx, selectors)
+	if err != nil {
+		return nil, err
+	}
+	where, args := historyContextFilter(selected)
+	if needle := strings.TrimSpace(query); needle != "" {
+		where = append(where, `(v.name = ? COLLATE NOCASE OR v.moref = ? COLLATE NOCASE OR v.instance_uuid = ? COLLATE NOCASE OR v.bios_uuid = ? COLLATE NOCASE)`)
+		args = append(args, needle, needle, needle, needle)
+	}
+	return s.queryVMHistory(ctx, where, args)
+}
+
+// historyForLineage loads only observations that can belong to wanted. The
+// identity columns are indexed separately from the JSON payload so a timeline
+// does not have to decode every VM in every stored run.
+func (s *Store) historyForLineage(ctx context.Context, wanted Observation, selectors []string) ([]VMHistoryEntry, error) {
+	selected, err := s.validateHistoryContexts(ctx, selectors)
+	if err != nil {
+		return nil, err
+	}
+	where, args := historyContextFilter(selected)
+	var identity []string
+	if wanted.VCenterID != "" && wanted.VM.ID != "" {
+		identity = append(identity, `(cr.vcenter_id = ? AND v.moref = ?)`)
+		args = append(args, wanted.VCenterID, wanted.VM.ID)
+	}
+	if wanted.VM.InstanceUUID != "" {
+		identity = append(identity, `v.instance_uuid = ?`)
+		args = append(args, wanted.VM.InstanceUUID)
+	}
+	if wanted.VM.BIOSUUID != "" {
+		identity = append(identity, `v.bios_uuid = ?`)
+		args = append(args, wanted.VM.BIOSUUID)
+	}
+	if len(identity) == 0 {
+		identity = append(identity, `(v.name = ? COLLATE NOCASE AND cr.name = ? COLLATE NOCASE)`)
+		args = append(args, wanted.VM.Name, wanted.Context)
+	}
+	where = append(where, "("+strings.Join(identity, " OR ")+")")
+	entries, err := s.queryVMHistory(ctx, where, args)
+	if err != nil {
+		return nil, err
+	}
+	out := entries[:0]
+	for _, entry := range entries {
+		if sameLineage(wanted, entry.Observation) {
+			out = append(out, entry)
+		}
+	}
+	return out, nil
+}
+
+func (s *Store) validateHistoryContexts(ctx context.Context, selectors []string) ([]string, error) {
+	if len(selectors) == 0 {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT name FROM context_runs`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var contexts []ContextRun
+	for rows.Next() {
+		var contextRun ContextRun
+		if err := rows.Scan(&contextRun.Name); err != nil {
+			return nil, err
+		}
+		contexts = append(contexts, contextRun)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return ValidateStoredContexts(selectors, contexts)
+}
+
+func historyContextFilter(selected []string) ([]string, []any) {
+	if len(selected) == 0 {
+		return nil, nil
+	}
+	placeholders := make([]string, len(selected))
+	args := make([]any, len(selected))
+	for i, name := range selected {
+		placeholders[i] = "?"
+		args[i] = name
+	}
+	return []string{"lower(trim(cr.name)) IN (" + strings.Join(placeholders, ",") + ")"}, args
+}
+
+func (s *Store) queryVMHistory(ctx context.Context, where []string, args []any) ([]VMHistoryEntry, error) {
 	runs, err := s.Runs(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var allContexts []ContextRun
+	runByID := make(map[int64]Run, len(runs))
 	for _, run := range runs {
-		contexts, err := s.ContextRuns(ctx, run.ID)
-		if err != nil {
-			return nil, err
-		}
-		allContexts = append(allContexts, contexts...)
+		runByID[run.ID] = run
 	}
-	selected, err := ValidateStoredContexts(selectors, allContexts)
+	query := `SELECT
+		cr.run_id,cr.name,cr.vcenter_id,v.id,v.moref,v.instance_uuid,v.bios_uuid,v.payload
+		FROM vm_observations v
+		JOIN context_runs cr ON cr.id=v.context_run_id`
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+	query += " ORDER BY cr.run_id DESC,cr.id,v.id"
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
-	needle := strings.ToLower(strings.TrimSpace(query))
-	var out []VMHistoryEntry
-	for _, run := range runs {
-		byContext, contexts, err := s.loadVMs(ctx, run.ID)
+	type rawHistory struct {
+		entry                 VMHistoryEntry
+		context, vcenter      string
+		vmID                  int64
+		moref, instance, bios string
+		payload               []byte
+	}
+	var raw []rawHistory
+	for rows.Next() {
+		var item rawHistory
+		if err := rows.Scan(
+			&item.entry.Run.ID, &item.context, &item.vcenter, &item.vmID, &item.moref,
+			&item.instance, &item.bios, &item.payload,
+		); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		item.entry.Run = runByID[item.entry.Run.ID]
+		raw = append(raw, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+
+	out := make([]VMHistoryEntry, 0, len(raw))
+	for _, item := range raw {
+		var vm vsphere.VM
+		if err := json.Unmarshal(item.payload, &vm); err != nil {
+			return nil, err
+		}
+		vm.ID = item.moref
+		vm.InstanceUUID = item.instance
+		vm.BIOSUUID = item.bios
+		item.entry.Observation = Observation{VCenterID: item.vcenter, Context: item.context, VM: vm}
+		item.entry.Snapshots, err = s.loadSnapshots(ctx, item.vmID)
 		if err != nil {
 			return nil, err
 		}
-		for id, c := range contexts {
-			if !contextSelected(c.Name, selected) {
-				continue
-			}
-			for _, v := range byContext[id] {
-				vm := v.observation.VM
-				matches := needle == "" || strings.EqualFold(vm.Name, needle) || strings.EqualFold(vm.ID, needle) || strings.EqualFold(vm.InstanceUUID, needle) || strings.EqualFold(vm.BIOSUUID, needle)
-				if matches {
-					out = append(out, VMHistoryEntry{Run: run, Observation: v.observation, Snapshots: v.snapshots})
-				}
-			}
-		}
+		out = append(out, item.entry)
 	}
 	return out, nil
 }

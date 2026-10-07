@@ -90,7 +90,7 @@ func (s *Store) TimelineForContexts(ctx context.Context, query string, selectors
 		}
 		return ""
 	}()]
-	all, err := s.HistoryForContexts(ctx, "", selectors)
+	all, err := s.historyForLineage(ctx, wanted.Observation, selectors)
 	if err != nil {
 		return nil, err
 	}
