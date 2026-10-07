@@ -5,6 +5,7 @@ vsfleet  DEMO · SAMPLE DATA  ◆ prod-vc  ·  1 connected
 Health (live)
   Status              red  ✕
   Config issues       1 · Insufficient vSphere HA failover …
+  Alarms              1 critical · 1 warning · Insufficient…
 
 Resilience
   HA                  on
@@ -15,6 +16,5 @@ Resilience
 
 Hosts
   Hosts               12 total · 10 effective
-  Host states         10 connected · 1 maintenance · 1 not …
 
 ↑/k up  ↓/j down  enter open  0-2 page  esc back  ? help

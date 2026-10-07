@@ -62,13 +62,60 @@ func TestClusterFieldsDoNotInventEvidence(t *testing.T) {
 	// they read as unknown, never as "none" or "off".
 	c := vsphere.Cluster{Name: "compute", Hosts: 2, EffectiveHost: 2, HAEnabled: true, DRSEnabled: true}
 	fields, marks := clusterFields(c, clusterMembers{})
-	for _, label := range []string{"Status", "Config issues", "EVC mode", "Host states", "VMs", "Datastores"} {
+	for _, label := range []string{"Status", "Config issues", "Alarms", "EVC mode", "Host states", "VMs", "Datastores"} {
 		if v, ok := fieldValue(fields, label); !ok || v != "-" {
 			t.Fatalf("%s = %q, want -", label, v)
 		}
 	}
 	if len(marks) != 0 {
 		t.Fatalf("unread cluster carries marks: %+v", marks)
+	}
+}
+
+func TestClusterFieldsSummarizeAlarms(t *testing.T) {
+	c := vsphere.Cluster{Name: "compute", OverallStatus: "red", AlarmsRead: true}
+	fields, marks := clusterFields(c, clusterMembers{})
+	if v, _ := fieldValue(fields, "Alarms"); v != "none" {
+		t.Fatalf("Alarms = %q, want none", v)
+	}
+	if _, ok := marks["Alarms"]; ok {
+		t.Fatalf("no alarms carries a mark: %+v", marks["Alarms"])
+	}
+
+	c.Alarms = []vsphere.Alarm{
+		{Name: "Host memory usage", Status: "red", Entity: "esxi-a-03", EntityType: "HostSystem"},
+		{Name: "Datastore usage on disk", Status: "yellow", Entity: "ds-01"},
+		{Name: "vSphere HA failover in progress", Status: "yellow", Entity: "compute"},
+	}
+	fields, marks = clusterFields(c, clusterMembers{})
+	if v, _ := fieldValue(fields, "Alarms"); v != "1 critical · 2 warning · Host memory usage on esxi-a-03" {
+		t.Fatalf("Alarms = %q", v)
+	}
+	if marks["Alarms"].status != statusBad {
+		t.Fatalf("critical alarm mark = %+v", marks["Alarms"])
+	}
+
+	// An alarm on the cluster itself does not name the cluster again.
+	c.Alarms = c.Alarms[2:]
+	fields, marks = clusterFields(c, clusterMembers{})
+	if v, _ := fieldValue(fields, "Alarms"); v != "1 warning · vSphere HA failover in progress" {
+		t.Fatalf("Alarms = %q", v)
+	}
+	if marks["Alarms"].status != statusWarn {
+		t.Fatalf("warning alarm mark = %+v", marks["Alarms"])
+	}
+
+	// An account that cannot see every host gets an incomplete list: what
+	// it shows is still evidence, but its absence is not "none".
+	c.AlarmsRead = false
+	fields, _ = clusterFields(c, clusterMembers{})
+	if v, _ := fieldValue(fields, "Alarms"); v != "1 warning · vSphere HA failover in progress · some hosts not visible" {
+		t.Fatalf("Alarms = %q", v)
+	}
+	c.Alarms = nil
+	fields, _ = clusterFields(c, clusterMembers{})
+	if v, _ := fieldValue(fields, "Alarms"); v != "-" {
+		t.Fatalf("Alarms = %q, want -", v)
 	}
 }
 

@@ -5,6 +5,7 @@ vsfleet  DEMO · SAMPLE DATA  ◆ prod-vc  ·  1 connected
 Health (live)
   Status              red  ✕
   Config issues       1 · Insufficient vSphere HA failover resources  ✕
+  Alarms              1 critical · 1 warning · Insufficient vSphere HA failover resources  ✕
 
 Resilience
   HA                  on
@@ -25,6 +26,5 @@ Capacity
   Effective memory    4812.8G
   CPU cores           296
 
-DRS
 
 ↑/k up  ↓/j down  enter open  0-2 page  esc back  ? help  q quit

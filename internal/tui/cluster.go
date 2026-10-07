@@ -121,6 +121,32 @@ func coverage(hosts []vsphere.Host) []dsCoverage {
 	return out
 }
 
+// alarmSummary counts a cluster's triggered alarms by severity and names the
+// worst one, with where it fired when that is not the cluster itself.
+func alarmSummary(c vsphere.Cluster) string {
+	var critical, warning int
+	for _, a := range c.Alarms {
+		if a.Status == "red" {
+			critical++
+		} else {
+			warning++
+		}
+	}
+	var parts []string
+	if critical > 0 {
+		parts = append(parts, fmt.Sprintf("%d critical", critical))
+	}
+	if warning > 0 {
+		parts = append(parts, fmt.Sprintf("%d warning", warning))
+	}
+	worst := c.Alarms[0]
+	name := worst.Name
+	if worst.Entity != "" && worst.Entity != c.Name {
+		name += " on " + worst.Entity
+	}
+	return strings.Join(append(parts, name), " · ")
+}
+
 // hostNameList names up to three hosts and counts the rest.
 func hostNameList(names []string) string {
 	if len(names) <= 3 {
@@ -219,6 +245,22 @@ func clusterFields(c vsphere.Cluster, mem clusterMembers) ([]field, map[string]f
 		}
 		add("Config issues", v)
 		marks["Config issues"] = fieldMark{statusBad, ""}
+	}
+	switch {
+	case len(c.Alarms) == 0 && !c.AlarmsRead:
+		add("Alarms", "-")
+	case len(c.Alarms) == 0:
+		add("Alarms", "none")
+	default:
+		v := alarmSummary(c)
+		if !c.AlarmsRead {
+			v += " · some hosts not visible"
+		}
+		add("Alarms", v)
+		marks["Alarms"] = fieldMark{statusWarn, ""}
+		if c.Alarms[0].Status == "red" {
+			marks["Alarms"] = fieldMark{statusBad, ""}
+		}
 	}
 
 	if !c.Standalone {

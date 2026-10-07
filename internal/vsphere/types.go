@@ -603,6 +603,14 @@ type Cluster struct {
 	// red or gray), and ConfigIssues the messages behind a yellow or red one.
 	OverallStatus string   `json:"overall_status,omitempty"`
 	ConfigIssues  []string `json:"config_issues,omitempty"`
+	// Alarms are the alarms triggered on the cluster and everything inside
+	// it, worst first: vSphere propagates a host's or VM's triggered alarm up
+	// to its cluster. AlarmsRead reports whether the list is complete: it is
+	// false when alarms were not read, and when the account cannot see every
+	// member host, since vCenter leaves out alarms on objects it hides.
+	// Without it an empty list is missing evidence, not "none".
+	AlarmsRead bool    `json:"alarms_read,omitempty"`
+	Alarms     []Alarm `json:"alarms,omitempty"`
 	// EffectiveCPUMHz and EffectiveMemoryMB are what the cluster can hand to
 	// VMs: the total less hosts in maintenance or not responding and less the
 	// virtualization overhead. Zero means the server did not report them.
@@ -620,6 +628,18 @@ type Cluster struct {
 	// HA is the vSphere HA configuration and failover state, nil when it was
 	// not read or the compute resource is a standalone host.
 	HA *ClusterHA `json:"ha,omitempty"`
+}
+
+// Alarm is one triggered alarm: what fired, how bad it is and where.
+type Alarm struct {
+	Name string `json:"name"`
+	// Status is the alarm's colour: red is critical, yellow a warning.
+	Status string `json:"status"`
+	// Entity names the object the alarm fired on and EntityType its managed
+	// object type (HostSystem, VirtualMachine, ClusterComputeResource, ...).
+	Entity       string `json:"entity,omitempty"`
+	EntityType   string `json:"entity_type,omitempty"`
+	Acknowledged bool   `json:"acknowledged,omitempty"`
 }
 
 // Admission control policies a cluster's HA configuration can use.
