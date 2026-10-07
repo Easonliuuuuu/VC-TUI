@@ -22,13 +22,7 @@ import (
 // inventory already loaded; nothing here asks the vCenter for more.
 var clusterPages = []string{"Summary", "Hosts & VMs", "Storage"}
 
-// Thresholds for the effective-capacity marks. vSphere has no alarm on
-// cluster-level use, so these follow the datastore column's bands.
-const (
-	clusterUseWarnPct = 80
-	clusterUseBadPct  = 90
-	clusterBarWidth   = 8
-)
+const clusterBarWidth = 8
 
 // clusterView is the state of an open cluster pane beyond the field cursor
 // every detail pane shares. key is the row it belongs to: moving to another
@@ -284,8 +278,8 @@ func clusterFields(c vsphere.Cluster, mem clusterMembers) ([]field, map[string]f
 	}
 	add("CPU", usedOfTotal(cpuUsed, c.TotalCPUMHz, humanize.MHz))
 	add("Memory", usedOfTotal(memUsed, c.TotalMemoryMB, humanize.MB))
-	effective("Effective CPU", cpuUsed, c.EffectiveCPUMHz, humanize.MHz, add, marks)
-	effective("Effective memory", memUsed, c.EffectiveMemoryMB, humanize.MB, add, marks)
+	effective("Effective CPU", c.EffectiveCPUMHz, humanize.MHz, add)
+	effective("Effective memory", c.EffectiveMemoryMB, humanize.MB, add)
 	add("CPU cores", strconv.FormatInt(int64(c.CPUCores), 10))
 
 	if !c.Standalone {
@@ -436,25 +430,13 @@ func usedOfTotal(used, total int64, unit func(int64) string) string {
 	return fmt.Sprintf("%s used of %s (%.0f%%)", unit(used), unit(total), float64(used)/float64(total)*100)
 }
 
-// effective adds the capacity left once HA's reserve and unavailable hosts
-// are taken out, and how much of it is in use: the share that decides
-// whether one more host failure causes contention.
-func effective(label string, used, eff int64, unit func(int64) string, add func(string, string), marks map[string]fieldMark) {
-	if eff <= 0 {
+// effective adds the capacity available to VMs after unavailable hosts and
+// the hypervisor's share are taken out.
+func effective(label string, capacity int64, unit func(int64) string, add func(string, string)) {
+	if capacity <= 0 {
 		return
 	}
-	if used <= 0 {
-		add(label, unit(eff))
-		return
-	}
-	pct := float64(used) / float64(eff) * 100
-	add(label, fmt.Sprintf("%s · %.0f%% used", unit(eff), pct))
-	switch {
-	case pct >= clusterUseBadPct:
-		marks[label] = fieldMark{statusBad, ""}
-	case pct >= clusterUseWarnPct:
-		marks[label] = fieldMark{statusWarn, ""}
-	}
+	add(label, unit(capacity))
 }
 
 // datastoreHosts is a datastore's Hosts field: how many of each cluster's

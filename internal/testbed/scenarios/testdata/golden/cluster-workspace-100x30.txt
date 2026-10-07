@@ -21,8 +21,8 @@ Hosts
 Capacity
   CPU                 275.2GHz used of 710.4GHz (39%)
   Memory              2837.5G used of 5376G (53%)
-  Effective CPU       582.9GHz · 47% used
-  Effective memory    4812.8G · 59% used
+  Effective CPU       582.9GHz
+  Effective memory    4812.8G
   CPU cores           296
 
 DRS

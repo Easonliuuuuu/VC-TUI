@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/easonliuuuuu/vsfleet/internal/humanize"
 	"github.com/easonliuuuuu/vsfleet/internal/vsphere"
 )
 
@@ -68,6 +69,34 @@ func TestClusterFieldsDoNotInventEvidence(t *testing.T) {
 	}
 	if len(marks) != 0 {
 		t.Fatalf("unread cluster carries marks: %+v", marks)
+	}
+}
+
+func TestClusterFieldsDoNotCompareHostUseWithEffectiveCapacity(t *testing.T) {
+	c := vsphere.Cluster{
+		Name: "compute", TotalCPUMHz: 20000, EffectiveCPUMHz: 15000,
+		TotalMemoryMB: 20412, EffectiveMemoryMB: 15204,
+	}
+	members := clusterMembers{hosts: []vsphere.Host{{
+		CPUUsageMHz: 16000, MemoryUsageMB: 16520,
+	}}}
+
+	fields, marks := clusterFields(c, members)
+	for label, want := range map[string]string{
+		"Effective CPU":    humanize.MHz(c.EffectiveCPUMHz),
+		"Effective memory": humanize.MB(c.EffectiveMemoryMB),
+	} {
+		if got, ok := fieldValue(fields, label); !ok || got != want {
+			t.Fatalf("%s = %q, want %q", label, got, want)
+		}
+		if _, ok := marks[label]; ok {
+			t.Fatalf("%s has a utilization mark from host-wide usage", label)
+		}
+	}
+	for _, label := range []string{"CPU", "Memory"} {
+		if got, ok := fieldValue(fields, label); !ok || !strings.Contains(got, "%") {
+			t.Fatalf("%s = %q, want overall utilization", label, got)
+		}
 	}
 }
 
