@@ -104,3 +104,19 @@ func TestIssueMessagesKeepsReadableMessages(t *testing.T) {
 		t.Fatalf("issueMessages = %q", got)
 	}
 }
+
+func TestHidesHostsCatchesMembersTheAccountCannotSee(t *testing.T) {
+	seen := types.ManagedObjectReference{Type: "HostSystem", Value: "host-1"}
+	hidden := types.ManagedObjectReference{Type: "HostSystem", Value: "host-2"}
+	idx := &index{byRef: map[types.ManagedObjectReference]entity{seen: {name: "esx-a"}}}
+	if hidesHosts(idx, []types.ManagedObjectReference{seen}, 1) {
+		t.Fatal("every member is visible")
+	}
+	if !hidesHosts(idx, []types.ManagedObjectReference{seen, hidden}, 2) {
+		t.Fatal("a member outside the index went unnoticed")
+	}
+	// The member list can leave a host out that the summary still counts.
+	if !hidesHosts(idx, []types.ManagedObjectReference{seen}, 2) {
+		t.Fatal("a host counted but not listed went unnoticed")
+	}
+}

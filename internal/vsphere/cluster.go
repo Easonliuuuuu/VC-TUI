@@ -5,13 +5,14 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/vmware/govmomi/property"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
 )
 
 var computeResourceKinds = []string{"ComputeResource", "ClusterComputeResource"}
 
-var clusterProps = []string{"name", "parent", "summary", "host", "customValue", "overallStatus", "configIssue"}
+var clusterProps = []string{"name", "parent", "summary", "host", "customValue", "overallStatus", "configIssue", "triggeredAlarmState"}
 
 // ListClusters returns the clusters in a vCenter. A host that is not in a
 // cluster appears as a standalone compute resource and is reported with
@@ -41,6 +42,7 @@ func (c *Client) listClusters(ctx context.Context, idx *index) ([]Cluster, error
 		values[raw[i].Self] = raw[i].CustomValue
 	}
 	metadata := c.collectMetadata(ctx, refs, values)
+	alarmNames := c.alarmNames(ctx, raw)
 	for i := range raw {
 		m := &raw[i]
 		cl := Cluster{
@@ -54,6 +56,7 @@ func (c *Client) listClusters(ctx context.Context, idx *index) ([]Cluster, error
 		}
 		cl.OverallStatus = string(m.OverallStatus)
 		cl.ConfigIssues = issueMessages(m.ConfigIssue)
+		cl.Alarms = triggeredAlarms(idx, m.TriggeredAlarmState, alarmNames)
 		if st, ok := settings[m.Self]; ok {
 			cl.DRSEnabled = st.drs
 			cl.HAEnabled = st.ha
@@ -63,6 +66,9 @@ func (c *Client) listClusters(ctx context.Context, idx *index) ([]Cluster, error
 			cl.HA = st.haConfig
 		}
 		applyComputeSummary(&cl, m.Summary)
+		// vCenter lists only the alarms on objects the account can see, so
+		// a member host it cannot see leaves the list incomplete.
+		cl.AlarmsRead = !hidesHosts(idx, m.Host, cl.Hosts)
 		cl.Metadata = metadata[m.Self]
 		out = append(out, cl)
 	}
@@ -138,6 +144,78 @@ func issueMessages(events []types.BaseEvent) []string {
 			out = append(out, msg)
 		}
 	}
+	return out
+}
+
+// alarmNames resolves the alarm definitions the clusters' triggered alarms
+// point at. It is best effort: an alarm whose definition cannot be read is
+// still counted, under its managed object ID.
+func (c *Client) alarmNames(ctx context.Context, raw []mo.ComputeResource) map[types.ManagedObjectReference]string {
+	seen := map[types.ManagedObjectReference]bool{}
+	var refs []types.ManagedObjectReference
+	for i := range raw {
+		for _, st := range raw[i].TriggeredAlarmState {
+			if !seen[st.Alarm] {
+				seen[st.Alarm] = true
+				refs = append(refs, st.Alarm)
+			}
+		}
+	}
+	if len(refs) == 0 {
+		return nil
+	}
+	var alarms []mo.Alarm
+	if err := property.DefaultCollector(c.VIM()).Retrieve(ctx, refs, []string{"info.name"}, &alarms); err != nil {
+		return nil
+	}
+	out := make(map[types.ManagedObjectReference]string, len(alarms))
+	for i := range alarms {
+		out[alarms[i].Self] = alarms[i].Info.Name
+	}
+	return out
+}
+
+// hidesHosts reports whether a cluster has member hosts the index never saw:
+// fewer host references than the summary counts, or references the account
+// cannot read.
+func hidesHosts(idx *index, hosts []types.ManagedObjectReference, count int) bool {
+	if len(hosts) < count {
+		return true
+	}
+	for _, h := range hosts {
+		if _, ok := idx.byRef[h]; !ok {
+			return true
+		}
+	}
+	return false
+}
+
+// triggeredAlarms turns a triggeredAlarmState into alarms, critical before
+// warning. vSphere lists only alarms that are not green; a gray state is
+// unknown, not a finding, and is left out too.
+func triggeredAlarms(idx *index, states []types.AlarmState, names map[types.ManagedObjectReference]string) []Alarm {
+	var out []Alarm
+	for _, st := range states {
+		status := string(st.OverallStatus)
+		if status != "red" && status != "yellow" {
+			continue
+		}
+		name := strings.TrimSpace(names[st.Alarm])
+		if name == "" {
+			name = st.Alarm.Value
+		}
+		entity := idx.name(&st.Entity)
+		if entity == "" {
+			entity = st.Entity.Value
+		}
+		out = append(out, Alarm{
+			Name: name, Status: status, Entity: entity, EntityType: st.Entity.Type,
+			Acknowledged: st.Acknowledged != nil && *st.Acknowledged,
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].Status == "red" && out[j].Status != "red"
+	})
 	return out
 }
 

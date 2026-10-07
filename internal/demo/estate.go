@@ -661,8 +661,13 @@ func (e *estate) finishClusters(s siteSpec, hostIdx map[string][]int) {
 			Location: vsphere.Location{Context: s.ctx, Datacenter: s.dc, Path: "/" + s.dc + "/host/" + c.name}, ID: fmt.Sprintf("%s-cluster-%d", s.ctx, ci+1), Name: c.name,
 			DRSEnabled: c.role != "dmz", HAEnabled: true,
 		}
+		busiest := ""
+		var busiestUse float64
 		for _, i := range hostIdx[c.name] {
 			h := inv.Hosts[i]
+			if use := float64(h.MemoryUsageMB) / float64(max(h.MemoryMB, 1)); use > busiestUse {
+				busiest, busiestUse = h.Name, use
+			}
 			cl.Hosts++
 			if h.ConnectionState == "connected" && !h.InMaintenance {
 				cl.EffectiveHost++
@@ -677,7 +682,7 @@ func (e *estate) finishClusters(s siteSpec, hostIdx map[string][]int) {
 				cl.EffectiveMemoryMB += h.MemoryMB * 94 / 100
 			}
 		}
-		clusterHealth(&cl, c, ci, s)
+		clusterHealth(&cl, c, ci, s, busiest)
 		inv.Clusters = append(inv.Clusters, cl)
 	}
 }
@@ -685,9 +690,11 @@ func (e *estate) finishClusters(s siteSpec, hostIdx map[string][]int) {
 // clusterHealth gives each cluster the HA, DRS and EVC settings its role
 // suggests, with the evidence the cluster workspace is built to surface: the
 // second cluster has lost a host and can no longer cover a failure, and the
-// management cluster runs with admission control off.
-func clusterHealth(cl *vsphere.Cluster, c *clusterSpec, ci int, s siteSpec) {
+// management cluster runs with admission control off. The alarms behind a
+// yellow or red status name busiest, the member host using the most memory.
+func clusterHealth(cl *vsphere.Cluster, c *clusterSpec, ci int, s siteSpec, busiest string) {
 	cl.OverallStatus = "green"
+	cl.AlarmsRead = true
 	if c.role != "dmz" {
 		cl.EVCMode = "intel-icelake"
 		cl.DRSBehavior = "fullyAutomated"
@@ -706,9 +713,14 @@ func clusterHealth(cl *vsphere.Cluster, c *clusterSpec, ci int, s siteSpec) {
 		ha.MemFailoverPct = 11
 		cl.OverallStatus = "red"
 		cl.ConfigIssues = []string{"Insufficient vSphere HA failover resources"}
+		cl.Alarms = []vsphere.Alarm{
+			{Name: "Insufficient vSphere HA failover resources", Status: "red", Entity: cl.Name, EntityType: "ClusterComputeResource"},
+			{Name: "Host memory usage", Status: "yellow", Entity: busiest, EntityType: "HostSystem"},
+		}
 	case c.role == "mgmt":
 		ha.AdmissionControl = false
 		cl.OverallStatus = "yellow"
+		cl.Alarms = []vsphere.Alarm{{Name: "Host memory usage", Status: "yellow", Entity: busiest, EntityType: "HostSystem"}}
 	case c.role == "dmz":
 		ha.Policy, ha.CPUReservePct, ha.MemReservePct, ha.CPUFailoverPct, ha.MemFailoverPct = vsphere.HAPolicyHostFailures, 0, 0, 0, 0
 		ha.CurrentFailoverLevel = 1
