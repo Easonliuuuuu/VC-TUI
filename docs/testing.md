@@ -169,20 +169,4 @@ this integration tier.
 
 ## Real vCenter validation
 
-`main` is also checked against a real, nested vCenter Server 8.0.3 lab with
-ESXi 8.0.3 hosts, outside this repository's public CI. Those runs compare
-vsfleet's output with what vCenter itself reports, check that a read-only
-account with missing privileges never produces a better verdict, and drive the
-TUI against live data. This is the only vSphere version validated so far;
-others may work but are untested.
-
-The lab keeps vCenter's default statistics level 1, so it shows what a default
-install returns, including these gaps:
-
-- Level 2 counters such as `mem.active`, `mem.swapped` and VM `disk.read` or
-  `disk.write` are not kept, so VM performance reads `cpu-only` and the TUI's
-  VM disk Read, Write and IOPS charts show no samples. See
-  [Validation status](assessments.md#validation-status).
-- vApps and resource pools have no 20-second realtime interval, and their
-  5-minute samples arrive about 20 minutes late.
-- Thresholds that need level 2 data have not been validated.
+Tested against vCenter Server 8.0.3.
