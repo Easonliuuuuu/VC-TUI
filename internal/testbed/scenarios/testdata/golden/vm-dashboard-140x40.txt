@@ -4,37 +4,37 @@ vsfleet  DEMO · SAMPLE DATA  ◆ prod-vc  ·  1 connected
                                                    │ [1h] 24h  7d  30d                                up 41d · 20 s samples · as of 00:00:00
   vCenter             prod-vc                      │ 
   Power state         on                           │ CPU usage  % of 2 vCPU                               avg 37.3% · p95 48.8% · peak 50.4%
-  Guest OS            Microsoft Windows Server     │                                                                                        
+  Guest OS            Microsoft Windows Server     │ 
                       2022 (64-bit)                │                                                                                        
-  Guest state         running                      │ ▅▅▅▅▅▅▆▆▆▆▆▅▅▄▃▂▁▁    ▁▁▁▂▂▃▃▃▂▂▂▂▁▁▁▂▂▃▄▅▆▇▇▇██▇▇▇▆▆▆▆▆▆▇▇██████▇▆▆▅▄▃▃▂▂▂▂▃▃▃▃▃▃▃▂▂▁ 
-  VMware Tools        not installed  ▲             │ ███████████████████████████████████████████████████████████████████████████████████████
-  Tools version       -                            │ 23:00                                                                             00:00
-  IP address          -                            │ 
-  DNS name            -                            │ Memory active  % of 8G                               avg 34.7% · p95 40.4% · peak 41.2%
-  CPU                 2 vCPU                       │                                                                                        
-  Memory              8G                           │                                                                                        
-  Committed storage   40.0G                        │ ▄▄▄▄▄▄▄▄▄▄▄▄▄▃▃▂▂▂▁▁▁▁▁▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▃▃▃▄▄▅▅▅▅▅▅▄▄▄▄▄▄▄▅▅▅▅▅▅▅▅▅▄▄▃▃▃▂▂▂▂▂▂▃▃▃▃▃▂▂▂▂▁
-  Snapshots           none  ✓                      │ ███████████████████████████████████████████████████████████████████████████████████████
-  Guest disks         -                            │ 23:00                                                                             00:00
-  Host                esxi-mgmt-02                 │ 
-  Cluster             mgmt                         │ Disk  read + write · latency 5 ms           avg 866 KB/s · p95 1.5 MB/s · peak 1.5 MB/s
-  Datacenter          Taipei                       │                                                               ▂▃▄▆▇▇████▇▆▅▄▃▂▁      ▁▁
-  Folder              /Infrastructure/Core         │ ▁                                        ▁▂▄▅▆▆▆▆▆▆▅▅▄▄▄▄▄▅▆▇████████████████████▇▇████
-  Datastores          local-esxi-mgmt-01           │ ██▇▅▄▂▁         ▁▂▃▃▄▄▄▄▄▃▃▂▁      ▁▂▃▄▆███████████████████████████████████████████████
-  Inventory path      /Taipei/vm/Infrastructure/   │ ████████▇▆▅▅▆▆▇███████████████▇▇▇▇█████████████████████████████████████████████████████
-                      Core/ad-dc-01                │ 23:00                                                                             00:00
-  Managed object      prod-vc-vm-906               │ 
+  Guest state         running                      │                                                                                        
+  VMware Tools        not installed  ▲             │ ▅▅▅▅▅▅▆▆▆▆▆▅▅▄▃▂▁▁    ▁▁▁▂▂▃▃▃▂▂▂▂▁▁▁▂▂▃▄▅▆▇▇▇██▇▇▇▆▆▆▆▆▆▇▇██████▇▆▆▅▄▃▃▂▂▂▂▃▃▃▃▃▃▃▂▂▁ 
+  Tools version       -                            │ ███████████████████████████████████████████████████████████████████████████████████████
+  IP address          -                            │ 23:00                                                                             00:00
+  DNS name            -                            │ 
+  CPU                 2 vCPU                       │ Memory active  % of 8G                               avg 34.7% · p95 40.4% · peak 41.2%
+  Memory              8G                           │ 
+  Committed storage   40.0G                        │                                                                                        
+  Snapshots           none  ✓                      │                                                                                        
+  Guest disks         -                            │ ▄▄▄▄▄▄▄▄▄▄▄▄▄▃▃▂▂▂▁▁▁▁▁▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▃▃▃▄▄▅▅▅▅▅▅▄▄▄▄▄▄▄▅▅▅▅▅▅▅▅▅▄▄▃▃▃▂▂▂▂▂▂▃▃▃▃▃▂▂▂▂▁
+  Host                esxi-mgmt-02                 │ ███████████████████████████████████████████████████████████████████████████████████████
+  Cluster             mgmt                         │ 23:00                                                                             00:00
+  Datacenter          Taipei                       │ 
+  Folder              /Infrastructure/Core         │ Disk  read + write · latency 5 ms           avg 866 KB/s · p95 1.5 MB/s · peak 1.5 MB/s
+  Datastores          local-esxi-mgmt-01           │ 
+  Inventory path      /Taipei/vm/Infrastructure/   │                                                               ▂▃▄▆▇▇████▇▆▅▄▃▂▁      ▁▁
+                      Core/ad-dc-01                │ ▁                                        ▁▂▄▅▆▆▆▆▆▆▅▅▄▄▄▄▄▅▆▇████████████████████▇▇████
+  Managed object      prod-vc-vm-906               │ ██▇▅▄▂▁         ▁▂▃▃▄▄▄▄▄▃▃▂▁      ▁▂▃▄▆███████████████████████████████████████████████
+                                                   │ ████████▇▆▅▅▆▆▇███████████████▇▇▇▇█████████████████████████████████████████████████████
+                                                   │ 23:00                                                                             00:00
+                                                   │ 
                                                    │ CONTENTION
-                                                   │ CPU ready     ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▂▂▂▁▁▁▁▁▁▁▁▁▁▁▁       0.4%     peak 1.9% ✓
-                                                   │ Co-stop       ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁       0.2%     peak 0.2% ✓
+                                                   │ CPU ready     ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▂▂▁▁▁▁▁▁▁▁▁▁▁▁       0.4%      peak 1.9% ✓
+                                                   │ Co-stop       ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁       0.2%      peak 0.2% ✓
                                                    │ CPU limited   —  no CPU limit set
-                                                   │ Balloon       ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁      0 MiB    peak 0 MiB ✓
-                                                   │ Swap-in       ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁     0 KB/s   peak 0 KB/s ✓
+                                                   │ Balloon       ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁      0 MiB     peak 0 MiB ✓
+                                                   │ Swap-in       ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁     0 KB/s    peak 0 KB/s ✓
                                                    │ NETWORK
-                                                   │ Received      ▇▇██▇▆▄▃▃▃▃▃▂▁▂▃▄▅▆▆▆▆▇███▇▅▄▄▄▄▃▂▁▁▂▄▄▅▅▅▆▇██   2.6 MB/s peak 2.6 MB/s
+                                                   │ Received      ▇▇██▇▆▄▃▃▃▃▂▂▁▂▄▅▅▆▆▆▇███▇▆▅▄▄▄▃▂▁▁▂▄▄▅▅▅▆▇██   2.6 MB/s  peak 2.6 MB/s
                                                    │ 
-                                                   │ Transmitted   ▆▆▅▄▃▃▂▂▂▂▂▃▃▄▅▆▆▇▇█████▇▇▆▆▅▄▃▃▂▂▂▂▂▃▃▄▅▆▆▇▇█   632 KB/s peak 649 KB/s
-                                                   │ 
-                                                   │ Dropped       ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁          0        peak 0 ✓
 
 ↑/k up  ↓/j down  enter open  </> range  h timeline  esc back  ? help  q quit
