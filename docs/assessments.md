@@ -146,7 +146,9 @@ does not request a counter the interval does not keep, and records it as
 unavailable with the level it needs. The interval's level is part of the
 window's `Source`. To get active memory, raise the statistics level of the
 interval you collect from (vCenter > Configure > General > Statistics) to 2
-and wait for history to accumulate; vsfleet never changes it.
+and wait for history to accumulate; vsfleet never changes it. `perf collect`
+prints this as a hint, naming the interval it used, whenever active memory
+was not kept.
 
 Every value is aggregated over the roll-up interval (typically 5 minutes to 2
 hours), so a reported **peak is the highest interval average** and can understate

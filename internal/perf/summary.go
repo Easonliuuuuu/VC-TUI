@@ -145,11 +145,27 @@ func NoSamples(c Counter, interval, expected int, reason string) Summary {
 // interval's statistics level does not keep it. BelowLevel looks for it.
 const belowLevelPhrase = "needs statistics level"
 
+// StatisticsSetting is where a vCenter administrator changes the level.
+const StatisticsSetting = "vCenter > Configure > General > Statistics"
+
 // BelowLevelReason explains a counter that was not requested because the
 // interval keeps a lower statistics level than the counter needs.
 func BelowLevelReason(c Counter, need, have int32, interval int) string {
-	return fmt.Sprintf("%s %s %d; this vCenter keeps level %d for the %ds interval",
-		c.VSphereName(), belowLevelPhrase, need, have, interval)
+	return fmt.Sprintf("%s %s %d; this vCenter keeps level %d for the %ds interval (%s)",
+		c.VSphereName(), belowLevelPhrase, need, have, interval, StatisticsSetting)
+}
+
+// NeededLevel returns the statistics level a BelowLevel summary needs.
+func NeededLevel(s Summary) (int, bool) {
+	if !BelowLevel(s) {
+		return 0, false
+	}
+	_, rest, _ := strings.Cut(s.Reason, belowLevelPhrase)
+	var level int
+	if _, err := fmt.Sscanf(rest, " %d", &level); err != nil {
+		return 0, false
+	}
+	return level, true
 }
 
 // BelowLevel reports whether s is unavailable only because of the

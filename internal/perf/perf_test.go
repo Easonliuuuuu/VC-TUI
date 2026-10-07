@@ -220,8 +220,11 @@ func TestBelowLevelAndNoSamples(t *testing.T) {
 	if !BelowLevel(below) || BelowLevel(Unavailable(mem, 300, 288, "permission denied")) {
 		t.Fatal("BelowLevel does not tell a statistics-level gap from a denial")
 	}
-	if want := "mem.active.average needs statistics level 2; this vCenter keeps level 1 for the 300s interval"; below.Reason != want {
+	if want := "mem.active.average needs statistics level 2; this vCenter keeps level 1 for the 300s interval (vCenter > Configure > General > Statistics)"; below.Reason != want {
 		t.Fatalf("reason = %q, want %q", below.Reason, want)
+	}
+	if level, ok := NeededLevel(below); !ok || level != 2 {
+		t.Fatalf("NeededLevel = %d, %v, want 2", level, ok)
 	}
 	off := NoSamples(mem, 300, 288, "powered off")
 	if off.Status != StatusInsufficient || off.Average != nil || off.Missing != 288 {
