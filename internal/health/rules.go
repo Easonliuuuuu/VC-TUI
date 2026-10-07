@@ -47,6 +47,12 @@ var rules = []Rule{
 		Eval: evaluateCustomResourceAllocation, Resolve: resolveResourceAllocation,
 	},
 	{
+		ID: "datastore-host-coverage", Category: CategoryAvailability, Severity: SeverityWarning, MinSchema: assessment.InventoryHostMountSchema,
+		Recommendation: "Mount the datastore on every host in the cluster, or move the VMs on it to storage every host can reach.", NeedsCollections: []string{"host"},
+		Summary: "a shared datastore is not mounted on every host in a cluster", Needs: "per-host datastore mounts",
+		Eval: evaluateDatastoreHostCoverage,
+	},
+	{
 		ID: "datastore-inaccessible", Category: CategoryCapacity, Severity: SeverityCritical,
 		Recommendation: "Restore datastore connectivity or evacuate its workloads before migration.", NeedsCollections: []string{"datastore"},
 		Summary: "datastore is not accessible", Needs: "datastore inventory",
@@ -949,22 +955,88 @@ func evaluateDVSwitchHostCoverage(in Input, emit func(Finding)) {
 			if len(memberNames) == len(clusterHosts) {
 				continue
 			}
-			obj := Object{Kind: "cluster", Name: cluster, Context: resource.Context, VCenterID: resource.VCenterID, Datacenter: resourceDC(resource)}
-			for _, candidate := range in.Data.Resources {
-				if candidate.Kind != "cluster" || candidate.Context != resource.Context || candidate.Name != cluster {
-					continue
-				}
-				var c vsphere.Cluster
-				if assessment.DecodeResource(candidate, &c) {
-					obj = resourceObject(in.Data, candidate, "cluster", c.Name, c.ID, c.Datacenter)
-				}
-				break
-			}
+			obj := clusterObject(in.Data, resource, cluster)
 			sort.Strings(memberNames)
 			sort.Strings(clusterNames)
 			emit(Finding{Rule: "dvswitch-host-coverage", Object: obj,
 				Message:  fmt.Sprintf("Distributed switch %q covers %d of %d hosts in cluster %q", sw.Name, len(memberNames), len(clusterHosts), cluster),
 				Evidence: []Evidence{{Field: "switch", Observed: sw.Name}, {Field: "member_hosts", Observed: strings.Join(memberNames, ", "), Expected: strings.Join(clusterNames, ", ")}, {Field: "cluster_hosts", Observed: fmt.Sprint(len(memberNames)), Expected: fmt.Sprint(len(clusterHosts))}}})
+		}
+	}
+}
+
+// clusterObject names cluster in the context of resource, with the cluster's
+// own identity when the run observed it.
+func clusterObject(data assessment.ExportData, resource assessment.ResourceObservation, cluster string) Object {
+	for _, candidate := range data.Resources {
+		if candidate.Kind != "cluster" || candidate.Context != resource.Context || candidate.Name != cluster {
+			continue
+		}
+		var c vsphere.Cluster
+		if assessment.DecodeResource(candidate, &c) {
+			return resourceObject(data, candidate, "cluster", c.Name, c.ID, c.Datacenter)
+		}
+		break
+	}
+	return Object{Kind: "cluster", Name: cluster, Context: resource.Context, VCenterID: resource.VCenterID, Datacenter: resourceDC(resource)}
+}
+
+// evaluateDatastoreHostCoverage flags a datastore that more than one host in a
+// cluster mounts but not every host. vsphere.ClusterDatastoreCoverage decides
+// what is a gap, so the TUI cluster pages always agree with this rule.
+func evaluateDatastoreHostCoverage(in Input, emit func(Finding)) {
+	type clusterKey struct{ context, cluster string }
+	type clusterHosts struct {
+		first assessment.ResourceObservation
+		hosts []vsphere.Host
+	}
+	byCluster := make(map[clusterKey]*clusterHosts)
+	var keys []clusterKey
+	for _, resource := range in.Data.Resources {
+		if resource.Kind != "host" {
+			continue
+		}
+		var host vsphere.Host
+		if !assessment.DecodeResource(resource, &host) || host.Cluster == "" {
+			continue
+		}
+		key := clusterKey{resource.Context, host.Cluster}
+		if byCluster[key] == nil {
+			byCluster[key] = &clusterHosts{first: resource}
+			keys = append(keys, key)
+		}
+		byCluster[key].hosts = append(byCluster[key].hosts, host)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].context != keys[j].context {
+			return keys[i].context < keys[j].context
+		}
+		return keys[i].cluster < keys[j].cluster
+	})
+	for _, key := range keys {
+		group := byCluster[key]
+		// A cluster whose hosts carry no mounts was not read, not unmounted.
+		if !vsphere.HostMountsRead(group.hosts) {
+			continue
+		}
+		sort.Slice(group.hosts, func(i, j int) bool { return group.hosts[i].Name < group.hosts[j].Name })
+		names := make([]string, 0, len(group.hosts))
+		for _, host := range group.hosts {
+			names = append(names, host.Name)
+		}
+		obj := clusterObject(in.Data, group.first, key.cluster)
+		for _, ds := range vsphere.ClusterDatastoreCoverage(group.hosts) {
+			if !ds.Gap() {
+				continue
+			}
+			emit(Finding{Rule: "datastore-host-coverage", Object: obj,
+				Message: fmt.Sprintf("Datastore %q is mounted on %d of %d hosts in cluster %q; not on %s", ds.Name, len(ds.Mounted), len(group.hosts), key.cluster, strings.Join(ds.Missing, ", ")),
+				Evidence: []Evidence{
+					{Field: "datastore", Observed: ds.Name},
+					{Field: "mounted_hosts", Observed: strings.Join(ds.Mounted, ", "), Expected: strings.Join(names, ", ")},
+					{Field: "missing_hosts", Observed: strings.Join(ds.Missing, ", ")},
+					{Field: "cluster_hosts", Observed: fmt.Sprint(len(ds.Mounted)), Expected: fmt.Sprint(len(group.hosts))},
+				}})
 		}
 	}
 }
