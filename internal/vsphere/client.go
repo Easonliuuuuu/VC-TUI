@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/vmware/govmomi"
+	"github.com/vmware/govmomi/fault"
 	"github.com/vmware/govmomi/session"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/soap"
@@ -251,6 +252,13 @@ func (c *Client) Ping(ctx context.Context) (time.Duration, error) {
 		return 0, fmt.Errorf("session for %s is no longer active", c.Context.Name)
 	}
 	return time.Since(start), nil
+}
+
+// IsSessionLost reports whether err is vCenter refusing a session it no
+// longer recognises — expired, terminated, or forgotten across a restart.
+// Nothing about the request was wrong; logging in again is the fix.
+func IsSessionLost(err error) bool {
+	return err != nil && fault.Is(err, &types.NotAuthenticated{})
 }
 
 // Close logs out. A vCenter session that is never released lingers for

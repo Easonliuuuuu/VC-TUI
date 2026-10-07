@@ -132,6 +132,7 @@ type keyMap struct {
 	NewContext    key.Binding
 	EditContext   key.Binding
 	DeleteContext key.Binding
+	LogoutContext key.Binding
 
 	// The next three describe the form's own dispatch (up/down move the row,
 	// left/right change a select or toggle, enter activates a button) —
@@ -238,6 +239,7 @@ func defaultKeys() keyMap {
 		NewContext:    key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new")),
 		EditContext:   key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
 		DeleteContext: key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "delete")),
+		LogoutContext: key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "log out")),
 
 		FormMove:     key.NewBinding(key.WithHelp("↑/↓", "move")),
 		FormChange:   key.NewBinding(key.WithHelp("←/→", "change")),
@@ -267,7 +269,7 @@ func defaultKeys() keyMap {
 
 // helpSections groups the bindings for the help panel.
 func (k keyMap) helpSections(demo bool) []helpSection {
-	ctxBindings := []key.Binding{k.UseContext, k.NewContext, k.EditContext, k.DeleteContext}
+	ctxBindings := []key.Binding{k.UseContext, k.NewContext, k.EditContext, k.DeleteContext, k.LogoutContext}
 	if demo {
 		ctxBindings = []key.Binding{k.UseContext}
 	}
@@ -447,7 +449,7 @@ func (k keyMap) footerHints(m *Model) []key.Binding {
 		if m.demo {
 			return []key.Binding{k.UseContext, k.AllScopeBrief, k.Doctor, k.Back, k.Help}
 		}
-		return []key.Binding{k.UseContext, k.AllScopeBrief, k.NewContext, k.EditContext, k.DeleteContext, k.Doctor, k.Back, k.Help}
+		return []key.Binding{k.UseContext, k.AllScopeBrief, k.NewContext, k.EditContext, k.DeleteContext, k.LogoutContext, k.Doctor, k.Back, k.Help}
 	case modeSearch:
 		return []key.Binding{k.Open, k.Filter, k.Sort, k.Reload, k.Back, k.Help, k.Quit}
 	case modeChanges:

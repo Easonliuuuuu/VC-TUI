@@ -159,7 +159,7 @@ func (m *Model) viewHeader() string {
 		switch {
 		case st.err != nil && !st.credentialsRequired():
 			failed++
-		case st.inv != nil:
+		case st.inv != nil && !st.loggedOut:
 			connected++
 		}
 	}
@@ -585,6 +585,8 @@ func (m *Model) contextDetail(st *contextState) string {
 		return "diagnosing…"
 	case st.credentialsRequired():
 		return "credentials required · press r to connect"
+	case st.loggedOut:
+		return shortRoute(st.cc.Transport.Describe()) + " · logged out · enter logs in"
 	case st.err != nil:
 		return firstLine(st.err.Error())
 	case st.inv != nil:

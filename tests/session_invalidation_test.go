@@ -2,6 +2,7 @@ package tests
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/vmware/govmomi/simulator"
@@ -151,5 +152,110 @@ func TestRemovedContextClosesItsSession(t *testing.T) {
 	}
 	if st, ok := backend.Status("prod"); ok && st.State == session.Connected {
 		t.Errorf("removed context still has a connected session: %+v", st)
+	}
+}
+
+// connectedProd saves a "prod" context against vc and reads it once, so the
+// manager holds a live session for it.
+func connectedProd(t *testing.T, vc *vcenter) (*session.Manager, tui.Backend, *config.Context) {
+	t.Helper()
+	cfg := newCfg(t)
+	resolver := staticResolver()
+	mgr := session.New(resolver)
+	backend := tui.NewBackend(cfg, resolver, mgr, vsphere.ConnectOptions{Resolver: resolver})
+	ctx := context.Background()
+	in := contextops.Input{
+		Name: "prod", Endpoint: vc.URL, Username: "operator@vsphere.local",
+		TLS:          config.TLSConfig{Mode: config.TLSThumbprint, Thumbprint: vc.Thumbprint},
+		Password:     testPassword,
+		HavePassword: true,
+		SetCurrent:   true,
+	}
+	if _, err := backend.SaveContext(ctx, in, true); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	cc, err := cfg.Context("prod")
+	if err != nil {
+		t.Fatalf("context prod: %v", err)
+	}
+	if _, err := fetchWholeInventory(ctx, backend, cc); err != nil {
+		t.Fatalf("inventory: %v", err)
+	}
+	return mgr, backend, cc
+}
+
+// endSessionOnServer ends prod's vCenter session behind the manager's back,
+// the way an idle timeout, a vCenter restart or an administrator would.
+func endSessionOnServer(t *testing.T, mgr *session.Manager, cc *config.Context) {
+	t.Helper()
+	s, err := mgr.Connect(context.Background(), cc)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	// Close logs out on the server but leaves the manager's record alone, so
+	// the manager still believes the session is live.
+	if err := s.Client().Close(context.Background()); err != nil {
+		t.Fatalf("end the session on the server: %v", err)
+	}
+}
+
+// TestReloadLogsInAgainAfterTheServerEndsTheSession pins the recovery from a
+// session vCenter ended on its own: the manager still believes it is
+// connected, and before the fix every reload read NotAuthenticated from it
+// for as long as the process ran.
+func TestReloadLogsInAgainAfterTheServerEndsTheSession(t *testing.T) {
+	vc := startVCenter(t, func(m *simulator.Model) { m.Datacenter = 1; m.Machine = 2 })
+	mgr, backend, cc := connectedProd(t, vc)
+	endSessionOnServer(t, mgr, cc)
+
+	inv, err := fetchWholeInventory(context.Background(), backend, cc)
+	if err != nil {
+		t.Fatalf("reload after the session ended: %v", err)
+	}
+	if len(inv.Errors) > 0 || len(inv.VMs) == 0 {
+		t.Fatalf("reload should log in again and read the inventory, got %d VMs and errors %v", len(inv.VMs), inv.Errors)
+	}
+}
+
+// TestLiveQueryLogsInAgainAfterTheServerEndsTheSession is the same recovery
+// for reads outside an inventory load, such as an open VM's charts.
+func TestLiveQueryLogsInAgainAfterTheServerEndsTheSession(t *testing.T) {
+	vc := startVCenter(t, func(m *simulator.Model) { m.Datacenter = 1; m.Machine = 2 })
+	mgr, backend, cc := connectedProd(t, vc)
+	endSessionOnServer(t, mgr, cc)
+
+	topo, ok := backend.(interface {
+		NetworkTopology(context.Context, *config.Context) (*vsphere.NetworkTopology, error)
+	})
+	if !ok {
+		t.Fatal("the session backend should answer network topology")
+	}
+	if _, err := topo.NetworkTopology(context.Background(), cc); err != nil {
+		t.Fatalf("a live read after the session ended should log in again: %v", err)
+	}
+}
+
+// TestLogoutHoldsUntilAnExplicitLogin pins the contexts screen's "log out":
+// the session ends, nothing implicit logs back in, and an explicit load does.
+func TestLogoutHoldsUntilAnExplicitLogin(t *testing.T) {
+	vc := startVCenter(t, func(m *simulator.Model) { m.Datacenter = 1; m.Machine = 2 })
+	mgr, backend, cc := connectedProd(t, vc)
+	ctx := context.Background()
+
+	if err := mgr.Logout(ctx, cc); err != nil {
+		t.Fatalf("logout: %v", err)
+	}
+	if st, _ := backend.Status("prod"); st.State == session.Connected {
+		t.Fatalf("after logout the session is still %v", st.State)
+	}
+	if _, err := mgr.Connect(ctx, cc); !errors.Is(err, session.ErrLoggedOut) {
+		t.Fatalf("an implicit connect after logout should refuse, got %v", err)
+	}
+	inv, err := fetchWholeInventory(ctx, backend, cc)
+	if err != nil || len(inv.Errors) > 0 || len(inv.VMs) == 0 {
+		t.Fatalf("an explicit load should log in again: err %v, errors %v", err, inv)
+	}
+	if st, _ := backend.Status("prod"); st.State != session.Connected {
+		t.Errorf("after logging in again the session is %v", st.State)
 	}
 }

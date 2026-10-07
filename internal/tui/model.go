@@ -182,6 +182,10 @@ type contextState struct {
 	// credential entry. A timer must not repeat that interaction; selecting or
 	// explicitly reloading the context clears the gate and may ask again.
 	credentialPrompted bool
+	// loggedOut records that the operator logged out of this context. Its
+	// last inventory stays on screen, but no background refresh logs back
+	// in; selecting the context or reloading it does.
+	loggedOut bool
 	// allowCredentialPrompt distinguishes an operator-requested load from a
 	// quiet timer refresh. A background refresh may use stored credentials or
 	// an existing session, but it never gets to interrupt the screen for input.
@@ -424,6 +428,8 @@ func (s *contextState) rowStatus() rowStatus {
 		return statusWarn
 	case s.credentialsRequired():
 		return statusWarn
+	case s.loggedOut:
+		return statusIdle
 	case s.err != nil && s.inv == nil:
 		return statusBad
 	case s.err != nil || s.hasKindErrors():
@@ -441,6 +447,8 @@ func (s *contextState) glyph() string {
 		return glyphPending
 	case s.credentialsRequired():
 		return glyphPending
+	case s.loggedOut:
+		return glyphOffline
 	case s.err != nil && s.inv == nil:
 		return glyphFail
 	case s.err != nil:
@@ -1091,8 +1099,10 @@ func (m *Model) beginLoad(st *contextState, force, quiet, allowCredentialPrompt 
 	st.allowCredentialPrompt = allowCredentialPrompt
 	if !quiet {
 		// A selection or explicit reload is a fresh opportunity to provide the
-		// credential after a previous cancellation or rejection.
+		// credential after a previous cancellation or rejection, and the
+		// operator asking to log back in after a logout.
 		st.credentialPrompted = false
+		st.loggedOut = false
 	}
 	st.phase = phaseAuthenticating
 	st.loadingKind = ""
@@ -1215,6 +1225,11 @@ func (m *Model) refreshStale() []tea.Cmd {
 		if st.credentialPrompted {
 			continue
 		}
+		// A logout is the operator saying not to hold a session here. A
+		// timer logging straight back in would quietly undo it.
+		if st.loggedOut {
+			continue
+		}
 		if !m.refreshDue(st, onScreen[st]) {
 			continue
 		}
@@ -1248,7 +1263,7 @@ func (m *Model) ensureSelectedLoaded(force bool) []tea.Cmd {
 	if st == nil {
 		return nil
 	}
-	if st.credentialPrompted && !st.loading {
+	if (st.credentialPrompted || st.loggedOut) && !st.loading {
 		force = true
 	}
 	if cmd := m.startLoad(st, force); cmd != nil {
@@ -1773,10 +1788,31 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case formDeleteMsg:
 		return m, m.applyFormDelete(msg)
 
+	case logoutMsg:
+		m.applyLogout(msg)
+		return m, nil
+
 	case tea.KeyMsg:
 		return m, tea.Batch(m.handleKey(msg), m.resumeVMPerf(), m.ensureNetTopology(false))
 	}
 	return m, nil
+}
+
+// applyLogout lands a logout. The session is gone from the manager even when
+// the vCenter did not acknowledge it, so the context is marked logged out
+// either way; the error only says the server may still list the session.
+func (m *Model) applyLogout(msg logoutMsg) {
+	st, ok := m.byName[msg.cc.Name]
+	if !ok || st.cc != msg.cc {
+		return
+	}
+	st.loggedOut = true
+	st.err = nil
+	if msg.err != nil {
+		m.setMessage("logged out of "+st.cc.Name+", but the vCenter did not confirm it: "+firstLine(msg.err.Error()), true)
+		return
+	}
+	m.setMessage("logged out of "+st.cc.Name+" · enter or r logs in again", false)
 }
 
 // applyFormSave lands the outcome of a save. On success the form closes, the
@@ -2718,6 +2754,8 @@ func (m *Model) handleContextsKey(msg tea.KeyMsg) tea.Cmd {
 			m.returnTo = modeContexts
 			return m.enterForm(st)
 		}
+	case key.Matches(msg, m.keys.LogoutContext):
+		return m.logout(m.contextAt(m.ctxCursor))
 	case key.Matches(msg, m.keys.DeleteContext):
 		if m.demo {
 			return nil
@@ -2730,6 +2768,23 @@ func (m *Model) handleContextsKey(msg tea.KeyMsg) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// logout ends the highlighted context's vCenter session. A load in flight
+// would log straight back in when it lands, so it has to finish first.
+func (m *Model) logout(st *contextState) tea.Cmd {
+	b, ok := m.backend.(logoutBackend)
+	if !ok || m.demo || st == nil {
+		return nil
+	}
+	if st.loading {
+		m.setMessage(st.cc.Name+" is still loading; log out once it finishes", true)
+		return nil
+	}
+	if st.loggedOut {
+		return nil
+	}
+	return logoutContext(m.ctx, b, st.cc)
 }
 
 func (m *Model) moveContext(delta int) {
