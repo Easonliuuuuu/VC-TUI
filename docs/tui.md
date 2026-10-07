@@ -388,7 +388,8 @@ one from the table starts on Summary.
   (how many are effective and why the rest are not, EVC mode), capacity, DRS
   and contents. A `✓`, `▲` or `✕` after a field is a verdict on it: failover
   capacity below what HA reserves, admission control off, a host not
-  responding, a manual DRS, or a datastore not mounted on every host.
+  responding or disconnected, a manual DRS, or a datastore not mounted on
+  every host.
   Capacity is shown used out of the total, as the vSphere Client shows it.
   Effective capacity (the total less unavailable hosts and the hypervisor's
   share) is shown on its own lines without a usage percentage because host

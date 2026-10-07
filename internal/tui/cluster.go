@@ -213,27 +213,37 @@ func clusterFields(c vsphere.Cluster, mem clusterMembers) ([]field, map[string]f
 	section("Hosts")
 	add("Hosts", fmt.Sprintf("%d total · %d effective", c.Hosts, c.EffectiveHost))
 	if len(mem.hosts) > 0 {
-		var connected, maint, down int
+		var connected, maint, disconnected, notResponding, unknown int
 		for _, h := range mem.hosts {
 			switch {
 			case h.InMaintenance:
 				maint++
 			case h.ConnectionState == "connected":
 				connected++
+			case h.ConnectionState == "disconnected":
+				disconnected++
+			case h.ConnectionState == "notResponding":
+				notResponding++
 			default:
-				down++
+				unknown++
 			}
 		}
 		states := []string{fmt.Sprintf("%d connected", connected)}
 		if maint > 0 {
 			states = append(states, fmt.Sprintf("%d maintenance", maint))
 		}
-		if down > 0 {
-			states = append(states, fmt.Sprintf("%d not responding", down))
+		if disconnected > 0 {
+			states = append(states, fmt.Sprintf("%d disconnected", disconnected))
+		}
+		if notResponding > 0 {
+			states = append(states, fmt.Sprintf("%d not responding", notResponding))
+		}
+		if unknown > 0 {
+			states = append(states, fmt.Sprintf("%d unknown", unknown))
 		}
 		add("Host states", strings.Join(states, " · "))
 		switch {
-		case down > 0:
+		case disconnected+notResponding+unknown > 0:
 			marks["Host states"] = fieldMark{statusBad, ""}
 		case maint > 0:
 			marks["Host states"] = fieldMark{statusWarn, ""}

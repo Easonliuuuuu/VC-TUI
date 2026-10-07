@@ -72,6 +72,26 @@ func TestClusterFieldsDoNotInventEvidence(t *testing.T) {
 	}
 }
 
+func TestClusterFieldsKeepUnavailableHostStatesDistinct(t *testing.T) {
+	c := vsphere.Cluster{Name: "compute", Hosts: 5, EffectiveHost: 1}
+	members := clusterMembers{hosts: []vsphere.Host{
+		{ConnectionState: "connected"},
+		{ConnectionState: "connected", InMaintenance: true},
+		{ConnectionState: "disconnected"},
+		{ConnectionState: "notResponding"},
+		{},
+	}}
+
+	fields, marks := clusterFields(c, members)
+	want := "1 connected · 1 maintenance · 1 disconnected · 1 not responding · 1 unknown"
+	if got, _ := fieldValue(fields, "Host states"); got != want {
+		t.Fatalf("Host states = %q, want %q", got, want)
+	}
+	if marks["Host states"].status != statusBad {
+		t.Fatalf("Host states mark = %+v, want bad", marks["Host states"])
+	}
+}
+
 func TestClusterFieldsSummarizeAlarms(t *testing.T) {
 	c := vsphere.Cluster{Name: "compute", OverallStatus: "red", AlarmsRead: true}
 	fields, marks := clusterFields(c, clusterMembers{})
