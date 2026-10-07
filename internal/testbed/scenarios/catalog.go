@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -43,11 +44,11 @@ var definitions = []Definition{
 	{Name: "overview", Profile: "presentation", Purpose: "healthy inventory remains useful while the failed site stays visible"},
 	{Name: "partial-failure", Profile: "presentation", Purpose: "a failed context is diagnosed without erasing healthy rows"},
 	{Name: "duplicate-names", Profile: "presentation", Purpose: "same-named resources remain distinguishable by context"},
-	{Name: "credential-cancel", Profile: "presentation", Purpose: "a cancelled credential prompt never stores a secret"},
+	{Name: "credential-cancel", Profile: "presentation", Purpose: "the credential prompt renders safely and cancellation never exposes a secret"},
 	{Name: "stale-result", Profile: "presentation", Purpose: "late asynchronous data cannot replace newer state"},
 	{Name: "history-coverage-gap", Profile: "presentation", Purpose: "partial assessment coverage is visible instead of a false removal"},
 	{Name: "add-context-no-secret", Profile: "connected", Purpose: "context configuration contains references but no password"},
-	{Name: "datastore-browser", Profile: "presentation", Purpose: "directory and recursive-find navigation preserve datastore state"},
+	{Name: "datastore-browser", Profile: "presentation", Purpose: "a populated datastore root renders safely at each terminal size"},
 	{Name: "resize", Profile: "presentation", Purpose: "bounded terminal sizes render safely and preserve selection"},
 	{Name: "vm-dashboard", Profile: "presentation", Purpose: "every VM chart page and range stays inside the terminal at each size"},
 	{Name: "network-switches", Profile: "presentation", Purpose: "port groups group under their switch and every switch page stays inside the terminal"},
@@ -121,14 +122,37 @@ func Run(ctx context.Context, name string, opts RunOptions) (result Result, runE
 		return Result{}, err
 	}
 	defer closeBackend()
+	var (
+		promptBackend *promptDemoBackend
+		promptDriver  *asyncDriver
+		promptCoord   *tui.PromptCoordinator
+	)
+	if name == "credential-cancel" {
+		demoBackend, ok := backend.(*demo.Backend)
+		if !ok {
+			return Result{}, fmt.Errorf("credential-cancel requires the presentation backend")
+		}
+		promptCoord = tui.NewPromptCoordinator()
+		promptBackend = &promptDemoBackend{Backend: demoBackend, coordinator: promptCoord}
+		backend = promptBackend
+	}
 	m := tui.New(ctx, backend, tui.Options{
 		Current:         "prod-vc",
 		AllContexts:     name == "overview" || name == "partial-failure" || name == "duplicate-names",
 		Demo:            !connected,
 		Assessment:      service,
+		Credentials:     promptCoord,
 		RefreshInterval: -1,
 	})
-	if err := drive(m, m.Init()); err != nil {
+	if promptBackend != nil {
+		promptDriver = newAsyncDriver(ctx, m)
+		promptDriver.schedule(m.Init())
+		if err := promptDriver.wait(ctx, "initial demo inventory", func() bool {
+			return !m.Observe().Busy && strings.Contains(normalize(m.View()), "\n ● ")
+		}); err != nil {
+			return Result{}, fmt.Errorf("initialize %s: %w", name, err)
+		}
+	} else if err := drive(m, m.Init()); err != nil {
 		return Result{}, fmt.Errorf("initialize %s: %w", name, err)
 	}
 	if name == "overview" || name == "partial-failure" || name == "duplicate-names" {
@@ -137,9 +161,34 @@ func Run(ctx context.Context, name string, opts RunOptions) (result Result, runE
 		}
 	}
 
+	goldensChecked := false
 	switch name {
-	case "overview", "partial-failure", "credential-cancel", "add-context-no-secret":
+	case "overview", "partial-failure", "add-context-no-secret":
 		// Initial inventory and the visible failed context are the contract.
+	case "credential-cancel":
+		promptBackend.arm()
+		promptDriver.send(keyMsg("r"), true)
+		if err := promptDriver.wait(ctx, "credential prompt", func() bool {
+			return m.Observe().Prompt && strings.Contains(m.View(), "Password for prod-vc")
+		}); err != nil {
+			return Result{}, err
+		}
+		if view := m.View(); strings.Contains(view, testbed.FixturePassword) || strings.Contains(view, testbed.FixtureProxyPassword) {
+			return Result{}, errors.New("credential-cancel rendered a fixture secret in the prompt")
+		}
+		if err := checkGoldens(name, m, opts); err != nil {
+			return Result{}, err
+		}
+		goldensChecked = true
+		// The load command can now finish with the cancellation result. Drop the
+		// returned listener command because this headless journey will not issue
+		// another credential request.
+		promptDriver.send(keyMsg("esc"), false)
+		if err := promptDriver.wait(ctx, "credential cancellation", func() bool {
+			return !m.Observe().Prompt && !m.Observe().Busy && strings.Contains(m.View(), "credential entry canceled")
+		}); err != nil {
+			return Result{}, err
+		}
 	case "duplicate-names":
 		// AllContexts is set above; both healthy fixtures intentionally share
 		// resource names and the view must retain context-qualified rows.
@@ -149,8 +198,20 @@ func Run(ctx context.Context, name string, opts RunOptions) (result Result, runE
 	case "history-coverage-gap":
 		press(m, "H")
 	case "datastore-browser":
-		// The browser-specific state machine is covered by focused tests; the
-		// scenario records the stable inventory screen for the catalogue.
+		if err := press(m, "5"); err != nil {
+			return Result{}, fmt.Errorf("open the Datastores tab: %w", err)
+		}
+		// Select the fixture with a populated file tree. Cursor blink commands
+		// are presentation-only, so the headless driver can discard them while
+		// it types and applies the inventory filter.
+		for _, key := range []string{"/", "nvme-01", "enter"} {
+			pressWithoutCommand(m, key)
+		}
+		for _, step := range []string{"open datastore detail", "open datastore actions", "browse files"} {
+			if err := press(m, "enter"); err != nil {
+				return Result{}, fmt.Errorf("%s: %w", step, err)
+			}
+		}
 	case "vm-dashboard":
 		if err := drive(m, send(m, tea.KeyMsg{Type: tea.KeyEnter})); err != nil {
 			return Result{}, fmt.Errorf("open VM detail: %w", err)
@@ -184,16 +245,9 @@ func Run(ctx context.Context, name string, opts RunOptions) (result Result, runE
 	result.View = normalize(m.View())
 	result.Observation = m.Observe()
 
-	if isCriticalScreen(name) {
-		for _, size := range [][2]int{{60, 20}, {100, 30}, {140, 40}} {
-			if err := drive(m, send(m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})); err != nil {
-				return Result{}, fmt.Errorf("golden resize %dx%d: %w", size[0], size[1], err)
-			}
-			if !opts.SkipGoldens {
-				if err := checkGolden(name, size[0], size[1], normalize(m.View()), opts.UpdateGoldens); err != nil {
-					return Result{}, err
-				}
-			}
+	if isCriticalScreen(name) && !goldensChecked {
+		if err := checkGoldens(name, m, opts); err != nil {
+			return Result{}, err
 		}
 	}
 
@@ -212,6 +266,21 @@ func isCriticalScreen(name string) bool {
 	default:
 		return false
 	}
+}
+
+func checkGoldens(name string, m *tui.Model, opts RunOptions) error {
+	for _, size := range [][2]int{{60, 20}, {100, 30}, {140, 40}} {
+		if err := drive(m, send(m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})); err != nil {
+			return fmt.Errorf("golden resize %dx%d: %w", size[0], size[1], err)
+		}
+		if opts.SkipGoldens {
+			continue
+		}
+		if err := checkGolden(name, size[0], size[1], normalize(m.View()), opts.UpdateGoldens); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // walkVMDashboard visits every chart page and every range at each golden
@@ -457,15 +526,49 @@ func assertResult(result Result) error {
 				return fmt.Errorf("scenario %s is missing %q from the dashboard", result.Name, want)
 			}
 		}
+	case "datastore-browser":
+		if result.Observation.Mode != "datastore" || result.Observation.Kind != string(vsphere.KindDatastore) || result.Observation.DatastorePath != "" {
+			return fmt.Errorf("scenario %s left mode=%q kind=%q path=%q", result.Name, result.Observation.Mode, result.Observation.Kind, result.Observation.DatastorePath)
+		}
+		for _, want := range []string{"nvme-01", "Path  /", "DIR"} {
+			if !strings.Contains(result.View, want) {
+				return fmt.Errorf("scenario %s is missing %q from the datastore browser", result.Name, want)
+			}
+		}
 	case "credential-cancel":
 		if result.Observation.Prompt {
 			return fmt.Errorf("scenario %s left a credential prompt open", result.Name)
+		}
+		if !strings.Contains(result.View, "credential entry canceled") {
+			return fmt.Errorf("scenario %s did not report the canceled credential entry", result.Name)
 		}
 		if strings.Contains(result.View, testbed.FixturePassword) || strings.Contains(result.View, testbed.FixtureProxyPassword) {
 			return fmt.Errorf("scenario %s rendered a fixture secret", result.Name)
 		}
 	}
 	return nil
+}
+
+// promptDemoBackend keeps credential-cancel offline while making one explicit
+// reload cross the same PromptCoordinator boundary as the production backend.
+// Embedding the concrete demo backend preserves its optional read-only
+// datastore and performance extensions for every other presentation action.
+type promptDemoBackend struct {
+	*demo.Backend
+	coordinator *tui.PromptCoordinator
+	promptNext  atomic.Bool
+}
+
+func (b *promptDemoBackend) arm() { b.promptNext.Store(true) }
+
+func (b *promptDemoBackend) BeginInventory(ctx context.Context, cc *config.Context) (tui.InventoryHandle, error) {
+	if b.promptNext.Swap(false) {
+		_, err := b.coordinator.Get(ctx, credentials.Ref{Scheme: credentials.SchemePrompt, Value: cc.Name})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return b.Backend.BeginInventory(ctx, cc)
 }
 
 func setupBackend(ctx context.Context, connected bool) (tui.Backend, *assessment.Service, func(), error) {
@@ -569,10 +672,22 @@ func availablePortBase() (int, error) {
 }
 
 func press(m *tui.Model, key string) error {
-	if key == "esc" {
-		return drive(m, send(m, tea.KeyMsg{Type: tea.KeyEsc}))
+	return drive(m, send(m, keyMsg(key)))
+}
+
+func pressWithoutCommand(m *tui.Model, key string) {
+	_, _ = m.Update(keyMsg(key))
+}
+
+func keyMsg(key string) tea.KeyMsg {
+	switch key {
+	case "enter":
+		return tea.KeyMsg{Type: tea.KeyEnter}
+	case "esc":
+		return tea.KeyMsg{Type: tea.KeyEsc}
+	default:
+		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
 	}
-	return drive(m, send(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}))
 }
 
 func send(m *tui.Model, msg tea.Msg) tea.Cmd {
@@ -612,6 +727,79 @@ func drive(m *tui.Model, cmd tea.Cmd) error {
 		}
 	}
 	return nil
+}
+
+// asyncDriver is the small event pump needed by credential-cancel. The normal
+// scenario driver can drain commands synchronously, but a credential load and
+// PromptCoordinator listener must run together: each waits for the other in
+// the same way Bubble Tea runs the children of a Batch concurrently.
+type asyncDriver struct {
+	ctx      context.Context
+	model    *tui.Model
+	messages chan tea.Msg
+}
+
+func newAsyncDriver(ctx context.Context, m *tui.Model) *asyncDriver {
+	return &asyncDriver{ctx: ctx, model: m, messages: make(chan tea.Msg, 128)}
+}
+
+func (d *asyncDriver) schedule(cmd tea.Cmd) {
+	if cmd == nil {
+		return
+	}
+	go func() {
+		msg := cmd()
+		select {
+		case d.messages <- msg:
+		case <-d.ctx.Done():
+		}
+	}()
+}
+
+func (d *asyncDriver) send(msg tea.Msg, schedule bool) {
+	_, cmd := d.model.Update(msg)
+	if schedule {
+		d.schedule(cmd)
+	}
+}
+
+func (d *asyncDriver) dispatch(msg tea.Msg) {
+	switch value := msg.(type) {
+	case nil:
+		return
+	case tea.BatchMsg:
+		for _, child := range value {
+			d.schedule(child)
+		}
+	case spinner.TickMsg:
+		// Animation does not change a scenario's semantic state. Ignoring it
+		// also prevents the spinner from scheduling an endless series of ticks.
+		return
+	default:
+		_, cmd := d.model.Update(msg)
+		d.schedule(cmd)
+	}
+}
+
+func (d *asyncDriver) wait(ctx context.Context, state string, ready func() bool) error {
+	if ready() {
+		return nil
+	}
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case msg := <-d.messages:
+			d.dispatch(msg)
+			if ready() {
+				return nil
+			}
+		case <-timer.C:
+			return fmt.Errorf("timed out waiting for %s (observation: %+v)", state, d.model.Observe())
+		case <-ctx.Done():
+			return fmt.Errorf("wait for %s: %w", state, ctx.Err())
+		}
+	}
 }
 
 var dynamicText = regexp.MustCompile(`(?m)(\b\d{1,3}(?:\.\d{1,3}){3}:\d{2,5}\b|/tmp/[^[:space:]]+|\b(?:[0-9]+ms|[0-9]+s)\b)`)

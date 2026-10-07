@@ -116,11 +116,11 @@ only with `--update-goldens`, and review the diff.
 | `overview` | presentation | load all contexts with `R` | inventory renders while the failed site stays visible | yes |
 | `partial-failure` | presentation | load all contexts | the failed `dr-site` context is still shown | no |
 | `duplicate-names` | presentation | load all contexts | same-named resources render as context-qualified rows | no |
-| `credential-cancel` | presentation | initial load only; no prompt is opened | no credential prompt is open and no fixture secret is rendered. Opening and cancelling the prompt is covered by the PTY journey and `TestCredPrompt*` | yes |
+| `credential-cancel` | presentation | load the demo estate, explicitly reload through the prompt coordinator, capture the open prompt, then cancel it with Esc | the prompt is labelled for `prod-vc`, wraps at each golden size, closes after cancellation, reports the cancellation, and renders no fixture secret | yes |
 | `stale-result` | presentation | initial load only | a context is selected. The reordered-reply case itself is covered by `FuzzStaleMessagesCannotReplaceNewerState` and unit tests | no |
 | `history-coverage-gap` | presentation | open History with `H` | History opens; the coverage gap is recorded by the goldens | yes |
 | `add-context-no-secret` | connected | boots the loopback lab with in-memory keyring references | a context is selected over the production backend. The harness does not yet inspect the saved configuration for a password; `TestContextopsSave*` and `TestFormPreservesANonInteractiveCredential` cover that | no |
-| `datastore-browser` | presentation | initial load only | records the stable inventory screen. Browse and find navigation are covered by unit tests and the PTY journey | yes |
+| `datastore-browser` | presentation | open Datastores, select the populated `nvme-01` fixture, and open its file browser at the root | the browser stays in datastore mode at `/`, names the datastore, and renders directory entries at each golden size | yes |
 | `resize` | presentation | resize through `60x20`, `100x30`, `140x40` | inventory still renders and selection is kept | no |
 | `vm-dashboard` | presentation | open the first VM, then visit chart pages `0`–`4` and step ranges `1h`→`30d`→`1h` at each size | every frame fits the terminal's width and height, the selected page tab is shown whole, and the pane stays in detail mode | yes |
 | `network-switches` | presentation | open the Networks tab, open DVS-Production and visit both workspace pages at each size; then fold it and open DVS-Storage's Wiring page on its vMotion port group | every frame fits the terminal, both page tabs are shown, and the wiring page names the switch and port group | yes |
