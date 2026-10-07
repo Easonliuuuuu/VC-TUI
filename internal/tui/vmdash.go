@@ -742,8 +742,9 @@ type dash struct {
 
 // metric is one plotted reading: its values in the plotted unit, how to
 // print a value, and the level from which it draws as a warning (+Inf for
-// none). scale fixes the top of a chart; zero scales it to the peak, but
-// never below minScale, so a quiet counter does not fill the chart.
+// none). scale fixes the top of a chart unless a reading passes it; zero
+// scales it to the peak, but never below minScale, so a quiet counter does
+// not fill the chart.
 type metric struct {
 	name     string
 	unit     string
@@ -1056,11 +1057,22 @@ func statsOf(values []float64) (seriesStats, bool) {
 	return st, true
 }
 
-func (mt metric) top(st seriesStats) float64 {
-	if mt.scale > 0 {
-		return mt.scale
+// top is the value a chart's full height stands for. A fixed scale gives
+// way to a reading above it, so 150% of the vCPUs draws taller than 100%
+// rather than clipped to the same solid block; stretched reports when it did.
+// The highest sample is taken directly, not from the statistics, so a
+// series too sparse for a peak still cannot clip.
+func (mt metric) top() (top float64, stretched bool) {
+	high := 0.0
+	for _, v := range mt.values {
+		if !math.IsNaN(v) {
+			high = math.Max(high, v)
+		}
 	}
-	return math.Max(mt.minScale, st.peak)
+	if mt.scale > 0 {
+		return math.Max(mt.scale, high), high > mt.scale
+	}
+	return math.Max(mt.minScale, high), false
 }
 
 // chart draws one metric as a chartRows-tall block chart under a title line
@@ -1081,8 +1093,17 @@ func (d dash) chart(mt metric) []string {
 		return []string{truncate(left, w), truncate(t.faint.Render("no samples: "+reason), w), ""}
 	}
 	st, ok := statsOf(mt.values)
-	out := []string{m.chartTitle(mt, st, ok, w)}
-	out = append(out, m.blockChart(mt.values, w, chartRows, mt.top(st), mt.warnAt)...)
+	top, stretched := mt.top()
+	if stretched {
+		// The reader takes the top of a fixed-scale chart to be its scale;
+		// say when a reading past it moved the top.
+		mt.unit = strings.TrimPrefix(mt.unit+" · top "+mt.format(top), " · ")
+	}
+	// The blank row under the title keeps a chart that reaches its top from
+	// sitting flush against the text, where stacked full charts read as one
+	// solid block.
+	out := []string{m.chartTitle(mt, st, ok, w), ""}
+	out = append(out, m.blockChart(mt.values, w, chartRows, top, mt.warnAt)...)
 	return append(out, d.axis(len(mt.values)), "")
 }
 
@@ -1148,8 +1169,9 @@ func (m *Model) metricRow(mt metric, w int) string {
 		return truncate(name+t.faint.Render("—  "+reason), w)
 	}
 	st, ok := statsOf(mt.values)
-	sparkW := max(4, w-nameW-valW-peakW-3)
-	spark := m.blockChart(mt.values, sparkW, 1, mt.top(st), mt.warnAt)[0]
+	sparkW := max(4, w-nameW-valW-peakW-4)
+	top, _ := mt.top()
+	spark := m.blockChart(mt.values, sparkW, 1, top, mt.warnAt)[0]
 	if !ok {
 		return truncate(name+spark+"  "+t.faint.Render(string(perf.StatusInsufficient)), w)
 	}
@@ -1161,7 +1183,9 @@ func (m *Model) metricRow(mt metric, w int) string {
 			mark = " " + t.ok.Render(glyphCheckOK)
 		}
 	}
-	return truncate(name+spark+" "+pad(mt.format(st.last), valW, true)+t.dim.Render(pad("peak "+mt.format(st.peak), peakW, true))+mark, w)
+	// The space before the peak is outside its padding: a peak as wide as the
+	// column ("peak 16384 MiB") would otherwise run into the value beside it.
+	return truncate(name+spark+" "+pad(mt.format(st.last), valW, true)+" "+t.dim.Render(pad("peak "+mt.format(st.peak), peakW, true))+mark, w)
 }
 
 func (m *Model) noteRow(name, note string, w int) string {

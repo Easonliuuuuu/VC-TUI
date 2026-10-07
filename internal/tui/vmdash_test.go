@@ -739,6 +739,61 @@ func TestVMDetailShowsUptimeFromTheLastSample(t *testing.T) {
 	}
 }
 
+func TestMetricRowKeepsAGapBeforeAWidePeak(t *testing.T) {
+	m := newTestModel(t, twoHealthy(), Options{Current: "prod"})
+	pinned := make([]float64, 60)
+	for i := range pinned {
+		pinned[i] = 16384
+	}
+	mt := metric{name: "Balloon", values: pinned, format: fmtMiB, minScale: 64, warnAt: 1}
+	row := ansi.Strip(m.metricRow(mt, 90))
+	if !strings.Contains(row, "16384 MiB peak 16384 MiB") {
+		t.Errorf("a peak as wide as its column ran into the value: %q", row)
+	}
+	if w := ansi.StringWidth(row); w > 90 {
+		t.Errorf("row is %d cells wide, want at most 90: %q", w, row)
+	}
+}
+
+func TestFixedScaleChartStretchesForAReadingAboveIt(t *testing.T) {
+	m := newTestModel(t, twoHealthy(), Options{Current: "prod"})
+	d := dash{m: m, w: 60}
+	values := make([]float64, 60)
+	for i := range values {
+		values[i] = 100
+		if i%2 == 0 {
+			values[i] = 150
+		}
+	}
+	mt := metric{name: "CPU usage", unit: "% of 4 vCPU", values: values, format: fmtPct, scale: 100, warnAt: math.Inf(1)}
+	out := d.chart(mt)
+	if !strings.Contains(ansi.Strip(out[0]), "top 150.0%") {
+		t.Errorf("a stretched chart should say where its top is, got %q", ansi.Strip(out[0]))
+	}
+	top := []rune(ansi.Strip(out[2]))
+	if top[0] == top[1] {
+		t.Errorf("150%% and 100%% should not draw the same column, top row %q", string(top))
+	}
+
+	mt.values = []float64{50, 60, 70, 80, 90, 100}
+	if got, stretched := mt.top(); got != 100 || stretched {
+		t.Errorf("readings within the scale keep it: top %v stretched %v", got, stretched)
+	}
+}
+
+func TestChartLeavesARowBetweenTitleAndBars(t *testing.T) {
+	m := newTestModel(t, twoHealthy(), Options{Current: "prod"})
+	d := dash{m: m, w: 60}
+	values := make([]float64, 60)
+	for i := range values {
+		values[i] = 100
+	}
+	out := d.chart(metric{name: "CPU usage", values: values, format: fmtPct, scale: 100, warnAt: math.Inf(1)})
+	if strings.TrimSpace(ansi.Strip(out[1])) != "" || !strings.Contains(out[2], "█") {
+		t.Errorf("a full chart should sit one blank row under its title:\n%s", ansi.Strip(strings.Join(out, "\n")))
+	}
+}
+
 func TestMetricStatsAreGatedLikeSummaries(t *testing.T) {
 	few := []float64{1, 2, 3}
 	if _, ok := statsOf(few); ok {
