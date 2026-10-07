@@ -10,7 +10,6 @@ const (
 	CPUUsageMHz    Metric = "cpu.usagemhz"
 	CPUCostop      Metric = "cpu.costop"
 	CPUMaxLimited  Metric = "cpu.maxlimited"
-	MemSwapinRate  Metric = "mem.swapinRate"
 	DiskRead       Metric = "disk.read"
 	DiskWrite      Metric = "disk.write"
 	DiskMaxLatency Metric = "disk.maxTotalLatency"
@@ -38,7 +37,6 @@ var DashboardCounters = append(append([]Counter(nil), Counters...),
 	Counter{CPUUsageMHz, "cpu", "usagemhz", "average", UnitMHz, "interval average of VM CPU usage in MHz, which adds across VMs and compares with a resource pool's or vApp's CPU limit"},
 	Counter{CPUCostop, "cpu", "costop", "summation", UnitPercent, "interval sum of co-stop milliseconds, converted to the average percentage of the interval a single vCPU waited for its siblings to be co-scheduled"},
 	Counter{CPUMaxLimited, "cpu", "maxlimited", "summation", UnitPercent, "interval sum of milliseconds the VM was ready but held back by its CPU limit, converted to a per-vCPU percentage"},
-	Counter{MemSwapinRate, "mem", "swapinRate", "average", UnitKBps, "interval average rate memory was read back in from the host swap file"},
 	Counter{DiskRead, "disk", "read", "average", UnitKBps, "interval average rate of data read from the VM's disks"},
 	Counter{DiskWrite, "disk", "write", "average", UnitKBps, "interval average rate of data written to the VM's disks"},
 	Counter{DiskMaxLatency, "disk", "maxTotalLatency", "latest", UnitMs, "highest latency of any of the VM's disks at the end of the interval"},
@@ -78,7 +76,8 @@ const (
 	// most workloads.
 	DiskLatencyHighMs = 20.0
 	// SwapinRateKBps: any measurable swap-in means the guest is waiting on
-	// host swap right now, unlike mem.swapped, which can be old pages.
+	// host swap right now, unlike mem.swapped, which can be old pages. The
+	// sizing signal uses it too, as contention.
 	SwapinRateKBps = 1.0
 	// DroppedPackets: any dropped packet in an interval.
 	DroppedPackets = 1.0

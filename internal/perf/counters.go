@@ -14,6 +14,8 @@ const (
 	MemConsumed Metric = "mem.consumed"
 	MemBalloon  Metric = "mem.balloon"
 	MemSwapped  Metric = "mem.swapped"
+	// MemSwapinRate is the level-1 sign of host swapping.
+	MemSwapinRate Metric = "mem.swapinRate"
 )
 
 // Unit is the unit of a normalised value, not of the raw vSphere counter.
@@ -42,7 +44,10 @@ type Counter struct {
 func (c Counter) VSphereName() string { return c.Group + "." + c.Name + "." + c.Rollup }
 
 // Counters is the complete, ordered set vsfleet requests. Storage I/O is
-// deliberately absent until its counters and cost are validated.
+// deliberately absent until its counters and cost are validated. mem.active
+// and mem.swapped need statistics level 2, above vCenter's default of 1, so
+// mem.swapinRate (level 1) is read too: it still shows host swapping where
+// mem.swapped is not kept.
 var Counters = []Counter{
 	{CPUUsage, "cpu", "usage", "average", UnitPercent, "interval average of VM CPU usage, as a percentage of the VM's configured vCPU capacity"},
 	{CPUReady, "cpu", "ready", "summation", UnitPercent, "interval sum of CPU ready milliseconds, converted to the average percentage of the interval a single vCPU waited to be scheduled"},
@@ -50,6 +55,7 @@ var Counters = []Counter{
 	{MemConsumed, "mem", "consumed", "average", UnitMiB, "interval average of host memory backing the VM"},
 	{MemBalloon, "mem", "vmmemctl", "average", UnitMiB, "interval average of memory reclaimed by the balloon driver"},
 	{MemSwapped, "mem", "swapped", "average", UnitMiB, "interval average of VM memory swapped to the host swap file"},
+	{MemSwapinRate, "mem", "swapinRate", "average", UnitKBps, "interval average rate memory was read back in from the host swap file"},
 }
 
 // CounterFor returns the counter definition for a metric.

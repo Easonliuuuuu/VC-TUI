@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,7 +18,9 @@ var perfNow = time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
 
 // fakePerf answers QueryPerf from a per-VM, per-counter function.
 type fakePerf struct {
-	keys      map[string]int32
+	keys map[string]int32
+	// levels, when set, gives a counter's statistics level by name.
+	levels    map[string]int32
 	retention []types.PerfInterval
 	// data returns raw samples for a VM and counter key; nil means no series.
 	data func(vm string, key int32, n int) []int64
@@ -54,7 +57,8 @@ func (f *fakePerf) counters(context.Context) ([]types.PerfCounterInfo, error) {
 		if !ok {
 			continue
 		}
-		out = append(out, types.PerfCounterInfo{Key: key, NameInfo: desc(c.Name), GroupInfo: desc(c.Group), RollupType: types.PerfSummaryType(c.Rollup)})
+		out = append(out, types.PerfCounterInfo{Key: key, NameInfo: desc(c.Name), GroupInfo: desc(c.Group), RollupType: types.PerfSummaryType(c.Rollup),
+			Level: f.levels[c.VSphereName()]})
 	}
 	return out, nil
 }
@@ -221,8 +225,94 @@ func TestCollectPerfDeniedCounterIsUnavailableNotZero(t *testing.T) {
 	if s.Status != perf.StatusUnavailable || s.Average != nil || s.Peak != nil {
 		t.Fatalf("mem.active = %+v, want unavailable without numbers", s)
 	}
-	if w.VMs[0].Signal != perf.SignalUnavailable {
-		t.Fatalf("signal = %s", w.VMs[0].Signal)
+	if w.VMs[0].Signal != perf.SignalCPUOnly {
+		t.Fatalf("signal = %s, want %s", w.VMs[0].Signal, perf.SignalCPUOnly)
+	}
+}
+
+// Measured on a vCenter 8.0.3 at the default statistics level 1:
+// mem.active.average and mem.swapped.average are level 2, so they are never
+// kept. They must not be requested, must say why, and must not stop the VM
+// getting a CPU reading.
+func TestCollectPerfSkipsCountersAboveStatisticsLevel(t *testing.T) {
+	f := newFakePerf()
+	f.levels = map[string]int32{}
+	for _, c := range perf.Counters {
+		f.levels[c.VSphereName()] = 1
+	}
+	f.levels["mem.active.average"], f.levels["mem.swapped.average"] = 2, 2
+	for i := range f.retention {
+		f.retention[i].Level = 1
+	}
+	var requested []int32
+	f.fault = func(specs []types.PerfQuerySpec) error {
+		for _, id := range specs[0].MetricId {
+			requested = append(requested, id.CounterId)
+		}
+		return nil
+	}
+	f.data = func(_ string, key int32, n int) []int64 {
+		if key == f.keys["cpu.usage.average"] {
+			return constant(500)("", key, n)
+		}
+		return make([]int64, n)
+	}
+	w := run(t, f, vmsN(1), opts())
+	for _, key := range requested {
+		if key == f.keys["mem.active.average"] || key == f.keys["mem.swapped.average"] {
+			t.Fatalf("requested a counter above the interval's statistics level: %v", requested)
+		}
+	}
+	if len(requested) != len(perf.Counters)-2 {
+		t.Fatalf("requested %d counters, want %d", len(requested), len(perf.Counters)-2)
+	}
+	for _, m := range []perf.Metric{perf.MemActive, perf.MemSwapped} {
+		if s := summary(w, "vm-000", m); !perf.BelowLevel(s) || s.Average != nil {
+			t.Fatalf("%s = %+v, want unavailable for the statistics level", m, s)
+		}
+	}
+	if !strings.Contains(w.Source, "statistics level 1") {
+		t.Fatalf("source %q does not record the statistics level", w.Source)
+	}
+	if w.Status != perf.WindowSuccess {
+		t.Fatalf("status = %s (%s); a statistics level is a setting, not a failure", w.Status, w.Error)
+	}
+	if got := w.VMs[0].Signal; got != perf.SignalCPUOnly {
+		t.Fatalf("signal = %s (%s), want %s", got, w.VMs[0].SignalReason, perf.SignalCPUOnly)
+	}
+}
+
+// A VM that was off for the whole window returns nothing for any counter.
+// That is too little evidence, not a counter that cannot be read.
+func TestCollectPerfPoweredOffVMIsInsufficient(t *testing.T) {
+	f := newFakePerf()
+	vms := vmsN(2)
+	vms[1].PowerState = "poweredOff"
+	on := constant(500)
+	f.data = func(vm string, key int32, n int) []int64 {
+		if vm == vms[1].ID {
+			return nil
+		}
+		return on(vm, key, n)
+	}
+	w := run(t, f, vms, opts())
+	off := w.VMs[1]
+	if off.Signal != perf.SignalInsufficient || !strings.Contains(off.SignalReason, "powered off") {
+		t.Fatalf("powered-off VM signal = %s (%s)", off.Signal, off.SignalReason)
+	}
+	for _, s := range off.Summaries {
+		if s.Status != perf.StatusInsufficient || s.Average != nil {
+			t.Fatalf("%s = %+v, want insufficient without numbers", s.Metric, s)
+		}
+	}
+	if w.Status != perf.WindowSuccess {
+		t.Fatalf("status = %s (%s)", w.Status, w.Error)
+	}
+}
+
+func TestDefaultPerfBatchFitsMaxQueryMetrics(t *testing.T) {
+	if n := DefaultPerfBatchVMs * len(perf.Counters); n > DefaultMaxQueryMetrics {
+		t.Fatalf("a default batch asks for %d metrics, over vCenter's default limit of %d", n, DefaultMaxQueryMetrics)
 	}
 }
 

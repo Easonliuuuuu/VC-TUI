@@ -150,11 +150,12 @@ func TestClassifyNeverLowOnMissingEvidence(t *testing.T) {
 	}{
 		"too few samples":        {ClassifyInput{Summaries: summaries(t, series(4, 100), memOK), MemoryMB: 4096}, SignalInsufficient},
 		"powered off all window": {ClassifyInput{Summaries: summaries(t, series(288, NoData), memOK), MemoryMB: 4096}, SignalInsufficient},
-		"denied counter": {ClassifyInput{Summaries: []Summary{
-			Summarize(SummaryInput{Counter: counter(t, CPUUsage), Raw: series(288, 500), Expected: 288, IntervalSeconds: 300}),
-			Unavailable(counter(t, MemActive), 300, 288, "permission denied"),
+		"denied CPU counter": {ClassifyInput{Summaries: []Summary{
+			Unavailable(counter(t, CPUUsage), 300, 288, "permission denied"),
+			Summarize(SummaryInput{Counter: counter(t, MemActive), Raw: memOK, Expected: 288, IntervalSeconds: 300}),
 		}, MemoryMB: 4096}, SignalUnavailable},
-		"counter never collected":   {ClassifyInput{Summaries: summaries(t, series(288, 500), memOK)[:1], MemoryMB: 4096}, SignalUnavailable},
+		"CPU never collected":       {ClassifyInput{Summaries: summaries(t, series(288, 500), memOK)[1:], MemoryMB: 4096}, SignalUnavailable},
+		"sparse active memory":      {ClassifyInput{Summaries: summaries(t, series(288, 500), series(4, 400*1024)), MemoryMB: 4096}, SignalInsufficient},
 		"unknown configured memory": {ClassifyInput{Summaries: summaries(t, series(288, 500), memOK)}, SignalInsufficient},
 	}
 	for name, tc := range cases {
@@ -180,5 +181,53 @@ func TestClassifyInUse(t *testing.T) {
 	sig, _ := Classify(ClassifyInput{Summaries: summaries(t, series(288, 5000), series(288, 3000*1024)), MemoryMB: 4096})
 	if sig != SignalInUse {
 		t.Fatalf("signal = %s, want %s", sig, SignalInUse)
+	}
+}
+
+// A vCenter at the default statistics level 1 keeps CPU but not mem.active.
+// The VM still gets a CPU reading, and memory is reported as unknown rather
+// than low, however idle the CPU is.
+func TestClassifyCPUOnlyWhenActiveMemoryUnreadable(t *testing.T) {
+	cpu := Summarize(SummaryInput{Counter: counter(t, CPUUsage), Raw: series(288, 500), Expected: 288, IntervalSeconds: 300})
+	mem := counter(t, MemActive)
+	cases := map[string][]Summary{
+		"below statistics level": {cpu, Unavailable(mem, 300, 288, BelowLevelReason(mem, 2, 1, 300))},
+		"denied":                 {cpu, Unavailable(mem, 300, 288, "permission denied")},
+		"never collected":        {cpu},
+	}
+	for name, in := range cases {
+		sig, reason := Classify(ClassifyInput{Summaries: in, MemoryMB: 4096})
+		if sig != SignalCPUOnly {
+			t.Errorf("%s: signal = %s (%s), want %s", name, sig, reason, SignalCPUOnly)
+		}
+		if !strings.Contains(reason, "CPU avg 5% peak 5%") || !strings.Contains(reason, "active memory unknown") {
+			t.Errorf("%s: reason %q lacks the CPU reading or the unknown memory", name, reason)
+		}
+	}
+}
+
+func TestClassifySwapInRateIsContention(t *testing.T) {
+	swapin := Summarize(SummaryInput{Counter: counter(t, MemSwapinRate), Raw: append(series(287, 0), 40), Expected: 288, IntervalSeconds: 300})
+	sig, reason := Classify(ClassifyInput{Summaries: summaries(t, series(288, 500), series(288, 400*1024), swapin), MemoryMB: 4096})
+	if sig != SignalContention || !strings.Contains(reason, "mem.swapinRate") {
+		t.Fatalf("signal = %s (%s), want swap-in contention", sig, reason)
+	}
+}
+
+func TestBelowLevelAndNoSamples(t *testing.T) {
+	mem := counter(t, MemActive)
+	below := Unavailable(mem, 300, 288, BelowLevelReason(mem, 2, 1, 300))
+	if !BelowLevel(below) || BelowLevel(Unavailable(mem, 300, 288, "permission denied")) {
+		t.Fatal("BelowLevel does not tell a statistics-level gap from a denial")
+	}
+	if want := "mem.active.average needs statistics level 2; this vCenter keeps level 1 for the 300s interval (vCenter > Configure > General > Statistics)"; below.Reason != want {
+		t.Fatalf("reason = %q, want %q", below.Reason, want)
+	}
+	if level, ok := NeededLevel(below); !ok || level != 2 {
+		t.Fatalf("NeededLevel = %d, %v, want 2", level, ok)
+	}
+	off := NoSamples(mem, 300, 288, "powered off")
+	if off.Status != StatusInsufficient || off.Average != nil || off.Missing != 288 {
+		t.Fatalf("NoSamples = %+v, want insufficient with every sample missing", off)
 	}
 }
