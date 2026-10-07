@@ -63,7 +63,14 @@ type Session struct {
 	lastOK   time.Time
 	lastTry  time.Time
 	attempts int
+	// loggedOut records an operator's logout. Until an explicit Login, a
+	// Connect for this context refuses rather than quietly logging back in.
+	loggedOut bool
 }
+
+// ErrLoggedOut is what Connect returns for a context the operator logged out
+// of, until something explicitly logs in to it again.
+var ErrLoggedOut = errors.New("logged out")
 
 // Status is an immutable snapshot of a session, safe to render.
 type Status struct {
@@ -308,8 +315,97 @@ func (m *Manager) TimeoutError(err error, tracker *vsphere.StageTracker) error {
 // data from the old one, so the stale connection is closed and replaced
 // instead.
 func (m *Manager) Connect(ctx context.Context, cc *config.Context) (*Session, error) {
+	s, _, err := m.connect(ctx, cc, false)
+	return s, err
+}
+
+// Login is Connect for an operator's explicit request: it clears a previous
+// Logout, and it checks that a connection it would reuse is still logged in.
+//
+// A vCenter ends a session on its own — after its idle timeout, when it
+// restarts, or when an administrator terminates it — and nothing tells the
+// client. Reusing such a session answers every request with NotAuthenticated
+// for as long as the process runs, so a reused session is pinged first and
+// replaced by a fresh login when the ping fails. That costs one property
+// read per explicit load, not per request.
+func (m *Manager) Login(ctx context.Context, cc *config.Context) (*Session, error) {
+	s, reused, err := m.connect(ctx, cc, true)
+	if err != nil || !reused {
+		return s, err
+	}
+	client := s.Client()
+	if client == nil {
+		return s, nil
+	}
+	if _, err := client.Ping(ctx); err == nil {
+		return s, nil
+	}
+	m.Drop(cc.Name, client)
+	s, _, err = m.connect(ctx, cc, true)
+	return s, err
+}
+
+// Drop discards a connection that has stopped working, so the next Connect
+// logs in again instead of reusing it. It only drops client, not whatever has
+// replaced it since: two requests that both saw the dead session must not
+// tear down the fresh one the first of them made.
+func (m *Manager) Drop(name string, client *vsphere.Client) {
+	m.mu.Lock()
+	s, ok := m.sessions[name]
+	m.mu.Unlock()
+	if !ok || client == nil {
+		return
+	}
+	s.mu.Lock()
+	if s.client != client {
+		s.mu.Unlock()
+		return
+	}
+	s.client = nil
+	s.state = Disconnected
+	s.mu.Unlock()
+	// The server has usually forgotten the session already; the logout is in
+	// case it has not, and bounded so an unreachable vCenter costs nothing.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), m.timeout())
+		defer cancel()
+		_ = client.Close(ctx)
+	}()
+}
+
+// Logout ends one context's vCenter session at the operator's request. Unlike
+// Forget, the session stays known and remembers the logout: Connect refuses
+// to log back in until Login is called, so nothing running in the background
+// quietly undoes it.
+func (m *Manager) Logout(ctx context.Context, cc *config.Context) error {
 	s := m.session(cc)
 	s.mu.Lock()
+	client := s.client
+	s.client = nil
+	s.state = Disconnected
+	s.err = nil
+	s.latency = 0
+	s.loggedOut = true
+	s.mu.Unlock()
+	if client == nil {
+		return nil
+	}
+	if err := client.Close(ctx); err != nil {
+		return fmt.Errorf("%s: %w", cc.Name, err)
+	}
+	return nil
+}
+
+// connect is Connect and Login's shared body. reused reports that the
+// returned session was already connected and no login happened.
+func (m *Manager) connect(ctx context.Context, cc *config.Context, explicit bool) (s *Session, reused bool, err error) {
+	s = m.session(cc)
+	s.mu.Lock()
+	if s.loggedOut && !explicit {
+		s.mu.Unlock()
+		return s, false, fmt.Errorf("context %q: %w; select it or reload to log in again", cc.Name, ErrLoggedOut)
+	}
+	s.loggedOut = false
 	// Adopt the caller's context first: it is the current configuration, and
 	// the one the session must describe from here on even if nothing else
 	// about it changed.
@@ -328,7 +424,7 @@ func (m *Manager) Connect(ctx context.Context, cc *config.Context) (*Session, er
 	}
 	if s.state == Connected && s.client != nil {
 		s.mu.Unlock()
-		return s, nil
+		return s, true, nil
 	}
 	s.state = Connecting
 	s.err = nil
@@ -343,17 +439,29 @@ func (m *Manager) Connect(ctx context.Context, cc *config.Context) (*Session, er
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.loggedOut {
+		// The operator logged out while this login was in flight; the logout
+		// is the later request, so it wins.
+		if client != nil {
+			go func() {
+				lctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), m.timeout())
+				defer cancel()
+				_ = client.Close(lctx)
+			}()
+		}
+		return s, false, fmt.Errorf("context %q: %w", cc.Name, ErrLoggedOut)
+	}
 	if err != nil {
 		s.state = Failed
 		s.err = err
 		s.client = nil
-		return s, err
+		return s, false, err
 	}
 	s.state = Connected
 	s.client = client
 	s.latency = client.Latency
 	s.lastOK = time.Now()
-	return s, nil
+	return s, false, nil
 }
 
 // ConnectAll connects to every given context concurrently. Failures are

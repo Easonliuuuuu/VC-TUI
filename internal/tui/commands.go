@@ -533,6 +533,23 @@ func removeContext(ctx context.Context, b Backend, name string, alsoCredential b
 	}
 }
 
+// logoutBackend is the production-only extension behind the contexts
+// screen's "log out": test and demo backends hold no session to end.
+type logoutBackend interface {
+	Logout(context.Context, *config.Context) error
+}
+
+type logoutMsg struct {
+	cc  *config.Context
+	err error
+}
+
+func logoutContext(ctx context.Context, b logoutBackend, cc *config.Context) tea.Cmd {
+	return func() tea.Msg {
+		return logoutMsg{cc: cc, err: b.Logout(ctx, cc)}
+	}
+}
+
 func discoverThumbprint(ctx context.Context, b Backend, cc *config.Context) tea.Cmd {
 	return func() tea.Msg {
 		sha256, sha1, subject, notAfter, err := b.DiscoverThumbprint(ctx, cc)

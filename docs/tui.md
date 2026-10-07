@@ -417,7 +417,14 @@ with nothing wrong.
 ## Contexts and vApps
 
 On the Contexts screen (`c`), use `Enter` to select a context, `a` for all
-contexts, `n`/`e`/`x` to add/edit/remove, `d` to diagnose, and `Esc` to return.
+contexts, `n`/`e`/`x` to add/edit/remove, `o` to log out, `d` to diagnose, and
+`Esc` to return.
+
+`o` ends the context's vCenter session but keeps its last inventory on screen.
+Background refresh leaves a logged-out context alone; selecting it with `Enter`
+or reloading it with `r` logs in again. A session the vCenter ended on its own,
+after its idle timeout, a restart, or an administrator terminating it, is
+replaced by a fresh login on the next load instead of failing every reload.
 
 Pressing `a` on the browse screen widens the table to every vCenter that has
 loaded; it never connects the others. The vCenters that have not loaded are

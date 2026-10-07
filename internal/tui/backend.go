@@ -181,7 +181,10 @@ func (b *sessionBackend) beginInventory(ctx context.Context, cc *config.Context,
 			report(stage)
 		}
 	})
-	s, err := b.mgr.Connect(opCtx, cc)
+	// Login rather than Connect: a load is how the operator asks for a
+	// context, so it may undo a logout, and it replaces a session vCenter has
+	// ended instead of reading NotAuthenticated from it on every reload.
+	s, err := b.mgr.Login(opCtx, cc)
 	if err != nil {
 		cancel()
 		return nil, b.mgr.StreamError(opCtx, err, tracker)
@@ -279,15 +282,29 @@ func liveQuery[T any](ctx context.Context, b *sessionBackend, cc *config.Context
 	var zero T
 	opCtx, cancel, tracker := b.mgr.Operation(ctx)
 	defer cancel()
-	s, err := b.mgr.Connect(opCtx, cc)
-	if err != nil {
-		return zero, b.mgr.TimeoutError(err, tracker)
+	for attempt := 0; ; attempt++ {
+		s, err := b.mgr.Connect(opCtx, cc)
+		if err != nil {
+			return zero, b.mgr.TimeoutError(err, tracker)
+		}
+		client := s.Client()
+		if client == nil {
+			return zero, fmt.Errorf("context %q is not connected", cc.Name)
+		}
+		out, err := query(client, opCtx)
+		// A session vCenter has ended fails every request, but nothing was
+		// wrong with this one: log in again and ask once more.
+		if attempt == 0 && vsphere.IsSessionLost(err) {
+			b.mgr.Drop(cc.Name, client)
+			continue
+		}
+		return out, err
 	}
-	client := s.Client()
-	if client == nil {
-		return zero, fmt.Errorf("context %q is not connected", cc.Name)
-	}
-	return query(client, opCtx)
+}
+
+// Logout implements logoutBackend.
+func (b *sessionBackend) Logout(ctx context.Context, cc *config.Context) error {
+	return b.mgr.Logout(ctx, cc)
 }
 
 // VMPerfSeries implements vmPerfBackend.
