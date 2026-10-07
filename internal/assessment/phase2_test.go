@@ -148,6 +148,44 @@ func TestTimelineRejectsDuplicateUUIDInOneRun(t *testing.T) {
 	}
 }
 
+func TestTimelineDoesNotDecodeUnrelatedVMs(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "history.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	when := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	r, err := s.StartRun(context.Background(), "test", []*config.Context{testContext("prod")}, when)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := testVM("target", "vm-1", "instance-1", "bios-1", "esx")
+	noise := testVM("noise", "vm-2", "instance-2", "bios-2", "esx")
+	if err := s.SaveContext(context.Background(), r.ID, ContextResult{
+		Name: "prod", VCenterID: "vc-a", Status: "success",
+		VMs: []Observation{
+			{VCenterID: "vc-a", Context: "prod", VM: target},
+			{VCenterID: "vc-a", Context: "prod", VM: noise},
+		},
+	}, when.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.FinishRun(context.Background(), r.ID, when.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`UPDATE vm_observations SET payload='not-json' WHERE name='noise'`); err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := s.Timeline(context.Background(), "target", "", false, false)
+	if err != nil {
+		t.Fatalf("Timeline decoded an unrelated VM: %v", err)
+	}
+	if len(events) != 1 || events[0].Kind != "first_seen" || events[0].Name != "target" {
+		t.Fatalf("events=%+v", events)
+	}
+}
+
 func TestEvaluatePolicy(t *testing.T) {
 	d := Diff{Base: Run{Status: RunComplete}, Target: Run{Status: RunComplete}, Counts: DiffCounts{Appeared: 1}}
 	p := EvaluatePolicy(d, PolicyOptions{FailOn: []string{"appeared"}})
