@@ -68,6 +68,8 @@ func (m *Model) View() string {
 		body = strings.Join(m.viewSwitchDetail(), "\n")
 	case m.mode == modeSwitchPGDetail:
 		body = strings.Join(m.viewSwitchPGDetail(), "\n")
+	case m.mode == modeVLANMap:
+		body = strings.Join(m.viewVLANMap(), "\n")
 	case m.mode == modeDoctor:
 		body = strings.Join(m.viewDoctor(), "\n")
 	case m.mode == modeHelp:
@@ -751,6 +753,13 @@ func (m *Model) viewDetailRow(r row) []string {
 		}
 		header = joinEnds(header, m.clusterPageTabs(cv.page), m.width)
 	}
+	if r.kind == vsphere.KindHost && m.hostPagesOffered() {
+		hv := m.hostState(r)
+		if hv.page != 0 {
+			return m.viewHostNetwork(r, hv)
+		}
+		header = joinEnds(header, m.pageTabs(hostPages, hv.page), m.width)
+	}
 	lines := []string{header, ""}
 	for i, f := range r.detail {
 		// A value too long for the terminal is cut rather than left to wrap
@@ -1099,6 +1108,9 @@ func (m *Model) overlayKeys(hints [][2]string) []string {
 func (m *Model) helpLines() []string {
 	t := m.theme
 	sections, title := m.keys.helpSections(m.demo), "Keys"
+	if m.helpFrom == modeVLANMap {
+		sections, title = m.keys.vlanMapHelpSections(), "Keys · VLAN map"
+	}
 	if m.helpFrom == modeChanges {
 		// Opened from the history hub: show that pane's keys in place of the
 		// browse sections, which describe a screen that is not visible.

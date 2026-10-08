@@ -20,6 +20,7 @@ quiet background refresh.
 | Operations | `r` / `R` | Reload the current/all contexts |
 | Operations | `d` | Diagnose the selected row's vCenter |
 | Networks tab | `space` / `t` | Fold the switch under the cursor / switch between switches and the plain list |
+| Networks tab | `v` | Open the [VLAN map](#vlan-map) |
 | Help and exit | `?` / `q` | Show key reference / quit |
 
 The selected row is marked with `▸` in the first column as well as by its
@@ -374,6 +375,61 @@ inventory load. Until that read lands the table says `reading wiring…`, and
 when it fails the workspace says why rather than showing a switch with
 nothing on it. The read is read-only and needs no privilege beyond those the
 inventory already uses.
+
+### VLAN map
+
+`v` on the Networks tab opens the VLAN map: where each VLAN exists across the
+vCenters in scope, most useful with `a` (all vCenters). Rows are VLANs, with
+untagged first and trunks in a group of their own at the bottom; each vCenter
+is a column.
+
+| Cell | Meaning |
+|---|---|
+| `● 288` | Present, with that many VMs attached |
+| `vmk 56` | Present, carrying VMkernel adapters and no VMs |
+| `○` | Present but unused |
+| `·` | Not present |
+| `4/6` | How many of that vCenter's clusters can reach the VLAN |
+
+A standard and a distributed port group on the same VLAN are one row, so
+`Management Network` and `mgmt-vlan-20` both count toward VLAN 20. The notes
+flag a VLAN whose name no two vCenters share (`names differ`), which breaks
+mapping networks by name, and say when a VLAN is only on one vCenter. `Enter`
+shows where the selected VLAN is: each vCenter's clusters with the VMs on it
+in each, and any trunk that also carries it.
+
+`p` picks a source and a target cluster, and the map becomes the comparison
+`vsfleet network compare` makes, from the live inventory instead of a stored
+assessment and with the same matching rules: a network on the source is
+matched on the target by VLAN first, preferring the same name, then by name.
+The target column shows `✕` for a network the target lacks. With VMs on it
+that is a blocker (`288 VMs, no network on dr-vc`); unused, it is an
+advisory. A matched network lists what differs, such as MTU, teaming or
+security, and the name it has on the target. The picker suggests the cluster
+of the same name at another site as the target. `Enter` lists the source
+cluster's VMs on the selected network, and `x` clears the pair.
+
+## Host network page
+
+`Enter` on a host opens its detail pane with two pages when the network
+topology can be read: `0` **Summary**, the host's fields, and `1`
+**Network**, the host's wiring seen from the host. Each line is one physical
+NIC, drawn to its uplink and switch, with what the switch carries on this host
+(port groups, the VMs on this host using them, and its VMkernel adapters). A
+distributed switch the host's cluster uses but the host is not on has a line
+of its own, and NICs no switch claims are listed last. `j`/`k` choose a
+switch and `Enter` opens its workspace; `Esc` there returns to the host.
+
+| Finding | Why it matters |
+|---|---|
+| A NIC has no link | Traffic on that uplink has failed over, or has nowhere to go |
+| An uplink has no physical NIC on this host | Port groups that use it have one path fewer here |
+| A NIC has a link but is on no switch | A cable is plugged in for a switch the host was never joined to |
+| Not on a switch most of the cluster's hosts are on | VMs on that switch cannot run on this host |
+| A VMkernel adapter's MTU is above its switch's | Jumbo-frame traffic such as vMotion or vSAN fails |
+| An uplink runs slower or faster than on the switch's other hosts | Throughput depends on which host a VM runs on |
+
+The page reads the same topology as the switch views, only while it is open.
 
 ## Cluster workspace
 

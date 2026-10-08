@@ -317,10 +317,11 @@ func (e *estate) applyAnchors(s siteSpec) {
 // Demo wiring faults, one of each kind the switch views look for. They are
 // named by host, so they land only on the production site's hosts.
 const (
-	slowUplinkHost   = "esxi-a-07"   // DVS-Production dvUplink2 at 10G
-	unassignedHost   = "esxi-b-04"   // DVS-Production dvUplink2 with no NIC
-	notOnStorageHost = "esxi-db-08"  // in db-cluster but not on DVS-Storage
-	deadLinkHost     = "esxi-dmz-02" // DVS-Storage dvUplink1 has no link
+	slowUplinkHost   = "esxi-a-07"    // DVS-Production dvUplink2 at 10G
+	unassignedHost   = "esxi-b-04"    // DVS-Production dvUplink2 with no NIC
+	notOnStorageHost = "esxi-db-08"   // in db-cluster but not on DVS-Storage
+	deadLinkHost     = "esxi-dmz-02"  // DVS-Storage dvUplink1 has no link
+	jumboVMKHost     = "esxi-mgmt-02" // vmk0 MTU 9000 on vSwitch0's 1500
 )
 
 // wireSwitches gives every host its distributed-switch uplinks and a vMotion
@@ -399,6 +400,9 @@ func (e *estate) finishHosts(s siteSpec) {
 		h.PortGroups = []vsphere.HostPortGroup{{Key: key + "-port", Name: "Management Network", Switch: "vSwitch0", VLAN: 20, Promiscuous: boolValue(false), MACChanges: boolValue(true), ForgedTransmits: boolValue(true)}}
 		h.VMKs = []vsphere.HostVMKernel{{Key: key + "-vmk", Device: "vmk0", PortGroup: "Management Network", MAC: fmt.Sprintf("00:50:56:ab:%02x:01", n%256), MTU: 1500, TSO: boolValue(true),
 			Netstack: "defaultTcpipStack", DHCP: boolValue(false), IP: fmt.Sprintf("%s.250.%d", s.prefix, n), SubnetMask: "255.255.255.0"}}
+		if h.Name == jumboVMKHost {
+			h.VMKs[0].MTU = 9000
+		}
 		paths, active, standby := 4, 2, 2
 		if pickN(30, s.ctx, h.Name, "path") == 0 {
 			paths, active, standby = 1, 1, 0

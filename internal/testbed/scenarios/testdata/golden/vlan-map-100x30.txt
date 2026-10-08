@@ -1,0 +1,30 @@
+vsfleet  DEMO · SAMPLE DATA  all 3 vCenters  ·  2 connected · 1 failed
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  VLAN map · 2 vCenters · 8 clusters                                           wiring as of 00:00:00
+  prod-vc/compute-a → edge-vc/compute-a                                            ✕ 2 blockers ▲ 13
+
+  VLAN   NAME                 SOURCE    TARGET    NOTES
+▸ none   VM Network           ○         ○         
+  20     Management Network   vmk 16    vmk 6     
+  20     mgmt-vlan-20         ○         ○         
+  110    web-vlan-110         ● 43      ● 19      
+  120    frontend-vlan-120    ● 104     ● 39      
+  130    app-vlan-130         ● 60      ● 21      
+  140    api-vlan-140         ● 32      ● 20      named api-v140 there
+  240    backend-vlan-240     ● 31      ● 1       
+  250    db-vlan-250          ○         ○         
+  260    cache-vlan-260       ● 14      ✕         14 VMs, no network on edge-vc
+  270    mq-vlan-270          ● 16      ✕         16 VMs, no network on edge-vc
+  300    vdi-vlan-300         ○         ✕         unused here, missing there
+  310    vdi-mgmt-vlan-310    ○         ✕         unused here, missing there
+  400    dmz-vlan-400         ○         ✕         unused here, missing there
+  410    dmz-web-vlan-410     ○         ✕         unused here, missing there
+  500    backup-vlan-500      ○         ✕         unused here, missing there
+  510    monitoring-vlan-510  ○         ✕         unused here, missing there
+  600    k8s-vlan-600         ○         ✕         unused here, missing there
+  610    k8s-storage-vlan-610 ○         ✕         unused here, missing there
+  700    voip-vlan-700        ○         ✕         unused here, missing there
+  800    guest-vlan-800       ○         ○         
+  900    lab-vlan-900         ○         ○         
+
+↑/k up  ↓/j down  enter VMs  p pair clusters  x clear pair  r reload  esc back  ? help  q quit

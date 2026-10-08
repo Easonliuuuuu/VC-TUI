@@ -172,3 +172,16 @@ func mustJSON(t *testing.T, value any) []byte {
 	}
 	return payload
 }
+
+func TestFullCoverageOnClustersOfDifferentSizesIsNoDifference(t *testing.T) {
+	source := NetworkSummary{Name: "web", VLAN: "110", CoveredHosts: 16, TotalHosts: 16}
+	target := NetworkSummary{Name: "web", VLAN: "110", CoveredHosts: 6, TotalHosts: 6}
+	if got := Differences(NetworkMatch{Source: source, Target: target, MatchBasis: "vlan"}); len(got) != 0 {
+		t.Fatalf("full coverage on both sides reported %+v", got)
+	}
+	target.CoveredHosts = 5
+	got := Differences(NetworkMatch{Source: source, Target: target, MatchBasis: "vlan"})
+	if len(got) != 1 || got[0].Field != "host_coverage" || !IsBlocker(got[0].Severity) {
+		t.Fatalf("a target host without the network is not a host_coverage blocker: %+v", got)
+	}
+}
