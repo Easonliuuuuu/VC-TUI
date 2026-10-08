@@ -306,3 +306,27 @@ func TestPadDSPathKeepsAFolderName(t *testing.T) {
 		}
 	}
 }
+
+// TestTemplateNameFitsAndHostNameWidens keeps GUEST OS beside the template
+// names instead of at the far edge of a wide terminal, and gives a host's
+// FQDN room before STATE.
+func TestTemplateNameFitsAndHostNameWidens(t *testing.T) {
+	for _, width := range columnWidthSizes {
+		monochrome(t)
+		m := newTestModel(t, twoHealthy(), Options{Current: "prod"})
+		m.width, m.height = width, 24
+		press(t, m, "2")
+		view := ansi.Strip(m.View())
+		head := lineContaining(t, view, "GUEST OS")
+		name := "ubuntu-24.04-golden"
+		if got, want := strings.Index(head, "GUEST OS"), strings.Index(head, "NAME")+len(name)+cellGap; got != want {
+			t.Errorf("%d columns: GUEST OS at %d, want %d right after the widest name:\n%s", width, got, want, head)
+		}
+
+		press(t, m, "3")
+		head = lineContaining(t, ansi.Strip(m.View()), "STATE")
+		if gap := strings.Index(head, "STATE") - strings.Index(head, "NAME"); gap < len("esxi01.lab.local")+cellGap {
+			t.Errorf("%d columns: host NAME is %d wide, too narrow for a lab FQDN:\n%s", width, gap-cellGap, head)
+		}
+	}
+}

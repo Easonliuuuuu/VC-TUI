@@ -318,6 +318,7 @@ func (m *Model) viewBrowse() []string {
 
 	cols := m.browseColumns()
 	widths := layoutColumns(cols, w-glyphGutter)
+	m.fitColumns(cols, widths)
 	head := make([]string, 0, len(cols))
 	for i, c := range cols {
 		if widths[i] == 0 {
@@ -364,6 +365,26 @@ func (m *Model) browseColumns() []column {
 		return networkTreeColumns(m.showContext())
 	}
 	return columnsFor(m.kind, m.showContext())
+}
+
+// fitColumns narrows each fit column to its widest value across every row in
+// scope. It measures the unfiltered rows so the columns do not shift while the
+// operator types a filter.
+func (m *Model) fitColumns(cols []column, widths []int) {
+	for i, c := range cols {
+		if !c.fit || widths[i] == 0 {
+			continue
+		}
+		widest := ansi.StringWidth(c.title)
+		for _, st := range m.inScope() {
+			for _, r := range st.rowsFor(m.kind, m.showContext()) {
+				if i < len(r.cells) {
+					widest = max(widest, ansi.StringWidth(r.cells[i]))
+				}
+			}
+		}
+		widths[i] = min(widths[i], widest)
+	}
 }
 
 // failureHint keeps diagnosis reachable even when the selected healthy row
