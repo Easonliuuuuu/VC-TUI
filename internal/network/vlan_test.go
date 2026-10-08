@@ -17,6 +17,8 @@ func TestParseVLANGivesBothSwitchKindsOneForm(t *testing.T) {
 		{"trunk 300,100-200,201-210", "trunk 100-210,300"},
 		{"trunk 0-4094", "trunk 0-4094"},
 		{"pvlan 5", "pvlan 5"},
+		{"99999999999", "trunk 0-4094"},
+		{"-3", "none"},
 	} {
 		if got := ParseVLAN(tc.in).String(); got != tc.want {
 			t.Errorf("ParseVLAN(%q) = %q, want %q", tc.in, got, tc.want)

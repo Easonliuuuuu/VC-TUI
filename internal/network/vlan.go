@@ -58,18 +58,22 @@ func ParseVLAN(s string) VLAN {
 	if err != nil {
 		return trunk(s)
 	}
-	return StandardVLAN(int32(id))
+	return vlanID(id)
 }
 
 // StandardVLAN reads a standard port group's VLAN ID.
-func StandardVLAN(id int32) VLAN {
+func StandardVLAN(id int32) VLAN { return vlanID(int(id)) }
+
+// vlanID reads a VLAN ID the way a standard port group means it: 0 and
+// below is untagged, 4095 and above passes every VLAN through.
+func vlanID(id int) VLAN {
 	switch {
 	case id <= 0:
 		return VLAN{Kind: VLANNone}
 	case id >= 4095:
 		return VLAN{Kind: VLANTrunk, Ranges: []VLANRange{{0, 4094}}}
 	}
-	return VLAN{Kind: VLANID, ID: int(id)}
+	return VLAN{Kind: VLANID, ID: id}
 }
 
 // trunk parses "100-200,300". A trunk with no ranges listed carries every
