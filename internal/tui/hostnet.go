@@ -243,7 +243,7 @@ func hostHasPortGroup(h *vsphere.Host, sw, name string) bool {
 func hostVMKs(h *vsphere.Host, switches []netSwitch) []hostVMK {
 	out := make([]hostVMK, 0, len(h.VMKs))
 	for _, v := range h.VMKs {
-		k := hostVMK{device: v.Device, portGroup: v.PortGroup, ip: v.IP, mtu: v.MTU, netstack: v.Netstack}
+		k := hostVMK{device: v.Device, portGroup: v.PortGroup, ip: v.Address(), mtu: v.MTU, netstack: v.Netstack}
 		if v.DVPortGroupKey != "" {
 			k.portGroup = v.DVPortGroupKey
 			for i := range switches {

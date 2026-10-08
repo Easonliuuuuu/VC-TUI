@@ -565,7 +565,10 @@ type HostVMKernel struct {
 	DHCP           *bool  `json:"dhcp,omitempty"`
 	IP             string `json:"ip,omitempty"`
 	SubnetMask     string `json:"subnet_mask,omitempty"`
-	ServiceConsole bool   `json:"service_console"`
+	// IPv6 lists the adapter's IPv6 addresses with their prefix length,
+	// "fe80::250:56ff:fe6a:1/64", link-local ones included.
+	IPv6           []string `json:"ipv6,omitempty"`
+	ServiceConsole bool     `json:"service_console"`
 }
 
 // HostMultipath is one host/LUN aggregate. Individual paths are counted but

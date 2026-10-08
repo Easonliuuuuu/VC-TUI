@@ -180,7 +180,7 @@ func newHostVMKernelListCommand(a *App) *cobra.Command {
 		[]string{"DEVICE", "PORT GROUP", "IP", "MAC", "MTU"},
 		func(h vsphere.Host) []vsphere.HostVMKernel { return h.VMKs },
 		func(_ vsphere.Host, vmk vsphere.HostVMKernel) []string {
-			return []string{vmk.Device, dash(vmk.PortGroup), dash(vmk.IP), dash(vmk.MAC), i32toa(vmk.MTU)}
+			return []string{vmk.Device, dash(vmk.PortGroup), dash(vmk.Address()), dash(vmk.MAC), i32toa(vmk.MTU)}
 		})
 	cmd.Example = `  # VMkernel adapters on one host
   vsfleet host vmkernel list --host esxi-01
