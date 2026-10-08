@@ -53,6 +53,8 @@ var definitions = []Definition{
 	{Name: "vm-dashboard", Profile: "presentation", Purpose: "every VM chart page and range stays inside the terminal at each size"},
 	{Name: "network-switches", Profile: "presentation", Purpose: "port groups group under their switch and every switch page stays inside the terminal"},
 	{Name: "cluster-workspace", Profile: "presentation", Purpose: "a cluster's Summary, Hosts & VMs and Storage pages stay inside the terminal and surface its failover and storage gaps"},
+	{Name: "host-network", Profile: "presentation", Purpose: "a host's Network page stays inside the terminal and names the switch it is missing and the NICs no switch claims"},
+	{Name: "vlan-map", Profile: "presentation", Purpose: "the VLAN map and its cluster pair stay inside the terminal and name the VLANs a failover would strand"},
 }
 
 // Definitions returns the catalogue in display order.
@@ -138,7 +140,7 @@ func Run(ctx context.Context, name string, opts RunOptions) (result Result, runE
 	}
 	m := tui.New(ctx, backend, tui.Options{
 		Current:         "prod-vc",
-		AllContexts:     name == "overview" || name == "partial-failure" || name == "duplicate-names",
+		AllContexts:     name == "overview" || name == "partial-failure" || name == "duplicate-names" || name == "vlan-map",
 		Demo:            !connected,
 		Assessment:      service,
 		Credentials:     promptCoord,
@@ -155,7 +157,7 @@ func Run(ctx context.Context, name string, opts RunOptions) (result Result, runE
 	} else if err := drive(m, m.Init()); err != nil {
 		return Result{}, fmt.Errorf("initialize %s: %w", name, err)
 	}
-	if name == "overview" || name == "partial-failure" || name == "duplicate-names" {
+	if name == "overview" || name == "partial-failure" || name == "duplicate-names" || name == "vlan-map" {
 		if err := press(m, "R"); err != nil {
 			return Result{}, fmt.Errorf("load all contexts for %s: %w", name, err)
 		}
@@ -233,6 +235,23 @@ func Run(ctx context.Context, name string, opts RunOptions) (result Result, runE
 		if err := walkClusterWorkspace(m); err != nil {
 			return Result{}, err
 		}
+	case "host-network":
+		if err := press(m, "3"); err != nil {
+			return Result{}, fmt.Errorf("open the Hosts tab: %w", err)
+		}
+		for _, key := range []string{"/", "esxi-db-08", "enter"} {
+			pressWithoutCommand(m, key)
+		}
+		if err := walkHostNetwork(m); err != nil {
+			return Result{}, err
+		}
+	case "vlan-map":
+		if err := press(m, "6"); err != nil {
+			return Result{}, fmt.Errorf("open the Networks tab: %w", err)
+		}
+		if err := walkVLANMap(m); err != nil {
+			return Result{}, err
+		}
 	case "resize":
 		for _, size := range [][2]int{{60, 20}, {100, 30}, {140, 40}} {
 			if err := drive(m, send(m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})); err != nil {
@@ -261,7 +280,8 @@ func Run(ctx context.Context, name string, opts RunOptions) (result Result, runE
 
 func isCriticalScreen(name string) bool {
 	switch name {
-	case "overview", "credential-cancel", "history-coverage-gap", "datastore-browser", "vm-dashboard", "network-switches", "cluster-workspace":
+	case "overview", "credential-cancel", "history-coverage-gap", "datastore-browser", "vm-dashboard", "network-switches", "cluster-workspace",
+		"host-network", "vlan-map":
 		return true
 	default:
 		return false
@@ -437,6 +457,132 @@ func walkClusterWorkspace(m *tui.Model) error {
 	return nil
 }
 
+// walkSizes are the golden sizes and the common 80x24 between them.
+var walkSizes = [][2]int{{60, 20}, {80, 24}, {100, 30}, {140, 40}}
+
+// walkHostNetwork opens esxi-db-08 — in db-cluster but not on DVS-Storage,
+// with the two NICs that switch would use on no switch — and checks its
+// Network page at each size, moving the switch cursor down to the missing
+// switch. It opens that switch's workspace from the page and checks that
+// Esc returns to the host, which is where the goldens are taken.
+func walkHostNetwork(m *tui.Model) error {
+	if err := drive(m, send(m, tea.KeyMsg{Type: tea.KeyEnter})); err != nil {
+		return fmt.Errorf("open esxi-db-08: %w", err)
+	}
+	if err := press(m, "1"); err != nil {
+		return err
+	}
+	for _, size := range walkSizes {
+		if err := drive(m, send(m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})); err != nil {
+			return fmt.Errorf("host-network resize %dx%d: %w", size[0], size[1], err)
+		}
+		where := fmt.Sprintf("at %dx%d", size[0], size[1])
+		for step := 0; step < 4; step++ {
+			view := m.View()
+			if err := boundedFrame(view, size[0], size[1]); err != nil {
+				return fmt.Errorf("host-network step %d %s: %w", step, where, err)
+			}
+			plain := ansi.Strip(view)
+			if size[0] >= 100 && !strings.Contains(plain, "[1 Network]") {
+				return fmt.Errorf("host-network %s does not mark its page tab", where)
+			}
+			if step == 0 && !strings.Contains(plain, "DVS-Storage") {
+				return fmt.Errorf("host-network %s does not show the switch esxi-db-08 is missing", where)
+			}
+			if err := press(m, "j"); err != nil {
+				return err
+			}
+		}
+		if err := press(m, "g"); err != nil {
+			return err
+		}
+	}
+	// The last switch is DVS-Storage, which the host is not on.
+	for _, key := range []string{"G", "enter"} {
+		if err := press(m, key); err != nil {
+			return err
+		}
+	}
+	if observation := m.Observe(); observation.Mode != "switch-detail" {
+		return fmt.Errorf("host-network enter did not open the switch (mode %q)", observation.Mode)
+	}
+	if err := press(m, "esc"); err != nil {
+		return err
+	}
+	return press(m, "g")
+}
+
+// walkVLANMap opens the VLAN map across both healthy demo vCenters, checks
+// it at each size with the where panel open and closed, then pairs prod-vc's
+// compute-a with edge-vc's and checks the comparison the goldens record.
+func walkVLANMap(m *tui.Model) error {
+	if err := press(m, "v"); err != nil {
+		return err
+	}
+	if observation := m.Observe(); observation.Mode != "vlan-map" {
+		return fmt.Errorf("v did not open the VLAN map (mode %q)", observation.Mode)
+	}
+	check := func(what string, size [2]int) error {
+		view := m.View()
+		if err := boundedFrame(view, size[0], size[1]); err != nil {
+			return fmt.Errorf("vlan-map %s at %dx%d: %w", what, size[0], size[1], err)
+		}
+		return nil
+	}
+	for _, size := range walkSizes {
+		if err := drive(m, send(m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})); err != nil {
+			return fmt.Errorf("vlan-map resize %dx%d: %w", size[0], size[1], err)
+		}
+		if err := check("estate", size); err != nil {
+			return err
+		}
+		if !strings.Contains(ansi.Strip(m.View()), "edge-vc") {
+			return fmt.Errorf("vlan-map at %dx%d has no edge-vc column", size[0], size[1])
+		}
+		for _, key := range []string{"enter", "j", "j", "G", "enter", "g"} {
+			if err := press(m, key); err != nil {
+				return err
+			}
+			if err := check("after "+key, size); err != nil {
+				return err
+			}
+		}
+	}
+	// Pick prod-vc/compute-a as the source; the picker then offers the
+	// cluster of the same name at the other site as the target.
+	if err := press(m, "p"); err != nil {
+		return err
+	}
+	for i := 0; i < 20 && !strings.Contains(ansi.Strip(m.View()), glyphCursor+" prod-vc  compute-a"); i++ {
+		if err := press(m, "j"); err != nil {
+			return err
+		}
+	}
+	for _, key := range []string{"enter", "enter"} {
+		if err := press(m, key); err != nil {
+			return err
+		}
+	}
+	for _, size := range walkSizes {
+		if err := drive(m, send(m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})); err != nil {
+			return err
+		}
+		for _, key := range []string{"", "j", "enter", "enter", "g"} {
+			if key != "" {
+				if err := press(m, key); err != nil {
+					return err
+				}
+			}
+			if err := check("pair", size); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+const glyphCursor = "▸"
+
 // boundedFrame reports a rendered frame that would wrap or scroll the
 // terminal it was drawn for.
 func boundedFrame(view string, width, height int) error {
@@ -506,6 +652,24 @@ func assertResult(result Result) error {
 		for _, want := range []string{"DVS-Storage", "[1 Wiring]", "vmotion-vlan-2030"} {
 			if !strings.Contains(result.View, want) {
 				return fmt.Errorf("scenario %s is missing %q from the wiring page", result.Name, want)
+			}
+		}
+	case "host-network":
+		if result.Observation.Mode != "detail" {
+			return fmt.Errorf("scenario %s left the host pane (mode %q)", result.Name, result.Observation.Mode)
+		}
+		for _, want := range []string{"esxi-db-08", "[1 Network]", "not on DVS-Storage", "on no switch", "vmk0"} {
+			if !strings.Contains(result.View, want) {
+				return fmt.Errorf("scenario %s is missing %q from the Network page", result.Name, want)
+			}
+		}
+	case "vlan-map":
+		if result.Observation.Mode != "vlan-map" {
+			return fmt.Errorf("scenario %s left the VLAN map (mode %q)", result.Name, result.Observation.Mode)
+		}
+		for _, want := range []string{"prod-vc/compute-a → edge-vc/compute-a", "blocker", "no network on edge-vc"} {
+			if !strings.Contains(result.View, want) {
+				return fmt.Errorf("scenario %s is missing %q from the cluster pair", result.Name, want)
 			}
 		}
 	case "cluster-workspace":

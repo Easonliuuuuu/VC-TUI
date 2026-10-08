@@ -90,6 +90,7 @@ const (
 	modeDatastoreFind
 	modeSwitchDetail
 	modeSwitchPGDetail
+	modeVLANMap
 )
 
 const (
@@ -575,6 +576,7 @@ func (m *Model) Observe() Observation {
 		modeHistoryTimelineDetail: "history-timeline-detail", modeHistoryRunEdit: "history-edit",
 		modeDatastoreFiles: "datastore", modeDatastoreEntry: "datastore-entry", modeDatastoreFind: "datastore-find",
 		modeSwitchDetail: "switch-detail", modeSwitchPGDetail: "switch-portgroup-detail",
+		modeVLANMap: "vlan-map",
 	}[m.mode]
 	if mode == "" {
 		mode = "unknown"
@@ -766,8 +768,15 @@ type Model struct {
 	netTopoGen uint64
 
 	// cl is the open cluster pane's page, host cursor and folds; see
-	// cluster.go.
+	// cluster.go. hv is the open host pane's page and switch cursor; see
+	// hostnet.go.
 	cl *clusterView
+	hv *hostView
+	// vmap is the VLAN map's cursor and cluster picker, and vpair the source
+	// and target cluster it compares; the pair outlives the map, so leaving
+	// and coming back keeps the comparison. See vlanmap.go.
+	vmap  *vlanMapView
+	vpair *vlanPair
 	// ds holds the read-only datastore file browser while it is open. Like
 	// vapp it is kept apart from the browse cursor, and unlike everything
 	// else on this struct it is the one view whose contents come from a live
@@ -2346,6 +2355,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		return m.handleSwitchDetailKey(msg)
 	case modeSwitchPGDetail:
 		return m.handleSwitchPGDetailKey(msg)
+	case modeVLANMap:
+		return m.handleVLANMapKey(msg)
 	case modeDoctor:
 		return m.handleDoctorKey(msg)
 	case modeContexts:
@@ -2683,6 +2694,10 @@ func (m *Model) handleBrowseKey(msg tea.KeyMsg) tea.Cmd {
 		if m.kind == vsphere.KindNetwork {
 			m.preserveCursor(func() { m.netFlat = !m.netFlat })
 		}
+	case key.Matches(msg, m.keys.VLANMap):
+		if m.kind == vsphere.KindNetwork {
+			return m.openVLANMap()
+		}
 	}
 	return nil
 }
@@ -3016,6 +3031,11 @@ func (m *Model) handleDetailKey(msg tea.KeyMsg) tea.Cmd {
 	}
 	if r, ok := m.currentRow(); ok && r.cluster != nil {
 		if cmd, handled := m.handleClusterKey(msg, r); handled {
+			return cmd
+		}
+	}
+	if r, ok := m.currentRow(); ok && r.kind == vsphere.KindHost && m.hostPagesOffered() {
+		if cmd, handled := m.handleHostKey(msg, r); handled {
 			return cmd
 		}
 	}

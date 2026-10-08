@@ -44,7 +44,7 @@ func footerVariants() []footerVariant {
 		}
 	}
 	var out []footerVariant
-	for md := modeBrowse; md <= modeSwitchPGDetail; md++ {
+	for md := modeBrowse; md <= modeVLANMap; md++ {
 		out = append(out, footerVariant{name: fmt.Sprintf("mode %d", md), build: plain(func(m *Model) { m.mode = md })})
 	}
 	for _, pane := range []int{historyPaneChanges, historyPaneTrends, historyPaneRuns, historyPaneHealth} {
@@ -76,6 +76,26 @@ func footerVariants() []footerVariant {
 		footerVariant{name: "switch wiring page", build: plain(func(m *Model) {
 			m.mode, m.sw = modeSwitchDetail, &switchWorkspace{page: 1}
 		})},
+		footerVariant{name: "host network page", build: func(t *testing.T) *Model {
+			m, _ := openHosts(t)
+			press(t, m, "enter", "1")
+			return m
+		}},
+		footerVariant{name: "host summary with pages", build: func(t *testing.T) *Model {
+			m, _ := openHosts(t)
+			press(t, m, "enter")
+			return m
+		}},
+		footerVariant{name: "VLAN map picker", build: func(t *testing.T) *Model {
+			m, _ := vlanSites(t)
+			press(t, m, "v", "p")
+			return m
+		}, modal: true},
+		footerVariant{name: "VLAN map pair", build: func(t *testing.T) *Model {
+			m, _ := vlanSites(t)
+			press(t, m, "v", "p", "enter", "enter")
+			return m
+		}},
 		footerVariant{name: "demo contexts", build: func(t *testing.T) *Model {
 			m := newTestModel(t, twoHealthy(), Options{Current: "prod", Demo: true})
 			m.mode = modeContexts

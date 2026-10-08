@@ -94,7 +94,10 @@ func prodSite() siteSpec {
 	s.portgroups = []pgSpec{{"mgmt-vlan-20", 20}, {"web-vlan-110", 110}, {"frontend-vlan-120", 120}, {"app-vlan-130", 130}, {"api-vlan-140", 140}, {"backend-vlan-240", 240},
 		{"db-vlan-250", 250}, {"cache-vlan-260", 260}, {"mq-vlan-270", 270}, {"vdi-vlan-300", 300}, {"vdi-mgmt-vlan-310", 310}, {"dmz-vlan-400", 400}, {"dmz-web-vlan-410", 410},
 		{"backup-vlan-500", 500}, {"monitoring-vlan-510", 510}, {"k8s-vlan-600", 600}, {"k8s-storage-vlan-610", 610}, {"voip-vlan-700", 700}, {"guest-vlan-800", 800},
-		{"lab-vlan-900", 900}, {"transit-vlan-999", 999}}
+		{"lab-vlan-900", 900}, {"transit-vlan-999", 999},
+		// The nested-lab trunk carries every VLAN to the nested hosts, the
+		// one trunk the VLAN map lists on its own.
+		{"lab-trunk", trunkAll}}
 	s.storagePGs = []pgSpec{{"iscsi-a-vlan-2010", 2010}, {"iscsi-b-vlan-2011", 2011}, {"nfs-vlan-2020", 2020}, {"vmotion-vlan-2030", 2030}}
 	s.vapps = []vappSpec{
 		{"api-stack", "compute-a", "", []string{"api", "gateway", "auth"}, 10, "api-pool"},
@@ -151,6 +154,9 @@ func edgeSite() siteSpec {
 	s.templates = []string{"ubuntu-24.04-golden", "ubuntu-22.04-golden", "rhel-9-golden", "windows-2025-core", "windows-2022-std", "photon-5-base", "debian-12-base", "k8s-node-template"}
 	s.portgroups = []pgSpec{{"mgmt-vlan-20", 20}, {"web-vlan-110", 110}, {"frontend-vlan-120", 120}, {"app-vlan-130", 130}, {"api-vlan-140", 140}, {"backend-vlan-240", 240},
 		{"db-vlan-250", 250}, {"guest-vlan-800", 800}, {"lab-vlan-900", 900}}
+	// The edge site named its API network before the naming standard did,
+	// so the same VLAN 140 has another name here.
+	s.shown = map[string]string{"api-vlan-140": "api-v140"}
 	s.storagePGs = []pgSpec{{"iscsi-a-vlan-2010", 2010}, {"vmotion-vlan-2030", 2030}}
 	s.vapps = []vappSpec{
 		{"api-stack", "compute-a", "", []string{"api", "gateway"}, 8, "api-pool"},

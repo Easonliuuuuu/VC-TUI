@@ -86,6 +86,11 @@ type siteSpec struct {
 	vapps           []vappSpec
 	portgroups      []pgSpec
 	storagePGs      []pgSpec
+	// shown is the name vCenter shows for a port group where it is not the
+	// generator's own: the same VLAN named differently at another site, the
+	// drift the VLAN map reports. VMs are still placed by the generator's
+	// name, so a rename never moves one.
+	shown map[string]string
 	// anchor names the hand-authored evidence layered onto the site.
 	anchor string
 	fastDS string
@@ -95,6 +100,10 @@ type pgSpec struct {
 	name string
 	vlan int
 }
+
+// trunkAll is a pgSpec VLAN for a trunk of every VLAN, the value a standard
+// port group uses for the same thing.
+const trunkAll = 4095
 
 // estate is the finished per-site inventory plus the facts the history seeder
 // needs to age it backwards.
@@ -139,11 +148,18 @@ func buildEstate(s siteSpec) *estate {
 	addPG := func(sw *vsphere.DVSwitch, p pgSpec, n int) {
 		id := fmt.Sprintf("%s-net-%d", s.ctx, len(inv.Networks)+1)
 		vlan := fmt.Sprint(p.vlan)
-		net := vsphere.Network{Location: loc("network", p.name), ID: id, Name: p.name, Type: "portgroup", Switch: sw.Name, VLAN: vlan, Accessible: true}
+		if p.vlan == trunkAll {
+			vlan = "trunk 0-4094"
+		}
+		name := p.name
+		if shown, ok := s.shown[p.name]; ok {
+			name = shown
+		}
+		net := vsphere.Network{Location: loc("network", name), ID: id, Name: name, Type: "portgroup", Switch: sw.Name, VLAN: vlan, Accessible: true}
 		inv.Networks = append(inv.Networks, net)
 		pgNet[p.name] = net
 		pg := vsphere.DVPortGroup{
-			ID: fmt.Sprintf("%s-dvpg-%d", s.ctx, n), Key: fmt.Sprintf("dvportgroup-%d", n), Name: p.name, Switch: sw.Name, Type: "earlyBinding", BackingType: "standard",
+			ID: fmt.Sprintf("%s-dvpg-%d", s.ctx, n), Key: fmt.Sprintf("dvportgroup-%d", n), Name: name, Switch: sw.Name, Type: "earlyBinding", BackingType: "standard",
 			// The nested-ESXi lab network is the one that needs promiscuous
 			// mode, and the switch views flag it.
 			NumPorts: 128, VLAN: vlan, Promiscuous: boolValue(p.name == "lab-vlan-900"), MACChanges: boolValue(true), ForgedTransmits: boolValue(p.name != "dmz-vlan-400" && p.name != "dmz-web-vlan-410"),
@@ -542,6 +558,10 @@ func nicNetwork(role, svc, name, ctx string, pg map[string]vsphere.Network) vsph
 		return pick("web-vlan-110", "frontend-vlan-120")
 	case "api", "auth":
 		return pick("frontend-vlan-120", "api-vlan-140")
+	case "cache":
+		return pick("cache-vlan-260", "app-vlan-130")
+	case "queue":
+		return pick("mq-vlan-270", "app-vlan-130")
 	}
 	return pick("app-vlan-130", "backend-vlan-240", "frontend-vlan-120")
 }
