@@ -70,6 +70,7 @@ type hostVMK struct {
 	portGroup string
 	sw        string
 	ip        string
+	dhcp      bool
 	mtu       int32
 	netstack  string
 }
@@ -256,6 +257,14 @@ func hostVMKs(h *vsphere.Host, switches []netSwitch) []hostVMK {
 					}
 				}
 			}
+		} else if v.DVSwitchUUID != "" {
+			// A port bound straight to the switch with no port group, as
+			// NSX does for its TEP and hyperbus adapters.
+			for i := range switches {
+				if d := switches[i].dvs; d != nil && d.UUID == v.DVSwitchUUID {
+					k.sw = d.Name
+				}
+			}
 		} else {
 			for _, pg := range h.PortGroups {
 				if pg.Name == v.PortGroup {
@@ -263,6 +272,7 @@ func hostVMKs(h *vsphere.Host, switches []netSwitch) []hostVMK {
 				}
 			}
 		}
+		k.dhcp = v.DHCP != nil && *v.DHCP
 		out = append(out, k)
 	}
 	sort.Slice(out, func(i, j int) bool { return vmkLess(out[i].device, out[j].device) })
@@ -741,22 +751,49 @@ func (m *Model) hostVMKLines(hn *hostNet, w int) []string {
 	if len(hn.vmks) == 0 {
 		return []string{t.dim.Render("  none")}
 	}
-	pgW, swW := 10, 6
+	// The short, fixed-width cells come first so they line up; the port
+	// group, whose names run long, takes whatever width is left.
+	devW, ipW, stackW := 6, 7, 5
 	for _, v := range hn.vmks {
-		pgW = max(pgW, ansi.StringWidth(v.portGroup))
-		swW = max(swW, ansi.StringWidth(v.sw))
+		devW = max(devW, ansi.StringWidth(v.device))
+		ipW = max(ipW, ansi.StringWidth(v.ip))
+		stackW = max(stackW, ansi.StringWidth(vmkStack(v.netstack)))
 	}
-	pgW, swW = min(pgW, 22), min(swW, 18)
-	// The switch is already on the drawing, so a narrow terminal drops it
-	// before the address and MTU.
-	if 2+6+pgW+2+swW+2+16+10 > w {
-		swW = -2
+	ipW, stackW = min(ipW, 39), min(stackW, 14)
+	// The stack is the least asked-for cell, so a narrow terminal drops it
+	// to leave the port group room.
+	if 2+devW+2+ipW+2+5+2+stackW+2+12 > w {
+		stackW = -2
 	}
-	out := make([]string, 0, len(hn.vmks))
+	head := "  " + pad("DEVICE", devW+2, false) + pad("ADDRESS", ipW+2, false) + pad("MTU", 5, true) + "  " +
+		pad("STACK", stackW+2, false) + "PORT GROUP"
+	out := []string{t.header.Render(truncate(head, w))}
 	for _, v := range hn.vmks {
-		line := "  " + pad(v.device, 6, false) + pad(v.portGroup, pgW+2, false) + pad(v.sw, swW+2, false) +
-			pad(v.ip, 16, false) + pad("MTU "+strconv.Itoa(int(v.mtu)), 10, false) + t.dim.Render(v.netstack)
+		ip := v.ip
+		switch {
+		case ip == "" && v.dhcp:
+			ip = t.dim.Render("dhcp")
+		case ip == "":
+			ip = t.dim.Render("—")
+		}
+		pg := v.portGroup
+		if pg == "" {
+			pg = t.dim.Render("—")
+		}
+		if v.sw != "" {
+			pg += t.dim.Render(" · " + v.sw)
+		}
+		line := "  " + pad(v.device, devW+2, false) + pad(ip, ipW+2, false) +
+			pad(strconv.Itoa(int(v.mtu)), 5, true) + "  " + pad(t.dim.Render(vmkStack(v.netstack)), stackW+2, false) + pg
 		out = append(out, truncate(line, w))
 	}
 	return out
+}
+
+// vmkStack shortens a TCP/IP stack key: "defaultTcpipStack" reads "default".
+func vmkStack(key string) string {
+	if s := strings.TrimSuffix(key, "TcpipStack"); s != "" {
+		return s
+	}
+	return key
 }

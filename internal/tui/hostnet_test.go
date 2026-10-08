@@ -181,6 +181,55 @@ func assertFits(t *testing.T, m *Model, size [2]int, keys []string) {
 	}
 }
 
+// VMkernel adapters as a VxRail host with NSX has them: port group names too
+// long for any column, a management adapter with no IPv4 address, and NSX
+// adapters bound to the switch with no port group. Each cell keeps its
+// column.
+func TestHostNetworkVMKernelTableKeepsItsColumns(t *testing.T) {
+	topo := switchedTopology("prod")
+	h := topologyHost(topo, "h1")
+	h.VMKs = []vsphere.HostVMKernel{
+		{Device: "vmk0", PortGroup: "VxRail Management-81703777-3842-4c5e-9d1a-0f2b3c4d5e6f", MTU: 1500, Netstack: "defaultTcpipStack"},
+		{Device: "vmk10", DVSwitchUUID: "uuid-a", IP: "192.168.77.13", MTU: 9000, Netstack: "vxlan"},
+		{Device: "vmk2", DVSwitchUUID: "uuid-a", DVPortGroupKey: "dvportgroup-2", IP: "192.168.101.134", MTU: 1500, Netstack: "vmotion"},
+	}
+	inv := switchedInventory("prod")
+	hn := buildHostNet(h, inv, buildNetSwitches("prod", inv, topo))
+	if hn.vmks[2].device != "vmk10" || hn.vmks[2].sw != "dvs-a" {
+		t.Fatalf("vmk10 is not placed on the switch it is bound to: %+v", hn.vmks[2])
+	}
+	m := newTestModel(t, twoHealthy(), Options{Current: "prod"})
+	for _, w := range []int{60, 100} {
+		lines := m.hostVMKLines(hn, w)
+		head := ansi.Strip(lines[0])
+		// A narrow terminal drops the stack; the port group's edge is then
+		// checked instead.
+		addr, stack := strings.Index(head, "ADDRESS"), strings.Index(head, "STACK")
+		if stack < 0 {
+			stack = strings.Index(head, "PORT GROUP")
+		}
+		for _, l := range lines[1:] {
+			l = ansi.Strip(l)
+			if ansi.StringWidth(l) > w {
+				t.Errorf("%d columns: %q is too wide", w, l)
+			}
+			if r := []rune(l); r[addr-1] != ' ' || r[stack-1] != ' ' {
+				t.Errorf("%d columns: %q runs one cell into the next", w, l)
+			}
+		}
+		got := ansi.Strip(strings.Join(lines, "\n"))
+		wants := []string{"vmk0    —", "vmk10   192.168.77.13", "· dvs-a"}
+		if w >= 100 {
+			wants = append(wants, "default")
+		}
+		for _, want := range wants {
+			if !strings.Contains(got, want) {
+				t.Errorf("%d columns: the table is missing %q:\n%s", w, want, got)
+			}
+		}
+	}
+}
+
 // An account that cannot read a distributed switch still sees the host's own
 // configuration of it. The page must say the switch is unreadable, not that
 // its NICs are on no switch.
