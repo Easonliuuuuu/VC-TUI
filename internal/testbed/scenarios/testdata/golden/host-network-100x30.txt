@@ -17,8 +17,8 @@ Findings
   ▲ vmnic4, vmnic5 have a link but are on no switch
 
 VMkernel adapters
-  vmk0  Management Network  vSwitch0  10.20.250.36    MTU 1500  defaultTcpipStack
-
+  DEVICE  ADDRESS         MTU  STACK    PORT GROUP
+  vmk0    10.20.250.36   1500  default  Management Network · vSwitch0
 
 
 
