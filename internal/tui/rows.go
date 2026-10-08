@@ -92,6 +92,10 @@ type column struct {
 	// right, so the part that identifies the object (the end of an inventory
 	// path) stays visible.
 	keepTail bool
+	// fit stops the flexible column at its widest value instead of absorbing
+	// all the slack, so the column after it stays next to it. The slack is
+	// left at the end of the line.
+	fit bool
 }
 
 // field is one label/value pair in a detail pane.
@@ -203,8 +207,10 @@ func columnsFor(kind vsphere.Kind, withContext bool) []column {
 	case vsphere.KindVM:
 		cols = append(cols,
 			column{title: "NAME"},
-			column{title: "POWER", width: 10},
-			column{title: "CPU", width: 4, right: true},
+			// POWER is sized to its heading: its values are "on" and "off",
+			// and powerCell shortens the one word that would not fit.
+			column{title: "POWER", width: 5},
+			column{title: "CPU", width: 3, right: true},
 			column{title: "MEM", width: 6, right: true},
 			column{title: "IP ADDRESS", width: 16},
 			column{title: "HOST", width: 18},
@@ -212,7 +218,9 @@ func columnsFor(kind vsphere.Kind, withContext bool) []column {
 		)
 	case vsphere.KindTemplate:
 		cols = append(cols,
-			column{title: "NAME"},
+			// Template names are short beside their guest OS, so the name
+			// column fits them rather than pushing GUEST OS off to the right.
+			column{title: "NAME", fit: true},
 			column{title: "GUEST OS", width: 28},
 			column{title: "CPU", width: 4, right: true},
 			column{title: "MEM", width: 6, right: true},
@@ -222,12 +230,14 @@ func columnsFor(kind vsphere.Kind, withContext bool) []column {
 	case vsphere.KindHost:
 		cols = append(cols,
 			column{title: "NAME"},
+			// The columns after NAME are kept close to their values ("8.0.3"
+			// under VERSION) so a host's FQDN keeps the width.
 			column{title: "STATE", width: 12},
-			column{title: "CLUSTER", width: 14},
+			column{title: "CLUSTER", width: 12},
 			column{title: "CPU", width: hostBarWidth + usageBarSuffix},
 			column{title: "MEMORY", width: hostBarWidth + usageBarSuffix},
-			column{title: "VMS", width: 5, right: true},
-			column{title: "VERSION", width: 10},
+			column{title: "VMS", width: 4, right: true},
+			column{title: "VERSION", width: 7},
 		)
 	case vsphere.KindCluster:
 		cols = append(cols,
@@ -559,7 +569,7 @@ func vmRow(vm vsphere.VM, withContext bool) row {
 		status:  st,
 		cells: lead(withContext, vm.Context,
 			vm.Name,
-			powerWord(vm.PowerState),
+			powerCell(vm.PowerState),
 			strconv.FormatInt(int64(vm.CPU), 10),
 			humanize.MB(vm.MemoryMB),
 			humanize.Dash(vm.IPAddress),
@@ -881,6 +891,15 @@ func powerWord(s string) string {
 	default:
 		return s
 	}
+}
+
+// powerCell is powerWord for the VM table's POWER column, which is only as
+// wide as its heading. The detail pane keeps the full word.
+func powerCell(s string) string {
+	if s == "suspended" {
+		return "susp"
+	}
+	return powerWord(s)
 }
 
 // toolsWord gives installation evidence precedence over the running enum:

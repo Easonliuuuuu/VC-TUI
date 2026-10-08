@@ -1,40 +1,40 @@
 vsfleet  DEMO · SAMPLE DATA  all 3 vCenters  ·  2 connected · 1 failed                                                            sort: name
    1 VMs 1180   2 Templates 24   3 Hosts 68   4 Clusters 8   5 Datastores 48   6 Networks 47   7 vApps 30
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-   VCENTER         NAME                                       POWER        CPU     MEM  IP ADDRESS        HOST                DATACENTER    
-▸● prod-vc         ad-dc-01                                   on             2      8G  -                 esxi-mgmt-02        Taipei        
- ● prod-vc         ad-dc-02                                   on             4     16G  10.20.16.25       esxi-mgmt-01        Taipei        
- ● prod-vc         ad-dc-03                                   on             4     16G  10.20.16.35       esxi-mgmt-04        Taipei        
- ● prod-vc         ad-dc-04                                   on             8     32G  10.20.16.45       esxi-mgmt-03        Taipei        
- ● prod-vc         ad-dc-05                                   on             2      8G  10.20.16.55       esxi-mgmt-02        Taipei        
- ● prod-vc         ad-dc-06                                   on             4     16G  10.20.16.65       esxi-mgmt-01        Taipei        
- ● prod-vc         api-01                                     on             8     32G  10.20.0.211       esxi-a-06           Taipei        
- ● prod-vc         api-02                                     on             4     16G  10.20.0.23        esxi-a-08           Taipei        
- ● prod-vc         api-03                                     on             4      8G  10.20.0.33        esxi-a-08           Taipei        
- ● prod-vc         api-04                                     on             2      4G  10.20.0.43        esxi-a-02           Taipei        
- ● prod-vc         api-05                                     on             8     32G  10.20.0.53        esxi-a-14           Taipei        
- ◐ prod-vc         api-06                                     suspended      4     16G  -                 esxi-a-01           Taipei        
- ○ prod-vc         api-07                                     off            4      8G  -                 esxi-a-08           Taipei        
- ● prod-vc         api-08                                     on             2      4G  10.20.0.83        esxi-a-11           Taipei        
- ● prod-vc         api-09                                     on             8     32G  10.20.0.93        esxi-a-11           Taipei        
- ◐ prod-vc         api-10                                     suspended      4      8G  -                 esxi-a-10           Taipei        
- ● prod-vc         api-11                                     on             4     16G  10.20.0.113       esxi-a-13           Taipei        
- ● prod-vc         api-12                                     on             8     32G  10.20.0.123       esxi-a-08           Taipei        
- ◐ prod-vc         api-13                                     suspended      2      4G  -                 esxi-a-14           Taipei        
- ● prod-vc         api-14                                     on             4      8G  10.20.0.143       esxi-a-03           Taipei        
- ● prod-vc         api-15                                     on             4     16G  10.20.0.153       esxi-a-09           Taipei        
- ● prod-vc         api-16                                     on             8     32G  10.20.0.163       esxi-a-04           Taipei        
- ● prod-vc         api-17                                     on             2      4G  10.20.0.173       esxi-a-07           Taipei        
- ● prod-vc         api-18                                     on             4      8G  10.20.0.183       esxi-a-05           Taipei        
- ● prod-vc         api-19                                     on             4     16G  10.20.0.193       esxi-a-16           Taipei        
- ● prod-vc         api-20                                     on             4     16G  10.20.0.203       esxi-a-14           Taipei        
- ● prod-vc         api-21                                     on             4      8G  10.20.1.13        esxi-a-12           Taipei        
- ● prod-vc         api-22                                     on             2      4G  10.20.1.23        esxi-a-09           Taipei        
- ◐ prod-vc         api-23                                     suspended      8     32G  -                 esxi-a-02           Taipei        
- ● prod-vc         api-24                                     on             4     16G  10.20.1.43        esxi-a-06           Taipei        
- ● prod-vc         api-25                                     on             4      8G  10.20.1.53        esxi-a-16           Taipei        
- ○ prod-vc         api-26                                     off            2      4G  -                 esxi-a-01           Taipei        
- ● prod-vc         api-27                                     on             8     32G  10.20.1.73        esxi-a-02           Taipei        
+   VCENTER         NAME                                             POWER  CPU     MEM  IP ADDRESS        HOST                DATACENTER    
+▸● prod-vc         ad-dc-01                                         on       2      8G  -                 esxi-mgmt-02        Taipei        
+ ● prod-vc         ad-dc-02                                         on       4     16G  10.20.16.25       esxi-mgmt-01        Taipei        
+ ● prod-vc         ad-dc-03                                         on       4     16G  10.20.16.35       esxi-mgmt-04        Taipei        
+ ● prod-vc         ad-dc-04                                         on       8     32G  10.20.16.45       esxi-mgmt-03        Taipei        
+ ● prod-vc         ad-dc-05                                         on       2      8G  10.20.16.55       esxi-mgmt-02        Taipei        
+ ● prod-vc         ad-dc-06                                         on       4     16G  10.20.16.65       esxi-mgmt-01        Taipei        
+ ● prod-vc         api-01                                           on       8     32G  10.20.0.211       esxi-a-06           Taipei        
+ ● prod-vc         api-02                                           on       4     16G  10.20.0.23        esxi-a-08           Taipei        
+ ● prod-vc         api-03                                           on       4      8G  10.20.0.33        esxi-a-08           Taipei        
+ ● prod-vc         api-04                                           on       2      4G  10.20.0.43        esxi-a-02           Taipei        
+ ● prod-vc         api-05                                           on       8     32G  10.20.0.53        esxi-a-14           Taipei        
+ ◐ prod-vc         api-06                                           susp     4     16G  -                 esxi-a-01           Taipei        
+ ○ prod-vc         api-07                                           off      4      8G  -                 esxi-a-08           Taipei        
+ ● prod-vc         api-08                                           on       2      4G  10.20.0.83        esxi-a-11           Taipei        
+ ● prod-vc         api-09                                           on       8     32G  10.20.0.93        esxi-a-11           Taipei        
+ ◐ prod-vc         api-10                                           susp     4      8G  -                 esxi-a-10           Taipei        
+ ● prod-vc         api-11                                           on       4     16G  10.20.0.113       esxi-a-13           Taipei        
+ ● prod-vc         api-12                                           on       8     32G  10.20.0.123       esxi-a-08           Taipei        
+ ◐ prod-vc         api-13                                           susp     2      4G  -                 esxi-a-14           Taipei        
+ ● prod-vc         api-14                                           on       4      8G  10.20.0.143       esxi-a-03           Taipei        
+ ● prod-vc         api-15                                           on       4     16G  10.20.0.153       esxi-a-09           Taipei        
+ ● prod-vc         api-16                                           on       8     32G  10.20.0.163       esxi-a-04           Taipei        
+ ● prod-vc         api-17                                           on       2      4G  10.20.0.173       esxi-a-07           Taipei        
+ ● prod-vc         api-18                                           on       4      8G  10.20.0.183       esxi-a-05           Taipei        
+ ● prod-vc         api-19                                           on       4     16G  10.20.0.193       esxi-a-16           Taipei        
+ ● prod-vc         api-20                                           on       4     16G  10.20.0.203       esxi-a-14           Taipei        
+ ● prod-vc         api-21                                           on       4      8G  10.20.1.13        esxi-a-12           Taipei        
+ ● prod-vc         api-22                                           on       2      4G  10.20.1.23        esxi-a-09           Taipei        
+ ◐ prod-vc         api-23                                           susp     8     32G  -                 esxi-a-02           Taipei        
+ ● prod-vc         api-24                                           on       4     16G  10.20.1.43        esxi-a-06           Taipei        
+ ● prod-vc         api-25                                           on       4      8G  10.20.1.53        esxi-a-16           Taipei        
+ ○ prod-vc         api-26                                           off      2      4G  -                 esxi-a-01           Taipei        
+ ● prod-vc         api-27                                           on       8     32G  10.20.1.73        esxi-a-02           Taipei        
 ✕ dr-site: connection failed · c select, d diagnose
 edge-vc · 180 VMs, 8 templates, 12 hosts, 2 clusters, 6 vApps, 12 datastores, 16 networks
 1-7 kind  H history  c contexts  a all  / filter  r reload  ? help  q quit
