@@ -1,8 +1,10 @@
 package vsphere
 
 import (
+	"net/netip"
 	"reflect"
 	"sort"
+	"strconv"
 
 	"github.com/vmware/govmomi/vim25/types"
 )
@@ -216,8 +218,38 @@ func mapHostVMKernel(value types.HostVirtualNic, serviceConsole bool) HostVMKern
 		mapped.DHCP = boolPtr(ip.Dhcp)
 		mapped.IP = ip.IpAddress
 		mapped.SubnetMask = ip.SubnetMask
+		if v6 := ip.IpV6Config; v6 != nil {
+			for _, a := range v6.IpV6Address {
+				if a.IpAddress != "" {
+					mapped.IPv6 = append(mapped.IPv6, a.IpAddress+"/"+strconv.Itoa(int(a.PrefixLength)))
+				}
+			}
+		}
 	}
 	return mapped
+}
+
+// Address is the one address that names the adapter: its IPv4 address, or,
+// on an IPv6-only adapter, a global IPv6 address before a link-local one. It
+// is empty when the adapter has none.
+func (v HostVMKernel) Address() string {
+	if v.IP != "" {
+		return v.IP
+	}
+	first := ""
+	for _, s := range v.IPv6 {
+		p, err := netip.ParsePrefix(s)
+		if err != nil {
+			continue
+		}
+		if !p.Addr().IsLinkLocalUnicast() {
+			return p.Addr().String()
+		}
+		if first == "" {
+			first = p.Addr().String()
+		}
+	}
+	return first
 }
 
 // mapHostProxySwitches maps each distributed switch the host belongs to. An

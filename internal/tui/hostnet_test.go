@@ -181,22 +181,24 @@ func assertFits(t *testing.T, m *Model, size [2]int, keys []string) {
 	}
 }
 
-// VMkernel adapters as a VxRail host with NSX has them: port group names too
-// long for any column, a management adapter with no IPv4 address, and NSX
-// adapters bound to the switch with no port group. Each cell keeps its
-// column.
+// VMkernel adapters as a hyperconverged host with NSX has them: port group
+// names too long for any column, an IPv6-only management adapter, one with
+// no address at all, and NSX adapters bound to the switch with no port
+// group. Each cell keeps its column.
 func TestHostNetworkVMKernelTableKeepsItsColumns(t *testing.T) {
 	topo := switchedTopology("prod")
 	h := topologyHost(topo, "h1")
 	h.VMKs = []vsphere.HostVMKernel{
-		{Device: "vmk0", PortGroup: "VxRail Management-81703777-3842-4c5e-9d1a-0f2b3c4d5e6f", MTU: 1500, Netstack: "defaultTcpipStack"},
+		{Device: "vmk0", PortGroup: "HCI Management-1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d", MTU: 1500, Netstack: "defaultTcpipStack",
+			IPv6: []string{"fe80::250:56ff:fe6a:1/64"}},
+		{Device: "vmk9", PortGroup: "pg-vmotion", MTU: 1500},
 		{Device: "vmk10", DVSwitchUUID: "uuid-a", IP: "192.168.77.13", MTU: 9000, Netstack: "vxlan"},
 		{Device: "vmk2", DVSwitchUUID: "uuid-a", DVPortGroupKey: "dvportgroup-2", IP: "192.168.101.134", MTU: 1500, Netstack: "vmotion"},
 	}
 	inv := switchedInventory("prod")
 	hn := buildHostNet(h, inv, buildNetSwitches("prod", inv, topo))
-	if hn.vmks[2].device != "vmk10" || hn.vmks[2].sw != "dvs-a" {
-		t.Fatalf("vmk10 is not placed on the switch it is bound to: %+v", hn.vmks[2])
+	if hn.vmks[3].device != "vmk10" || hn.vmks[3].sw != "dvs-a" {
+		t.Fatalf("vmk10 is not placed on the switch it is bound to: %+v", hn.vmks[3])
 	}
 	m := newTestModel(t, twoHealthy(), Options{Current: "prod"})
 	for _, w := range []int{60, 100} {
@@ -218,7 +220,7 @@ func TestHostNetworkVMKernelTableKeepsItsColumns(t *testing.T) {
 			}
 		}
 		got := ansi.Strip(strings.Join(lines, "\n"))
-		wants := []string{"vmk0    —", "vmk10   192.168.77.13", "· dvs-a"}
+		wants := []string{"vmk0    fe80::250:56ff:fe6a:1", "vmk9    —", "vmk10   192.168.77.13", "· dvs-a"}
 		if w >= 100 {
 			wants = append(wants, "default")
 		}
