@@ -1,300 +1,147 @@
-# Architecture of vsfleet
+# Architecture
 
-This document provides a bird's-eye view of vsfleet's internal architecture,
-system topology, design invariants, source code structure, and cross-cutting
-concerns. It is intended for contributors and operators who want to understand
-how vsfleet operates across multiple heterogeneous VMware vCenters.
+<span id="architecture-of-vsfleet"></span>
 
----
+vsfleet has two data paths: live inventory reads from vCenter, and offline
+queries over captured assessments. The CLI and terminal UI use the same
+context, credential, transport, and assessment services.
 
-## 1. Bird's-Eye Overview
+<span id="1-birds-eye-overview"></span>
 
-Managing multiple VMware vCenters is traditionally fraught with two challenges:
-1. **Network heterogeneity:** Different vCenters live in different security zones (direct local networks, jumpboxes, SOCKS5 tunnels, or HTTP/HTTPS CONNECT proxies).
-2. **Operational friction:** Official tools (`govc`, PowerCLI, vSphere Web Client) either target one vCenter at a time or require heavy scripting that fails completely when a single endpoint is unreachable.
+## Data flow
 
-vsfleet solves this by decoupling **contexts** (endpoints, credentials, transports, and TLS policies) from operations (CLI queries, estate-wide searches, and interactive terminal browsing).
+A context groups a vCenter endpoint, username, credential reference, route, and
+TLS policy. Live operations resolve that context, establish a session, and
+read inventory through `internal/vsphere`. Each context can use direct TCP,
+SOCKS5, or HTTP/HTTPS CONNECT independently.
 
 ```mermaid
-flowchart TD
-    subgraph UI ["Frontends"]
-        CLI["CLI Commands (internal/cli)"]
-        TUI["Bubble Tea TUI (internal/tui)"]
-    end
-
-    subgraph Core ["Orchestration & Cache"]
-        CFG["Config & Context Store (internal/config)"]
-        SM["Session Manager (internal/session)"]
-        CACHE["Inventory Cache (internal/session)"]
-        LIM["Limiter & Concurrency (internal/limiter)"]
-        SEARCH["Search Engine (internal/search)"]
-        ASSESS["Assessment Ledger (internal/assessment + SQLite)"]
-    end
-
-    subgraph Adapters ["Transport & Security"]
-        CRED["Credential Resolver (internal/credentials)"]
-        TRANS["Transport Layer (internal/transport)"]
-    end
-
-    subgraph Targets ["vCenter Endpoints"]
-        VC1["vCenter Direct (Lab)"]
-        VC2["vCenter via SOCKS5 (Customer A)"]
-        VC3["vCenter via HTTP CONNECT (Customer B)"]
-        DEMO["Synthetic Backend (internal/demo)"]
-    end
-
-    CLI --> SM
-    TUI --> SM
-    CLI --> CFG
-    TUI --> CFG
-    TUI --> SEARCH
-    CLI --> SEARCH
-    TUI --> ASSESS
-    CLI --> ASSESS
-
-    SM --> CACHE
-    SM --> LIM
-    SM --> CRED
-    SM --> TRANS
-
-    CRED -->|OS Keyring / Prompt| SM
-    TRANS -->|Direct TCP| VC1
-    TRANS -->|SOCKS5 + Remote DNS| VC2
-    TRANS -->|HTTP/HTTPS Proxy| VC3
-    TUI -.->|Presentation Mode| DEMO
+flowchart TB
+    FRONT["CLI and terminal UI"] --> LIVE["Sessions and inventory"]
+    CONFIG["Contexts and credential references"] --> LIVE
+    LIVE --> ROUTE["Transport and TLS"]
+    ROUTE --> VC["vCenter"]
+    LIVE --> DB[("Explicit capture: local SQLite ledger")]
+    FRONT --> OFFLINE["Diffs, health, planning, and exports"]
+    DB --> OFFLINE
 ```
 
----
+Live reads use bounded concurrency and deadlines. Failures are attached to
+their context or resource collection, so healthy results remain usable.
+The TUI retains cached inventory when a refresh fails and shows its age.
 
-## 2. Core Design Invariants
+Assessment capture persists observations and collection coverage. Offline
+commands read those observations without opening a vCenter session. The
+exporter reads a finished run in one SQLite transaction; XLSX and CSV use
+the same worksheet builder and deterministic ordering.
 
-Every change to vsfleet must uphold these four architectural invariants:
+Demo mode uses synthetic inventory and in-memory history without live
+connections or persistent writes.
 
-### 1. Strict Read-Only Safety
-vsfleet is an inspection and diagnostic tool. Under no circumstances should
-write, power-state mutation, snapshot creation/reversion, provisioning, or
-deletion RPCs be introduced to [`internal/vsphere`](https://github.com/Easonliuuuuu/vsfleet/tree/main/internal/vsphere). Operators must be able to run
-vsfleet in production environments with absolute certainty that no state will
-be altered.
+<span id="2-core-design-invariants"></span>
 
-### 2. Fault Isolation & Partial Success
-An outage or misconfiguration in one vCenter must never cause a multi-context
-operation to abort.
-* In the CLI: If 3 of 4 vCenters respond and 1 times out, results from the 3
-  healthy vCenters are displayed, and the failure for the 4th is reported
-  separately with diagnostic context.
-* In the TUI: Failed contexts are marked clearly in the status gutter, while
-  cached inventory for healthy contexts remains interactive.
-* In inventory listing: If one resource kind (e.g., datastores) fails to query
-  on an overloaded vCenter, available resources (e.g., VMs and hosts) are still
-  returned.
+## Design rules
 
-### 3. Zero Credential Persistence on Disk
-Plaintext passwords are never written to `config.toml` or state files.
-* Credentials are stored in the platform's native secret service via
-  [zalando/go-keyring](https://github.com/zalando/go-keyring) (Linux Secret Service, macOS Keychain, Windows Credential Manager).
-* When run on headless systems without a secret store, credentials gracefully
-  fall back to interactive prompt mode (`prompt`) without failing the workflow.
-* Password prompts are masked, and credentials held in memory are discarded when
-  sessions are terminated.
+### Read-only vSphere access
 
-### 4. Context Isolation & Deterministic Invalidation
-A context name is a label for a configuration set, not an identity:
-* Editing a context (e.g., updating its proxy, username, or TLS mode)
-  immediately terminates existing client sessions and purges associated cached
-  inventory.
-* Removing a context sends an explicit logout to the vCenter session rather than
-  leaving orphaned sessions on the server.
+<span id="1-strict-read-only-safety"></span>
 
-### 5. Historical Observations Are Immutable and Coverage-Aware
-The assessment ledger is a local observation store, not a second source of
-truth. Each explicit capture records the VM and snapshot state returned by
-vCenter at that point in time. A diff identifies VMs by managed-object
-reference, then instance UUID or BIOS UUID, and reports moves only when both
-observations are unambiguous. Lifecycle claims are made only for vCenters that
-completed collection in both runs; failed or missing coverage produces a
-warning instead of false vanish/appear events.
+`internal/vsphere` must never introduce inventory writes, power changes,
+snapshot creation or reversion, provisioning, or deletion RPCs. SOAP audit
+tests and dependency checks enforce this boundary. Local configuration,
+UI state, and history maintenance have explicit write operations.
 
-Schema version 3 adds per-kind collection coverage and immutable host, cluster,
-and datastore observations. Inventory schema version 11 adds datastore backing
-identity and browse-truncation provenance, allowing estate-wide orphan checks
-to distinguish shared storage from same-name independent datastores. Resource diffs use vCenter plus managed-object
-reference identity and keep volatile utilization/state fields behind
-`--include-runtime`. Trends aggregate estate totals before context/resource
-drill-downs, and every JSON trend/report envelope carries a schema version.
-Inventory schema version 12 persists network observations. Version 13 adds
-target-neutral VM migration configuration (firmware, Secure Boot, CPU topology,
-resource controls, and managed-by metadata) plus normalized vTPM, passthrough,
-and floppy evidence; special-device payloads deliberately exclude sensitive
-TPM certificate material. The headless
-`internal/topology` graph joins those observations with VM, host, datastore,
-distributed-switch, and resource-pool evidence for offline dependency queries.
-Run labels, notes, pinning, and the renewable fenced lease from schema version 2
-remain intact; the lease also serializes prune, backup, and restore operations.
-The TUI's History hub switches between Changes, Trends, Runs, and Health, while all
-destructive ledger maintenance stays explicit on the CLI.
+### Partial results retain coverage
 
-Performance history follows the same rule from the other side. `assessment perf
-collect` stores bounded summaries and provenance in ledger schema version 6
-(`perf_windows`, `perf_vms`, `perf_summaries`), keyed by context and vCenter
-identity and never by inventory run. Immutable inventory observations are not
-edited or referenced, and pruning removes performance windows by age while
-sparing each context's newest usable window. The pure semantics (counters, unit
-normalisation, sample gating, sizing signal) live in `internal/perf` with no
-vSphere imports; the only new wire operation is `QueryPerf`, sent through a
-hand-rolled SOAP body in `internal/vsphere/perf_query.go` because the govmomi
-`performance` package imports mutation-capable packages.
+<span id="2-fault-isolation-partial-success"></span>
 
-The `assessment export` command reads a selected finished run through one
-SQLite read transaction and passes it to the `internal/report` writer. It never
-loads configuration or credentials and never creates a session. Inventory
-schema version 3 (distinct from the ledger's own schema version above) adds
-the VMware Tools version and version status to VM payloads, backing the
-`vTools` tab; version 6 adds normalized CD-ROM and USB device observations,
-backing the `vCD` and `vUSB` export tabs; version 8 adds persisted
-resource-pool observations for the
-`vRP` export tab; version 17 records each context's `ServiceInstance` About record in the ledger's `context_sources` table (ledger schema 7) for the `vSource` tab, read only from the stored run at export time; runs before version 17, and contexts that never connected, have no row and are reported as not recorded or failed on `vsfleetCoverage` rather than given a guessed version; version 9 adds host storage and network sub-objects for the
-`vHBA`, `vNIC`, `vSwitch`, `vPort`, `vSC_VMK` (renamed from `vSC+VMK`), and `vMultiPath` tabs. Older rows still populate the `vTools` running-status column,
-with the version columns left blank and the gap noted on `vsfleetCoverage`; runs
-before version 6 mark `vCD` and `vUSB` as not recorded, runs
-before version 8 mark `vRP` as not recorded, and runs before version 9 mark the
-six host configuration tabs as not recorded. Version 10 adds persisted
-distributed virtual switch and port-group observations for `dvSwitch` and
-`dvPort`; runs before version 10 mark those tabs as not recorded. Inventory
-schema version 11 keeps the new datastore backing fields in the payload
-without changing RVTools worksheet columns. Inventory schema version 14 adds
-the `Local disk` column to `vMultiPath`; absent locality is preserved as an
-unknown value for conservative health evaluation. Inventory schema version 18
-adds the opt-in `license` collection (`assessment run --include-licenses`),
-stored as key-free `vsphere.License` resource observations with a collection
-status of `success`, `partial` or `unavailable`; a run that did not request it
-has no such collection and its export has no license sheets. The vSphere layer
-has no license-key field, so a key cannot reach the ledger, output or exports
-(see [License metadata](licensing.md)). Inventory schema version 19 adds the
-opt-in `Datastore.FileInventory` record (status, row limit, truncation
-provenance and file rows) behind `vFileInfo`; it is a separate capture from the
-VMDK browse evidence, and orphan and health evaluation never read it.
-Inventory schema version 20 adds the `vapp` collection: each vApp's membership,
-CPU/memory allocation (`vsphere.ResourceAllocation`, shared with resource
-pools), status colours and startup order, which `vRP` lists after the resource
-pools. A shared
-`rvtoolsSheets` compatibility-sheet builder canonicalizes and validates the run
-once and returns every supported worksheet (`vInfo`, `vCPU`, `vMemory`,
-per-VM `vDisk`/`vPartition`/`vNetwork`/`vCD`/`vUSB`,
-`vSnapshot`, `vTools`, `vSource`, `vRP`, `vCluster`, `vHost`, `vHBA`, `vNIC`, `vSwitch`,
-`vPort`, `dvSwitch`, `dvPort`, `vSC_VMK`, `vDatastore`, `vMultiPath`, `vFileInfo`, `vHealth`,
-`vsfleetCoverage`) in
-tab order; the XLSX writer normalizes ZIP entry order and timestamps on top of
-it, and the CSV writer renders the same tabs as one file per sheet, so both
-formats are byte-identical across repeated exports of unchanged stored
-evidence and agree with each other on content. `vHealth` is derived at export
-time from persisted evidence; it is not a separately collected sheet.
+A failed vCenter or resource collection must not discard healthy results.
+Report the failure beside the available data. Stored diffs make lifecycle
+claims only for contexts collected successfully in both runs; missing coverage
+cannot imply that a VM disappeared.
 
-`report.Profile` describes that same worksheet set column by column — cell
-type, unit, and when a cell is left empty — and is what
-`vsfleet compatibility report` renders. It is built by running the real sheet
-builder over empty export data, so the description is derived from the exporter
-rather than maintained alongside it, and a test fails the build if a worksheet
-gains a column that nothing describes.
+### Configuration stores credential references
 
----
+<span id="3-zero-credential-persistence-on-disk"></span>
 
-## 3. Source Code Organization
+Passwords stay out of `config.toml`, UI state, logs, and the assessment ledger.
+The credential resolver reads the OS keyring, an interactive masked prompt,
+an environment variable, a file, or a helper. Setup offers alternatives when
+the keyring is unavailable. Unattended sources fail explicitly when missing;
+they never fall back to a prompt. See [Configuration](configuration.md#credentials).
 
-```
-vsfleet/
-├── cmd/
-│   ├── vsfleet/           # Production CLI & TUI entrypoint
-│   └── vsfleet-demo/      # Deterministic synthetic binary for the presentation testbed
-├── docs/
-│   ├── assets/            # README recording (.gif) and screenshot (.png)
-│   └── architecture.md    # System design, invariants, and codemap (this document)
-├── internal/
-│   ├── assessment/        # SQLite run ledger, coverage-aware diffs, VM history
-│   ├── cli/               # Cobra command handlers (root, context, doctor, vm, search, etc.)
-│   ├── config/            # TOML config parser, context definitions, path discovery
-│   ├── contextops/        # High-level context lifecycle (add, edit, remove, test)
-│   ├── credentials/       # Keyring and interactive prompt credential providers
-│   ├── demo/              # In-memory synthetic vCenter backend for offline demos
-│   ├── humanize/          # Output humanization (bytes, durations, frequencies)
-│   ├── limiter/           # Concurrency limiters and rate throttles
-│   ├── perf/              # Offline VM performance semantics: counters, units, summaries, sizing signal
-│   ├── search/            # Cross-vCenter estate search engine
-│   ├── session/           # Session management, caching, and connection pooling
-│   ├── transport/         # Network dialers (Direct, SOCKS5, HTTP/HTTPS CONNECT)
-│   ├── topology/          # Deterministic cross-vCenter relationship graph and queries
-│   ├── tui/               # Charmbracelet Bubble Tea terminal user interface
-│   ├── uistate/           # Persistent UI view state (last visited tab, context)
-│   ├── version/           # Build-time version metadata (injected by GoReleaser)
-│   └── vsphere/           # VMware govmomi wrappers, stage diagnosis, inventory models
-└── tests/                 # Integration tests with vSphere simulator and proxy tests
-```
+### Context changes invalidate live state
 
----
+<span id="4-context-isolation-deterministic-invalidation"></span>
 
-## 4. Subsystem Details
+Editing a context's route, username, or TLS policy closes its sessions and
+clears its cached inventory. Removing a context logs out its session.
+Context names are configuration labels; stored object correlation uses
+vCenter identity and object identifiers.
 
-### Transport & Connectivity (`internal/transport`)
-The transport layer provides a unified `net.Dialer` interface regardless of the
-underlying route:
-* **Direct**: Standard local TCP dialer with local DNS resolution.
-* **SOCKS5**: Supports authenticated proxying and `--remote-dns` to resolve
-  vCenter hosts within the destination network enclave.
-* **HTTP / HTTPS CONNECT**: Tunnels TCP connections through standard forward
-  proxies, including proxy basic authentication and TLS verification for HTTPS
-  proxies.
+### Captured observations are immutable
 
-### Diagnostic Pipeline (`internal/cli/doctor.go` & `internal/vsphere/stage.go`)
-The `vsfleet doctor` command executes an 8-stage pipeline in strict sequence to
-diagnose exact point-of-failure:
-1. **Configuration**: Validates TOML schema and context properties.
-2. **Credentials**: Confirms OS keyring accessibility or prompt availability.
-3. **Route & Proxy**: Confirms proxy reachability and proxy authentication.
-4. **DNS**: Resolves vCenter hostname (locally or remotely via proxy).
-5. **TCP**: Establishes transport handshake to port 443.
-6. **TLS**: Validates certificate chain or compares pinned SHA-256/SHA-1 thumbprint.
-7. **Authentication**: Performs vSphere SSO authentication.
-8. **API**: Executes basic vSphere ServiceContent probe.
+<span id="5-historical-observations-are-immutable-and-coverage-aware"></span>
 
-### Background Polling & Cache (`internal/session`)
-The TUI maintains a quiet background refresh model:
-* Startup may reuse a session or stored keyring credential automatically, but
-  an interactive credential boundary settles into `credentials required`
-  until an explicit context selection or reload opens the masked prompt.
-* Active context inventory is polled every 20 seconds.
-* Inactive, successfully loaded contexts are polled every 200 seconds.
-  Contexts waiting for interactive credentials require an explicit selection
-  or reload; a background timer never takes over the terminal with a prompt.
-* Unvisited contexts are never polled until explicitly brought into scope.
-* Failures do not blank the screen: the cache retains stale inventory, visually
-  noting the last-known timestamp and the connection issue.
+A capture records what vCenter returned at that time. Queries and exports
+must preserve those observations and expose incomplete evidence.
+VM matching uses managed-object references, then instance or BIOS UUIDs;
+cross-context moves require unambiguous identity.
 
----
+Performance windows are stored separately from inventory runs, keyed by
+context and vCenter identity. They keep bounded summaries and provenance,
+not raw samples. Pruning keeps each context's newest usable performance window.
+See [Performance history](performance.md).
 
-## 5. Development & Testing Strategy
+<span id="3-source-code-organization"></span>
 
-1. **Synthetic Presentation Backend (`cmd/vsfleet-demo`)**:
-   Enables 100% offline development and styling of the Bubble Tea TUI. It generates
-   realistic, deterministic inventory across three simulated vCenters with zero
-   credentials or VMware dependencies.
-2. **Connected Local Testbed (`cmd/vsfleet-testbed`, `internal/testbed`)**:
-   Starts multiple authenticated `govmomi/simulator` SOAP endpoints and
-   loopback-only SOCKS5/HTTP CONNECT routes, then wires the production session,
-   transport, credential prompt, and assessment service into the TUI. Its
-   config, history, and in-memory fixture credentials are isolated from the
-   operator environment.
-3. **In-Process VMware Simulator Tests (`tests/`)**:
-   Integration tests run against `govmomi/simulator` and in-memory proxy
-   listeners, allowing complete end-to-end tests in CI without external
-   infrastructure.
-4. **Repository-Owned TUI Scenario Harness (`scripts/testbed`)**:
-   Deterministic named scenarios drive the real Bubble Tea model headlessly,
-   retain semantic failure artifacts, and expose the same setup through a
-   developer sandbox. Critical screens have selective ANSI-normalized goldens;
-   native Go fuzz targets cover key/resize sequences, stale replies, and
-   bounded rendering.
-5. **Linux PTY Process Journeys (`internal/testbed/pty`)**:
-   A small tagged suite launches the connected developer testbed as an actual
-   terminal process. It validates input decoding, alternate-screen rendering,
-   resize delivery, Ctrl-C cleanup, and exit status while retaining redacted
-   failure artifacts and isolated state.
+## Package responsibilities
+
+| Area | Packages |
+| --- | --- |
+| Entrypoints and interface | `cmd/vsfleet`, `internal/cli`, `internal/tui` |
+| Contexts and credentials | `internal/config`, `internal/contextops`, `internal/credentials` |
+| Connections and live inventory | `internal/session`, `internal/transport`, `internal/limiter`, `internal/vsphere` |
+| Inventory filtering and search | `internal/query`, `internal/search` |
+| Stored captures, diffs, trends, and recovery | `internal/assessment` |
+| Health and planning | `internal/health`, `internal/decommission`, `internal/sizing`, `internal/network`, `internal/topology` |
+| Performance summaries | `internal/perf` |
+| Export, import, and metadata reports | `internal/report`, `internal/rvimport`, `internal/metareport` |
+| Workstation state and integrations | `internal/uistate`, `internal/sshalias`, `internal/update` |
+| Formatting and build metadata | `internal/humanize`, `internal/version` |
+| Synthetic development fixtures | `internal/demo`, `internal/testbed`, `cmd/vsfleet-demo`, `cmd/vsfleet-testbed` |
+
+The pure performance semantics in `internal/perf` have no vSphere imports.
+The wire-level `QueryPerf` implementation lives in
+`internal/vsphere/perf_query.go`; importing govmomi's performance package
+would pull mutation-capable packages across the read-only boundary.
+
+`internal/report` builds both exports and the column descriptions shown by
+`vsfleet compatibility report`. Describe new worksheet columns there so the
+reference follows the exporter. Older captures must report missing evidence
+through coverage rather than inventing values; see [Inventory exports](exports.md).
+
+<span id="4-subsystem-details"></span>
+<span id="transport-connectivity-internaltransport"></span>
+<span id="diagnostic-pipeline-internalclidoctorgo-internalvspherestagego"></span>
+<span id="background-polling-cache-internalsession"></span>
+
+## Connection and refresh behavior
+
+[Configuration](configuration.md#network-routes) owns route and TLS settings.
+[Troubleshooting](troubleshooting.md#the-eight-stage-diagnostic-pipeline)
+describes the ordered connection checks.
+[Terminal UI](tui.md#refresh-and-cache-behavior) documents refresh intervals,
+credential prompts, and stale-cache behavior.
+
+<span id="5-development-testing-strategy"></span>
+
+## Development and verification
+
+Use the [synthetic testbed](testbed.md) for UI development. Its presentation
+profile is deterministic, offline, read-only, and visibly synthetic. Its
+connected profile uses loopback services, fixture credentials, and isolated
+state. Neither establishes compatibility with real vSphere.
+
+[Testing](testing.md) explains the verification ladder and real-vCenter
+acceptance limits; [Test catalogue](test-catalog.md) maps suites to scenarios.

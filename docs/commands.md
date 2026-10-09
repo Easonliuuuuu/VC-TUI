@@ -1,8 +1,10 @@
-# CLI Guide
+# CLI reference
 
-The bare `vsfleet` command opens the terminal UI. Add a subcommand for
-scriptable operations. Every command accepts the persistent context, timeout,
-configuration, history database, and output options shown below.
+<span id="cli-guide"></span>
+
+Run `vsfleet` to open the terminal UI, or add a subcommand for scripts.
+[Persistent flags](#persistent-flags) set context, timeout, configuration,
+history, and output.
 
 ## Common commands
 
@@ -43,18 +45,18 @@ configuration, history database, and output options shown below.
 | `vsfleet vm history <name-or-uuid>` | Show a VM's stored assessment timeline |
 | `vsfleet vm decommission-check <name-or-uuid> [run]` | Review stored evidence before decommissioning a VM |
 | `vsfleet assessment ...` | Capture and compare historical observations |
-| `vsfleet assessment export --profile <name> [--pseudonymize --pseudonymize-key-file <file>] [--preview]` | Export a scoped `sizing-summary` or `full-inventory` workbook, optionally pseudonymized; see [scoped sharing profiles](assessments.md#scoped-sharing-profiles-and-pseudonymization) |
-| `vsfleet assessment metadata [run] [--kind ...] [--source tag\|custom] [--where ...] [--format csv]` | Export stored tags and custom attributes in a fixed long-format schema; see [metadata exports](assessments.md#metadata-exports-and-saved-reports) |
+| `vsfleet assessment export --profile <name> [--pseudonymize --pseudonymize-key-file <file>] [--preview]` | Export a scoped `sizing-summary` or `full-inventory` workbook, optionally pseudonymized; see [scoped sharing profiles](sharing.md) |
+| `vsfleet assessment metadata [run] [--kind ...] [--source tag\|custom] [--where ...] [--format csv]` | Export stored tags and custom attributes in a fixed long-format schema; see [metadata exports](metadata.md#export-metadata) |
 | `vsfleet assessment metadata-report <definition> [run] [--base <run>]` | Run a saved tag/custom-attribute report against an assessment, optionally listing membership changes since `--base` |
 | `vsfleet import rvtools <file.xlsx>` | Import an RVTools-compatible export as a new offline assessment run |
 | `vsfleet compatibility report` | Describe every worksheet and column the export writes |
 
 ## Inventory and search
 
-Supported resource kinds are `vm`, `template`, `host`, `cluster`, `vapp`,
-`datastore`, `network`, `dvswitch`, and `resourcepool`. Inventory commands
-accept `--filter` / `-f`, repeatable `--where`, and opt-in `--wide` metadata
-columns:
+Resource kinds include `vm`, `template`, `host`, `cluster`, `vapp`,
+`datastore`, `network`, `dvswitch`, and `resourcepool`. Use `--filter` /
+`-f` for text matching, repeatable `--where` for predicates, and `--wide`
+for metadata columns:
 
 ```sh
 vsfleet host list --context prod --filter esxi-07
@@ -84,29 +86,19 @@ vsfleet assessment inventory latest --where 'custom.environment=prod' --wide
 vsfleet assessment findings latest --where 'tag=PCI' -o json
 ```
 
-JSON inventory, search, and findings output includes normalized metadata,
-source status, and object/context provenance. A vCenter that does not expose a
-metadata source remains usable; scalar inventory is retained and the affected
-source is reported with its status: `unavailable` (the read failed),
-`denied` (the account lacks the privilege, or the tagging service rejected
-the session), or `unsupported` (the endpoint has no tagging service or custom
-fields manager). Objects from captures that predate metadata collection read
-as `not_recorded`. Only `available` is complete.
-
-For a fixed-schema export of every stored tag and attribute, and for saved,
-repeatable reports, see
-[metadata exports and saved reports](assessments.md#metadata-exports-and-saved-reports).
+JSON includes normalized metadata, source status, and object/context
+provenance. Scalar inventory remains usable when metadata is `unavailable`
+(read failed), `denied` (permission/session rejected), or `unsupported`
+(service absent). Older captures report `not_recorded`; only `available`
+is complete. See [metadata exports and saved reports](metadata.md).
 
 Results from healthy contexts remain available when another context fails. The
 failure is reported separately with its context and diagnostic information.
 
 ## Object detail and infrastructure subresources
 
-`vsfleet <kind> show <name>` prints one object's full collected evidence —
-identity, provenance and configuration — rather than a list row. The name may
-match more than one object across contexts; when it does, `show` reports the
-ambiguity and lists the candidates instead of guessing, and `--context`
-narrows it to one:
+`vsfleet <kind> show <name>` prints identity, provenance, and configuration.
+Ambiguous names return candidates; use `--context` to narrow them:
 
 ```sh
 vsfleet vm show web-01
@@ -115,10 +107,8 @@ vsfleet host show esxi-01 --context prod
 vsfleet datastore show nvme-01 -o json
 ```
 
-Host storage and network evidence that is already collected for assessments —
-HBAs, physical NICs, standard switches, port groups, VMkernel adapters and
-multipath LUNs — is queryable directly, across every host on the context or
-narrowed to one with `--host`:
+Query host HBAs, NICs, switches, port groups, VMkernel adapters, and
+multipath LUNs across a context or select one host with `--host`:
 
 ```sh
 vsfleet host hba list --host esxi-01
@@ -137,10 +127,8 @@ vsfleet snapshot list --vm web-01
 
 ## Datastore file browsing
 
-`vsfleet datastore files` exposes the same read-only datastore browser and
-bounded recursive search the terminal UI offers. Listing is lazy and
-non-recursive — one query per directory — while `find` searches the whole
-datastore and reports when it stops short of a complete answer:
+`datastore files list` reads one directory lazily; `find` performs a bounded
+recursive search and reports incomplete results. Both are read-only:
 
 ```sh
 vsfleet datastore files list nvme-01
@@ -149,17 +137,15 @@ vsfleet datastore files find nvme-01 '*.vmdk'
 vsfleet datastore files find nvme-01 orphan.vmdk --limit 20 -o json
 ```
 
-A VMDK result includes relationship evidence where it is known: which VM or
-template currently references it, and the confidence recorded by the most
-recent stored assessment. A datastore name that matches more than one
-datastore — across contexts, or, rarely, within one context spanning several
-datacenters — is refused rather than guessed at; narrow it with `--context`.
+VMDK results include known VM/template references and confidence from the
+latest assessment. Ambiguous datastore names are refused; narrow the context.
+See [datastore browsing](tui-storage.md#datastore-file-browser) for relationship
+and coverage limits.
 
 ## Importing RVTools exports
 
-`vsfleet import rvtools` adapts an RVTools-compatible XLSX export into a new
-stored assessment run, entirely offline — no configuration, credentials, or
-vCenter connection is used:
+Import an RVTools-compatible XLSX file as a new assessment without
+configuration, credentials, or a vCenter connection:
 
 ```sh
 # Preview what would be imported without writing anything
@@ -177,16 +163,14 @@ vsfleet vm history web-01
 vsfleet assessment diff pre-migration wave-1
 ```
 
-An imported run's `assessment list` row shows `rvtools-import` as its source,
-and its note records the source filename, a SHA-256 fingerprint of the file,
-the capture time and where it came from, the parser profile
-(`rvtools-v3`) and the worksheets recognized and ignored. It is never mistaken
-for a live capture.
+Imported runs show source `rvtools-import`. Their notes record filename,
+SHA-256 fingerprint, capture time/source, parser profile `rvtools-v3`, and
+recognized/ignored worksheets.
 
 ### What is read
 
-Worksheets are matched by name and columns by header, never by position, so a
-workbook with extra or reordered columns still imports:
+Worksheets match by name and columns by header; extra or reordered columns
+are allowed:
 
 | Worksheet | Becomes |
 |---|---|
@@ -200,81 +184,60 @@ workbook with extra or reordered columns still imports:
 | `vCD`, `vUSB` | per-VM CD-ROM and USB devices |
 | `vMetaData` | capture time, when its timestamp can be interpreted |
 
-Worksheets outside this list are reported as ignored, and the dry run lists the
-recognized, ignored and missing columns of each worksheet that was read. Both
-vsfleet and RVTools 4.8 header spellings are accepted for mapped columns. For
-example, `vDisk` accepts `Shared Bus`/`SharedBus`; `dvSwitch` accepts
-`Switch`/`DVS` and `Max Ports`/`# Max ports`; and `dvPort` accepts
-`Port`/`Port group`, `Switch`/`DVS`, `Allow Promiscuous`/`Promiscuous mode`,
-`Policy`/`Teaming policy`, and `Rolling Order`/`Failback`. Rolling Order is
-converted to the corresponding failback value.
+Dry runs list ignored worksheets and recognized, ignored, and missing
+columns. Mapped headers accept vsfleet and RVTools 4.8 spellings, including
+`Shared Bus`/`SharedBus`, `Switch`/`DVS`, `Max Ports`/`# Max ports`,
+`Port`/`Port group`, `Allow Promiscuous`/`Promiscuous mode`, and
+`Policy`/`Teaming policy`. `Rolling Order` maps to `Failback`.
 
-RVTools' `vMultiPath` identifies a datastore in `Object ID`, so hosts are
-resolved through `vHost` by `Host` and `VI SDK UUID`, narrowed by `Datacenter`
-and `Cluster` when supplied. Missing or ambiguous hosts are warned about and
-their rows skipped. This name join also applies to vsfleet's own exports.
-RVTools lists datastore-backed disks; vsfleet exports every collected host/LUN,
-so their row counts can differ. The importer maps RVTools' `Display name`
-(falling back to `Disk`) to the LUN label, preserves `Disk` as the device
-identifier, and counts the supplied `Path 1` through `Path 8` and their states.
-Those counts cover only the listed paths; the workbook cannot establish paths
-beyond its eight slots, disk locality, or which paths the policy marks as
-working. Locality remains unknown and no working-path count is inferred.
-vsfleet's aggregate path counts, locality and working-path columns are
-preserved when importing its own format.
+In `vMultiPath`, RVTools' `Object ID` identifies the datastore. Hosts join
+through `vHost` using `Host` and `VI SDK UUID`, narrowed by `Datacenter`
+and `Cluster` if supplied. Ambiguous/missing hosts are warned and skipped.
+This also applies to vsfleet exports. RVTools lists datastore-backed disks;
+vsfleet exports every collected host/LUN, so counts may differ.
+
+The LUN label uses `Display name`, falling back to `Disk`; `Disk` remains
+the device ID. RVTools path counts cover only supplied `Path 1`–`Path 8`
+slots and states. Locality and working-path count remain unknown. vsfleet's
+own aggregate counts, locality, and working-path columns are preserved.
 
 ### Missing evidence is never good news
 
-The one rule every mapping answers to: imported evidence may reduce
-confidence, but the lack of a workbook field must never improve a verdict.
+Missing workbook evidence reduces confidence; it cannot improve a verdict.
 
-- A worksheet that is **absent** — or present without the capacity columns that
-  make its rows trustworthy (`# Cores`, `# Memory` and `Speed` for `vHost`;
-  `NumCpuCores`, `TotalCpu` and `TotalMemory` for `vCluster`; `Capacity MiB`
-  and `Free MiB` for `vDatastore`) — is recorded as an **unavailable**
-  collection, the same explicit gap a live capture records for a denied
-  query. It is never recorded as *empty*: a workbook with no `vHost` tab is
-  not an estate with no hosts. A worksheet that is present with no rows *is*
-  an answer, and is recorded as empty.
-- A VM column that is missing (`CPUs`, `Memory`, `In Use MiB`) is reported as a
-  coverage gap; the count is unknown, not zero.
-- Health rules that need evidence the workbook never carries report
-  unknown / not-evaluated instead of passing. The import claims only the
-  inventory schema level its worksheets back: `2` by default, `3` with
-  `vTools`, `4` with `vPartition`, `5` with `vPartition`'s `Disk Key` column.
-- Resource pools and networks are **always** recorded unavailable. `vRP`
-  carries pool configuration but only a VM *count*, never which VMs belong to a
-  pool, so importing it would make every pool look empty; RVTools carries no
-  managed-object ID for a network, so importing one would rest on a display
-  name alone. Host device rows attach to a host only through its ID or a unique
-  same-workbook name within the same vCenter UUID; an ambiguous match is
-  skipped and reported.
-- With no `VI SDK UUID` column the endpoint stands in as the vCenter identity,
-  as it does for a live capture, and the import says so.
+- Absent worksheets are `unavailable`. Present worksheets with no rows are
+  empty only when required columns exist: `vHost` needs `# Cores`,
+  `# Memory`, `Speed`; `vCluster` needs `NumCpuCores`, `TotalCpu`,
+  `TotalMemory`; `vDatastore` needs `Capacity MiB`, `Free MiB`.
+- Missing VM `CPUs`, `Memory`, or `In Use MiB` is a coverage gap, never zero.
+- Unsupported health evidence yields unknown/not-evaluated. Imports claim
+  schema `2` by default, `3` with `vTools`, `4` with `vPartition`, and
+  `5` with its `Disk Key` column.
+- Resource pools and networks are always unavailable: `vRP` lacks VM
+  membership, and networks lack managed-object IDs.
+- Host devices require an ID or unique same-workbook host name in the same
+  vCenter UUID. Ambiguous joins are skipped and reported.
+- Without `VI SDK UUID`, the endpoint is the reported vCenter identity.
 
 ### Identity
 
-VMs are matched by managed-object ID, then instance UUID, then BIOS UUID; a
-display name is used only when a row carries nothing stronger. Two vCenters
-with an identically named VM stay two VMs, and a VM keeps its history across a
-rename. An identity that two rows share is reported as an ambiguity and is
-never resolved by guessing: both rows are kept, rows that reference the
-ambiguous identity are not attached to either, and a repeated host, cluster,
-datastore or distributed-switch `Object ID` makes that collection unavailable
-for the context. Host networking rows join by `Object ID` or, when RVTools
-omits it, by a unique host name in the same workbook and vCenter UUID.
-Distributed port groups join to their switch by context, datacenter and name —
-refused when that is not unique.
+VM matching uses managed-object ID, instance UUID, BIOS UUID, then display
+name. Same-named VMs across vCenters stay distinct; renames preserve history
+when stronger identity exists. Duplicate identities retain both rows but prevent
+dependent rows from joining either. Repeated host, cluster, datastore, or
+distributed-switch `Object ID` makes that context's collection unavailable.
+
+Host networking joins by ID or a unique same-workbook host name/vCenter UUID.
+Port groups join by context, datacenter, and switch name only when unique.
 
 `--context-map KEY=NAME` renames a reconstructed context without touching
 `config.toml`; an imported run's contexts are independent of it.
 
 ### Trends and partial runs
 
-Because resource pools and networks are never importable, an imported run is
-always `partial`. `assessment diff`, `vm history`, `findings` and `topology`
-use it as-is, and say what they could not verify; the trend commands exclude
-partial runs unless asked, so plot imported history with `--include-partial`:
+Imports are always `partial` because resource pools and networks are
+unavailable. Diff, VM history, findings, and topology use them with coverage
+warnings. Trends require `--include-partial`:
 
 ```sh
 vsfleet assessment trends snapshots --include-partial
@@ -283,36 +246,28 @@ vsfleet assessment trends capacity --include-partial
 
 ### Capture time
 
-In order: `--captured-at`, a usable `vMetaData` timestamp, workbook document
-properties, then import time. `--timezone` is an IANA time zone such as
-`America/Los_Angeles`; it interprets timezone-free values in `vMetaData` and
-`vSnapshot`. A timezone-free `vMetaData` timestamp is skipped unless that
-option is supplied. Metadata dates are read from stored cell values, preserving
-seconds even when Excel displays only minutes, and use the workbook's 1900 or
-1904 date system. The run says which source was used, and the run — and so
-history, diff and trends — is stamped with the capture time, not the day of
-import (which is recorded in the run's note). A filename is never parsed for a
-date.
+Capture time comes from `--captured-at`, then usable `vMetaData`, workbook
+properties, or import time. `--timezone` accepts an IANA zone for timezone-free
+`vMetaData` and `vSnapshot` values; timezone-free metadata is skipped without
+it. Stored cell values preserve seconds and honor the 1900/1904 date system.
+
+History, diff, and trends use capture time. The run notes its source and import
+time. Filenames are never parsed for dates.
 
 ### Repeating an import
 
-Importing the same file again creates another run. It is detected by
-fingerprint, warned about on stderr with the earlier run's ID, and never
-blocked; `--allow-duplicate` silences the warning.
+Repeated fingerprints warn on stderr with the previous run ID but still
+create a new run. `--allow-duplicate` silences the warning.
 
 ### Safety
 
-Import is local file processing. The workbook is untrusted input: it is
-size-limited before it is opened, decompression is bounded, worksheet row
-counts are capped, no formula is evaluated and no external link is followed.
-A failure at any point leaves no run behind.
+Workbooks are size-limited before opening, with bounded decompression and row
+counts. Formulas are never evaluated and external links never followed. Failed
+imports leave no run.
 
 ## Topology and dependencies
 
-Topology queries use the immutable assessment ledger and never contact a
-vCenter. They join managed-object references, UUIDs, datastore backing
-identity, distributed port-group keys, and context-scoped names across the
-estate:
+These queries read stored assessments without contacting vCenter:
 
 ```sh
 vsfleet topology vm app01 latest
@@ -323,54 +278,29 @@ vsfleet network compare cluster-prod cluster-dr -o json | jq '.differences, .map
 vsfleet assessment network-readiness --source cluster-prod --target cluster-dr --fail-on-blockers
 ```
 
-`topology` shows containment and direct attachments. `dependencies` follows
-objects a subject uses; `blast-radius` follows that relationship backwards.
-Use `--context` when a name is ambiguous. Each result reports `complete`,
-`partial`, or `unknown`, the checked contexts, the evidence basis for every
-edge, unresolved references, and any collection that was blind. Strong joins
-are confirmed; context-scoped display-name joins are inferred. Network
-relationships reconstructed from runs captured before inventory schema 12 are
-always partial.
+`topology` shows containment and attachments; `dependencies` follows what
+a subject uses; `blast-radius` follows those edges backwards. Use
+`--context` to narrow ambiguous names. Results include confidence,
+provenance, unresolved references, and coverage gaps. Older reconstructed
+network evidence is partial.
 
-`vsfleet doctor` diagnoses whether vsfleet can reach a vCenter, while
-`vsfleet assessment doctor` checks the local history database. `vsfleet health`
-and `vsfleet assessment findings` assess the estate described by stored
-evidence. `assessment readiness` reports `unknown`, never `ready`, when a
-required collection is blind.
+`network compare` compares two clusters' network mappings and policies;
+`network-readiness` derives `ready`, `blocked`, or `unknown`. Blind
+collections force unknown. See [planning](planning.md) for joins, blockers,
+and confidence rules.
 
-`network compare` and `assessment network-readiness` compare the networks
-reachable from two clusters using the same stored assessment ledger. Networks
-match by VLAN first and by name when VLAN evidence is unavailable. The result
-separates matched networks, source-only mapping gaps (including attached VMs),
-target-only networks, and field-level VLAN, MTU, teaming, security, uplink, and
-host-coverage differences. `network-readiness` reports `ready`, `blocked`, or
-`unknown`; a missing network used by a VM or a hard policy/coverage mismatch is
-a blocker. Blind collection evidence always produces `unknown`, and older or
-partially reconstructable network evidence is marked with reduced confidence.
+For diagnostics, `doctor` checks a live connection, `assessment doctor`
+checks history storage, and `health`/`assessment findings` check stored
+estate evidence.
 
 ### VM decommission checks
 
-`vsfleet vm decommission-check NAME_OR_UUID [RUN]` is an offline, read-only
-review of one VM's stored assessment evidence. It never powers off, deletes,
-unregisters, or otherwise changes a VM. The command searches every selected
-context, joins observations by VM UUID when available, and returns every
-distinct match when a name is ambiguous; use `--context` to narrow it.
-
-The verdict is `no-blockers`, `blocked`, or `unknown` (schema version 2; earlier
-releases used `ready` for `no-blockers`). `no-blockers` means every collected
-technical gate passed; it is not authorization to delete the VM. Powered-on or
-suspended VMs, snapshots, connected CD-ROM/USB devices, and inaccessible,
-orphaned, disconnected, or invalid connection states are blockers. Missing
-power, connection, hardware, dependency, or collection evidence is unknown.
-Disk backing paths, datastore dependencies, network relationships, unresolved
-references, and blind contexts are included as evidence. Ownership, backup
-policy, and application-dependency evidence are reported as `not_assessed`
-advisories because those fields are not part of the stored inventory yet; the
-verdict never accounts for them.
-
-The default run is `latest`; pass an explicit run ID or label for a reproducible
-offline result. JSON is intended for automation, and `--fail-on-blockers`
-returns exit code `2` only when a blocker is present:
+The offline report returns `no-blockers`, `blocked`, or `unknown`, using
+`latest` by default. Pass a run ID/label for reproducibility and `--context`
+for ambiguous names. `--fail-on-blockers` returns exit code 2 only for blockers.
+It performs no VM action; `no-blockers` is not permission to delete.
+Ownership, backup policy, and application dependencies are `not_assessed`.
+See [decommission review](planning.md#vm-decommission-review) for the gates.
 
 ```sh
 vsfleet vm decommission-check legacy-db01 latest
@@ -390,23 +320,15 @@ vsfleet compatibility report --sheet vHBA         # one of them
 vsfleet compatibility report -o json | jq         # for a pipeline
 ```
 
-It reads no configuration, opens no keyring and contacts no vCenter, so it can
-be used to decide whether an export fits a downstream pipeline before setting
-vsfleet up at all. It is generated from the same definitions the exporter
-writes from, so it cannot drift from the workbook.
-
-It describes what vsfleet emits and flags observed differences from RVTools
-4.8.1.4 in shared columns. It does not describe the complete RVTools schema;
-compare the values against what your pipeline requires. See [RVTools file
-interoperability](assessments.md#rvtools-file-interoperability) for the
-comparison.
+The report is generated from exporter definitions and runs without
+configuration, keyrings, or vCenter. It describes vsfleet output and observed
+differences from RVTools 4.8.1.4, not the complete RVTools schema. See
+[interoperability limits](exports.md#rvtools-file-interoperability).
 
 ## Assessments
 
-Assessment captures are read-only and store their evidence locally. Add
-`--browse-datastores` when the account has the vSphere `Datastore.Browse`
-privilege and you want zombie-VMDK checks; the bounded file listing adds time on
-large estates and is disabled by default.
+Capture read-only evidence locally, then query it offline. Browsing needs
+`Datastore.Browse`, adds collection time, and is disabled by default:
 
 ```sh
 vsfleet assessment run --all-contexts --browse-datastores
@@ -415,63 +337,45 @@ vsfleet assessment orphans latest
 vsfleet assessment capacity latest
 ```
 
-Add `--include-licenses` to also record license products, usage, expiration and
-host assignments for a licensing review. It needs the `Global.Licenses`
-privilege, never stores or exports license keys, and reports a denied or
-unsupported account as `unavailable` coverage rather than as zero licenses. See
-[License metadata](licensing.md).
+Collection options are independent:
 
-`--datastore-file-inventory` is a separate opt-in that lists every file of every
-accessible datastore for the optional `vFileInfo` export tab (also
-`Datastore.Browse`; bounded by `--file-inventory-max-files`,
-`--file-inventory-max-total-files` and `--file-inventory-timeout`). It does not
-enable, and is not enabled by, `--browse-datastores`, and it exports filenames
-and paths: see [Datastore file
-inventory](assessments.md#datastore-file-inventory-vfileinfo) for the limits,
-the incompleteness reporting and the privacy notes.
+| Flag | Evidence | Extra privilege |
+| --- | --- | --- |
+| `--browse-datastores` | Bounded VM disk-file checks for zombie/orphan VMDKs | `Datastore.Browse` |
+| `--datastore-file-inventory` | File names/sizes for `vFileInfo`; exports paths | `Datastore.Browse` |
+| `--include-licenses` | Products, usage, expiration, assignments; keys excluded | `Global.Licenses` |
 
-Without the flag, `datastore-zombie-vmdk` is reported as `not-evaluated`, not as
-a clean result. Orphan confidence is estate-aware: `--fail-on-findings
---severity warning` fails only on verified-unreferenced VMDKs; suspected and
-cross-context evidence is informational, while incomplete coverage is unknown.
-Use `assessment orphans [RUN]` for the evidence drill-down, with
-`--confidence` and `--min-size` filters or `-o json` for automation. When a
-datastore was not browsed (no `--browse-datastores`), failed, was denied, or was
-truncated, the command prints `NOT EVALUATED` instead of a clean result, names
-the datastores on stderr, and reports the same state under `coverage` in the
-JSON output; `--fail-on-unknown` turns incomplete coverage into a non-zero exit.
+File inventory limits are `--file-inventory-max-files`,
+`--file-inventory-max-total-files`, and `--file-inventory-timeout`. Limit
+flags do not enable collection. See [export limits/privacy](exports.md#datastore-file-inventory-vfileinfo)
+and [licenses](licensing.md).
 
-`vsfleet assessment capacity [RUN]` is an offline growth drill-down. It joins
-the first and last usable datastore observations in the selected window, names
-VM, template, and file contributors, and projects when the configured free-space
-floor will be crossed. `--min-free-bytes` adds an absolute floor to the default
-percentage floor; the larger floor binds. Use `--since 30d`, `--datastore`, and
-`--top` to narrow the report. Exact attribution requires complete datastore
-browse listings in both endpoint runs; inferred attribution uses a
-single-datastore VM's committed-storage change, and split attribution uses
-per-disk provisioned capacity for VMs spanning datastores. A synthetic
-`unattributed` contributor keeps the reported contributors equal to used-byte
-growth. Projections are `unknown` when coverage or history is insufficient.
+Without browsing, zombie-VMDK health is `not-evaluated`. Orphan reports expose
+coverage in JSON and name unbrowsed, failed, denied, or truncated datastores on
+stderr. Use `--confidence`, `--min-size`, and `--fail-on-unknown`; see
+[health and orphan checks](health.md) for confidence and exit semantics.
+
+Capacity reports accept `--since 30d`, `--datastore`, `--top`, and
+`--min-free-bytes`. The larger of the absolute and percentage free-space floors
+binds. See [capacity attribution](assessments.md#capacity-attribution-and-projection)
+for exact/inferred/split contributions and unknown projections.
 
 ## Exit codes
 
-A scheduled collection reacts to the exit code, so it is a contract rather than
-an implementation detail:
+Use exit codes to gate scheduled jobs:
 
 | Code | Meaning |
 |---|---|
 | `0` | The command did what was asked |
 | `1` | vsfleet could not do its job: bad configuration, an unreachable estate, an unreadable database |
 | `2` | The tool worked and the estate did not pass: `assessment diff` policy violations, `health --fail-on-findings`, or `assessment readiness --fail-on-blockers` |
-| `3` | A capture stored evidence from some contexts but not all — only with `assessment run --fail-on-partial` |
+| `3` | A capture stored evidence from some contexts but not all; only with `assessment run --fail-on-partial` |
 
-A partial capture exits `0` unless `--fail-on-partial` is passed, so upgrading
-does not change what an existing scheduled job does.
+Partial captures exit `0` unless `--fail-on-partial` is set.
 
 ## JSON output
 
-Use `-o json` for automation. The output is designed for `jq`, `awk`, and other
-pipeline consumers:
+Use `-o json` for automation:
 
 ```sh
 vsfleet vm list --all-contexts -o json
@@ -492,9 +396,8 @@ vsfleet search nvme --kind datastore -o json | jq
 
 ## Finding your way around
 
-The built-in help is the exhaustive reference and always reflects the
-installed binary. `-h` / `--help` works at every level of the tree, and every
-command carries worked examples:
+Use `-h` / `--help` at any level for the installed binary's complete command
+reference and examples:
 
 ```sh
 vsfleet --help                          # grouped by the job being done
@@ -507,8 +410,7 @@ vsfleet assessment trends capacity -h   # four levels deep, same thing
 getting started, inventory and search, assessment and history, analysis, and
 diagnostics.
 
-A mistyped command fails with a non-zero exit status and suggests the near
-miss, so a typo in a scheduled job is never mistaken for success:
+Unknown commands exit non-zero and suggest close matches:
 
 ```console
 $ vsfleet assessment lst
