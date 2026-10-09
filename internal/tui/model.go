@@ -531,6 +531,10 @@ type Options struct {
 	// backend.go) and for the same reason — a feature that launches real
 	// external processes is only testable behind one.
 	Handoff Handoff
+	// Welcome plays the once-per-version welcome animation before the
+	// interface. The zero value, which every caller but "vsfleet ui" passes,
+	// opens the interface straight away.
+	Welcome Welcome
 }
 
 // Snapshot is what is worth remembering about the interface between runs:

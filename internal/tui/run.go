@@ -41,14 +41,23 @@ func Run(ctx context.Context, b Backend, opts Options) (Snapshot, error) {
 	}
 
 	m := New(ctx, b, opts)
+	var model tea.Model = m
+	if opts.Welcome.Kind != WelcomeNone {
+		model = newWelcomeModel(m, opts.Welcome)
+	}
 	p := tea.NewProgram(
-		m,
+		model,
 		tea.WithAltScreen(),
 		tea.WithContext(ctx),
 		tea.WithInput(in),
 		tea.WithOutput(out),
 	)
 	final, err := p.Run()
+	// Quitting with ctrl+c while the welcome is still playing leaves it as the
+	// program's model; the interface underneath is what has a position.
+	if wm, ok := final.(*welcomeModel); ok {
+		final = wm.inner
+	}
 	if fm, ok := final.(*Model); ok {
 		return fm.Snapshot(), err
 	}
