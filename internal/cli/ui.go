@@ -71,6 +71,11 @@ The first run, and the first run after each upgrade, opens with a short
 welcome animation while the remembered vCenter loads underneath. Any key
 skips it; set VSFLEET_NO_WELCOME=1 to turn it off.
 
+When a newer release is out, launch asks whether to upgrade: "y" runs the
+upgrade and restarts (Homebrew and go install), "c" copies the command where
+vsfleet can't run it, "n" asks again in a week and "s" skips that release. Set
+VSFLEET_NO_UPDATE_NOTIFIER=1 to turn the check off.
+
 The interface shows nothing the command line cannot: it is a faster way to
 ask the same questions, not a second implementation of them.`,
 		Args: cobra.NoArgs,
@@ -85,10 +90,32 @@ ask the same questions, not a second implementation of them.`,
 // runUI is also what a bare "vsfleet" runs: the terminal interface is the
 // product's front door, and "vsfleet ui" is kept as an explicit, memorable
 // alias for it.
+//
+// Answering the launch prompt with "upgrade now" closes the interface so the
+// package manager can run on the real terminal. A successful upgrade
+// replaces this process with the new version; a failed one reopens the
+// interface with a note saying so.
 func runUI(a *App, cmd *cobra.Command) error {
+	notice := ""
+	for {
+		upgrade, err := runUIOnce(a, cmd, notice)
+		if err != nil || !upgrade {
+			return err
+		}
+		n, failed := a.upgrade(cmd.Context(), a.updates())
+		if !failed {
+			return nil
+		}
+		notice = n
+	}
+}
+
+// runUIOnce opens the interface once and reports whether it was closed to
+// upgrade.
+func runUIOnce(a *App, cmd *cobra.Command, notice string) (bool, error) {
 	cfg, err := a.Config()
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	remembered := uistate.Load("")
@@ -105,10 +132,10 @@ func runUI(a *App, cmd *cobra.Command) error {
 	// overrides the remembered one for this run only.
 	if len(a.ContextNames) > 0 {
 		if len(cfg.Contexts) == 0 {
-			return fmt.Errorf("context %q does not exist (no contexts are configured yet)", a.ContextNames[0])
+			return false, fmt.Errorf("context %q does not exist (no contexts are configured yet)", a.ContextNames[0])
 		}
 		if _, err := cfg.Context(a.ContextNames[0]); err != nil {
-			return err
+			return false, err
 		}
 		current = a.ContextNames[0]
 	}
@@ -131,7 +158,7 @@ func runUI(a *App, cmd *cobra.Command) error {
 		fmt.Fprintf(a.errOut(), "warning: historical assessments unavailable: %v\n", historyErr)
 	}
 	release := version.Release()
-	snap, runErr := tui.Run(cmd.Context(), backend, tui.Options{
+	opts := tui.Options{
 		Current:     current,
 		AllContexts: a.AllContexts,
 		Kind:        remembered.Kind,
@@ -150,7 +177,11 @@ func runUI(a *App, cmd *cobra.Command) error {
 		SSHIdentityFiles: remembered.SSHIdentityFiles,
 		SSHDestinations:  remembered.SSHDestinations,
 		Welcome:          welcomeFor(remembered.WelcomedVersion, release, len(cfg.Contexts) > 0, os.Getenv),
-	})
+		Notice:           notice,
+		NoticeBad:        notice != "",
+	}
+	a.updates().uiOptions(&opts)
+	snap, runErr := tui.Run(cmd.Context(), backend, opts)
 	// A clean run is the only one worth remembering: a program that never
 	// really started (no TTY, say) has nothing truthful to say about where
 	// the cursor was.
@@ -159,5 +190,5 @@ func runUI(a *App, cmd *cobra.Command) error {
 			fmt.Fprintf(a.errOut(), "warning: could not remember the last screen (%v)\n", err)
 		}
 	}
-	return runErr
+	return runErr == nil && snap.Upgrade, runErr
 }

@@ -535,6 +535,21 @@ type Options struct {
 	// interface. The zero value, which every caller but "vsfleet ui" passes,
 	// opens the interface straight away.
 	Welcome Welcome
+	// Upgrade asks about a newer release at launch, after any welcome. Nil
+	// asks nothing. UpgradeChosen is told "not now" and "skip" so the caller
+	// can remember them; "upgrade now" comes back in Snapshot.Upgrade.
+	Upgrade       *UpgradeOffer
+	UpgradeChosen func(UpgradeChoice)
+	// UpdateBadge is a newer release already known at launch, shown in the
+	// header. CheckUpdate, when set, asks for one in the background and
+	// returns it ("" for none); its answer only ever updates the badge,
+	// never interrupting the session with a prompt.
+	UpdateBadge string
+	CheckUpdate checkUpdateFunc
+	// Notice opens the message line with a note, such as why the program
+	// came back after a failed upgrade. NoticeBad colours it as a failure.
+	Notice    string
+	NoticeBad bool
 }
 
 // Snapshot is what is worth remembering about the interface between runs:
@@ -553,6 +568,9 @@ type Snapshot struct {
 	// SSHDestinations is every SSH destination remembered for a machine,
 	// keyed "<context>/<moref>".
 	SSHDestinations map[string]uistate.SSHDestination
+	// Upgrade reports that the operator answered the launch prompt with
+	// "upgrade now": the caller runs the upgrade once the terminal is back.
+	Upgrade bool
 }
 
 // Observation is the stable, non-persistent view of model state used by the
@@ -633,6 +651,7 @@ func (m *Model) Snapshot() Snapshot {
 	if st := m.current(); st != nil {
 		snap.Context = st.cc.Name
 	}
+	snap.Upgrade = m.upgradeNow
 	return snap
 }
 
@@ -871,6 +890,12 @@ type Model struct {
 	// Successful inventory counts describe the browse screen only.
 	messageInventory bool
 	quitting         bool
+
+	// updateBadge is a newer release to note in the header; checkUpdate
+	// looks for one in the background; upgradeNow records "upgrade now".
+	updateBadge string
+	checkUpdate checkUpdateFunc
+	upgradeNow  bool
 }
 
 // New builds the interface over a backend.
@@ -913,6 +938,11 @@ func New(ctx context.Context, backend Backend, opts Options) *Model {
 		sshDestinations:  copySSHDestinations(opts.SSHDestinations),
 		handoff:          opts.Handoff,
 		out:              opts.Out,
+		updateBadge:      opts.UpdateBadge,
+		checkUpdate:      opts.CheckUpdate,
+	}
+	if opts.Notice != "" {
+		m.setMessage(opts.Notice, opts.NoticeBad)
 	}
 	if m.handoff == nil {
 		m.handoff = realHandoff{}
@@ -972,13 +1002,13 @@ func refreshInterval(d time.Duration) time.Duration {
 // explicit reload-all action.
 func (m *Model) Init() tea.Cmd {
 	if len(m.states) == 0 {
-		return tea.Batch(m.enterForm(nil), m.spin.Tick)
+		return tea.Batch(m.enterForm(nil), m.spin.Tick, m.updateCheckCmd())
 	}
 	startup := m.ensureSelectedLoadedAtStartup()
 	if cmd := m.nextCredPromptCmd(); cmd != nil {
 		startup = append(startup, cmd)
 	}
-	cmds := []tea.Cmd{afterInitialPaint(m.ctx, startup)}
+	cmds := []tea.Cmd{afterInitialPaint(m.ctx, startup), m.updateCheckCmd()}
 	if cmd := scheduleRefresh(m.refreshInterval); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
@@ -1568,6 +1598,13 @@ func (m *Model) status(name string) session.Status {
 // Update is the whole event loop.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case updateCheckedMsg:
+		// A release found mid-session only lights the badge; the prompt
+		// waits for the next launch.
+		if msg.latest != "" {
+			m.updateBadge = msg.latest
+		}
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.clampCursor()

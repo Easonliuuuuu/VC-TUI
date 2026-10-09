@@ -53,13 +53,14 @@ func welcomeTick() tea.Cmd {
 }
 
 // welcomeModel plays the welcome over the interface and then gets out of the
-// way: it hands Bubble Tea the interface itself as the program's model, so
-// nothing after the last frame passes through it. Until then every message
-// other than a key or its own tick goes to the interface, so the loads,
-// credential prompts and spinner ticks it started in Init carry on
-// underneath.
+// way: it hands Bubble Tea the next model — the interface itself, or the
+// upgrade prompt in front of it — so nothing after the last frame passes
+// through it. Until then every message other than a key or its own tick goes
+// on to that model, so the loads, credential prompts and spinner ticks the
+// interface started in Init carry on underneath.
 type welcomeModel struct {
 	inner  *Model
+	next   tea.Model
 	w      Welcome
 	frame  int
 	width  int
@@ -68,8 +69,10 @@ type welcomeModel struct {
 }
 
 func newWelcomeModel(inner *Model, w Welcome) *welcomeModel {
-	return &welcomeModel{inner: inner, w: w}
+	return &welcomeModel{inner: inner, next: inner, w: w}
 }
+
+func (w *welcomeModel) base() *Model { return w.inner }
 
 func (w *welcomeModel) Init() tea.Cmd {
 	return tea.Batch(w.inner.Init(), welcomeTick())
@@ -82,22 +85,22 @@ func (w *welcomeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := w.forward(msg)
 		if msg.Width < welcomeCols || msg.Height < welcomeRows {
 			w.inner.setMessage(w.note(), false)
-			return w.inner, cmd
+			return w.next, cmd
 		}
 		return w, cmd
 	case welcomeTickMsg:
 		w.frame++
 		if w.frame >= welcomeFrames {
-			return w.inner, nil
+			return w.next, nil
 		}
 		return w, welcomeTick()
 	case tea.KeyMsg:
 		if msg.Type == tea.KeyCtrlC {
-			return w.inner.Update(msg)
+			return w.next.Update(msg)
 		}
 		// Any other key skips the rest, and is not passed on: it was pressed
 		// to stop the animation, not to act on a table nobody has seen yet.
-		return w.inner, nil
+		return w.next, nil
 	case tea.MouseMsg:
 		return w, nil
 	}
@@ -105,10 +108,8 @@ func (w *welcomeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (w *welcomeModel) forward(msg tea.Msg) tea.Cmd {
-	next, cmd := w.inner.Update(msg)
-	if m, ok := next.(*Model); ok {
-		w.inner = m
-	}
+	next, cmd := w.next.Update(msg)
+	w.next = next
 	return cmd
 }
 

@@ -4,5 +4,8 @@ ARG TARGETPLATFORM
 
 COPY --chmod=0555 ${TARGETPLATFORM}/vsfleet /usr/bin/vsfleet
 
+# The image upgrades by pulling a new tag, so it never checks for releases.
+ENV VSFLEET_NO_UPDATE_NOTIFIER=1
+
 USER 65532:65532
 ENTRYPOINT ["/usr/bin/vsfleet"]

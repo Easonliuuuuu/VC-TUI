@@ -47,6 +47,11 @@ type App struct {
 	mgr       *session.Manager
 	history   *assessment.Store
 	collector *assessment.Collector
+
+	// upd is the release check for this run (see updates); updateDone closes
+	// when a check started before the command has finished.
+	upd        *updater
+	updateDone chan struct{}
 }
 
 // Config loads the configuration once per process.
@@ -274,8 +279,15 @@ at production.`,
 		// quietly launching the interface with an argument it ignores — and
 		// rejectUnknownArgs, unlike cobra.NoArgs, offers the near miss.
 		Args: rejectUnknownArgs,
-		PersistentPreRunE: func(*cobra.Command, []string) error {
-			return a.checkFormat()
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			if err := a.checkFormat(); err != nil {
+				return err
+			}
+			a.startUpdateCheck(cmd)
+			return nil
+		},
+		PersistentPostRun: func(cmd *cobra.Command, _ []string) {
+			a.finishUpdateCheck(cmd)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runUI(a, cmd)
