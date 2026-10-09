@@ -330,3 +330,22 @@ func TestTemplateNameFitsAndHostNameWidens(t *testing.T) {
 		}
 	}
 }
+
+// TestDatastoreColumnsLeaveRoomForNames keeps TYPE, CAPACITY, FREE and USED
+// close to their values so NAME is never squeezed below its minimum and
+// DATACENTER is drawn at 80 columns.
+func TestDatastoreColumnsLeaveRoomForNames(t *testing.T) {
+	for _, width := range []int{80, 100} {
+		monochrome(t)
+		m := newTestModel(t, twoHealthy(), Options{Current: "prod"})
+		m.width, m.height = width, 24
+		press(t, m, "5")
+		head := lineContaining(t, ansi.Strip(m.View()), "CAPACITY")
+		if !strings.Contains(head, "DATACENTER") {
+			t.Errorf("%d columns: DATACENTER is dropped:\n%s", width, head)
+		}
+		if gap := strings.Index(head, "TYPE") - strings.Index(head, "NAME"); gap < minNameWidth+cellGap {
+			t.Errorf("%d columns: datastore NAME is %d wide, want at least %d:\n%s", width, gap-cellGap, minNameWidth, head)
+		}
+	}
+}
