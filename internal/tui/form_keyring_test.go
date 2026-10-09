@@ -152,21 +152,27 @@ func TestFormSavesTheChosenSourceWithoutAKeyring(t *testing.T) {
 }
 
 func TestFormEditKeepsItsCredentialWithoutAKeyring(t *testing.T) {
-	cc := &config.Context{
-		Name: "prod", Endpoint: "https://vcsa.example.internal", Username: "operator@vsphere.local",
-		Credential: credentials.Ref{Scheme: credentials.SchemeKeyring, Value: "prod"},
-	}
-	b := &keyringFake{fakeBackend: &fakeBackend{contexts: []*config.Context{cc}}, keyringErr: errNoSecretService}
-	m := New(context.Background(), b, Options{RefreshInterval: -1, Handoff: &fakeHandoff{}})
-	drive(t, m, m.enterForm(&contextState{cc: cc}))
+	for _, saved := range []credentials.Ref{
+		{Scheme: credentials.SchemeKeyring, Value: "prod-secret"},
+		{Scheme: credentials.SchemeExec, Value: "/usr/local/bin/vsfleet-credential"},
+	} {
+		t.Run(saved.Scheme, func(t *testing.T) {
+			cc := &config.Context{
+				Name: "prod", Endpoint: "https://vcsa.example.internal", Username: "operator@vsphere.local",
+				Credential: saved,
+			}
+			b := &keyringFake{fakeBackend: &fakeBackend{contexts: []*config.Context{cc}}, keyringErr: errNoSecretService}
+			m := New(context.Background(), b, Options{RefreshInterval: -1, Handoff: &fakeHandoff{}})
+			drive(t, m, m.enterForm(&contextState{cc: cc}))
 
-	if b.probes != 0 {
-		t.Errorf("editing probed the keyring %d times; an existing reference is not this machine's to change", b.probes)
-	}
-	// Even if an answer arrived, it would not apply to an edit.
-	m.form.keyringUnavailable(errNoSecretService.Error())
-	if got := m.form.input().Credential; got != cc.Credential {
-		t.Errorf("editing rewrote the credential to %q, want %q", got, cc.Credential)
+			if b.probes != 1 {
+				t.Errorf("editing probed the keyring %d times, want 1", b.probes)
+			}
+			// The answer changes what is on offer, never what was saved.
+			if got := m.form.input().Credential; got != saved {
+				t.Errorf("an unavailable keyring rewrote the credential to %q, want %q", got, saved)
+			}
+		})
 	}
 }
 

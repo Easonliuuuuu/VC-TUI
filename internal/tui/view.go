@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 
+	"github.com/easonliuuuuu/vsfleet/internal/credentials"
 	"github.com/easonliuuuuu/vsfleet/internal/humanize"
 	"github.com/easonliuuuuu/vsfleet/internal/vsphere"
 )
@@ -340,8 +341,15 @@ func (m *Model) viewBrowse() []string {
 	// vCenters that did answer are still the answer to the question asked.
 	for _, st := range m.failuresInScope() {
 		reason, action := "connection failed", "d diagnose"
-		if errors.Is(st.err, errPromptCanceled) {
+		var source *credentials.SourceError
+		switch {
+		case errors.Is(st.err, errPromptCanceled):
 			reason, action = "credential entry canceled", "r retry"
+		case errors.As(st.err, &source):
+			// The password never left its source, so no network stage was
+			// reached: saying "connection failed" would send the operator to
+			// check the route. Name what is actually missing.
+			reason = source.Short
 		}
 		lines = append(lines, t.bad.Render(truncate(
 			fmt.Sprintf("%s %s: %s · %s", glyphFail, st.cc.Name, reason, m.failureHint(action)), w)))
@@ -922,6 +930,12 @@ func (m *Model) viewDoctor() []string {
 		lines = append(lines, "  "+t.ok.Render("Connection successful.")+t.dim.Render("  "+humanize.Duration(d.Latency)))
 	} else {
 		lines = append(lines, "  "+t.bad.Render("Stopped at the first failing stage."))
+		if fix := sourceFix(d, st.cc.Name, !m.demo); fix != "" {
+			lines = append(lines, "", "  "+t.header.Render("How to fix"))
+			for _, l := range wrap(fix, max(20, min(m.width-4, 76))) {
+				lines = append(lines, "  "+t.text.Render(l))
+			}
+		}
 	}
 	if d.Thumbprint != "" {
 		lines = append(lines, "", "  "+t.label.Render(pad("Served thumbprint", labelColumnPad, false)))
@@ -933,6 +947,49 @@ func (m *Model) viewDoctor() []string {
 // renderChecks renders a diagnosis's stages, shared by the doctor panel and
 // the form's "last test" summary so a connection reads the same way in
 // either place.
+// sourceFailure is the env, file or exec source behind a diagnosis that
+// stopped before the network, and whether it is the context's own password
+// (as opposed to its proxy's).
+func sourceFailure(d *vsphere.Diagnosis) (se *credentials.SourceError, own bool) {
+	if d == nil {
+		return nil, false
+	}
+	for _, c := range d.Checks {
+		if c.Status == vsphere.CheckFail && errors.As(c.Err, &se) {
+			return se, c.Name == "Credential available"
+		}
+	}
+	return nil, false
+}
+
+// sourceFix is the next step for a password source that could not answer,
+// written for that kind of source. It is empty for every other failure, whose
+// stages already say what was tried. canEdit offers changing the source from
+// the edit form, which only exists for the context's own password.
+func sourceFix(d *vsphere.Diagnosis, context string, canEdit bool) string {
+	se, own := sourceFailure(d)
+	if se == nil {
+		return ""
+	}
+	var fix string
+	switch se.Ref.Scheme {
+	case credentials.SchemeEnv:
+		// A running process never sees a variable exported after it started,
+		// so retrying cannot help. Say that, or the operator will try.
+		fix = "vsfleet reads " + se.Ref.Value + " from the shell it was started in, so a variable set now is not visible to it. Set it, then start vsfleet again."
+	case credentials.SchemeFile:
+		fix = "Put the password back in " + se.Ref.Value + " as a single line, then press r."
+	case credentials.SchemeExec:
+		fix = "Run the helper yourself to see all of its output: VSFLEET_CONTEXT=" + context + " " + se.Ref.Value + " — once it prints the password, press r."
+	default:
+		return ""
+	}
+	if own && canEdit {
+		fix += " Or press e to change where this context's password comes from."
+	}
+	return fix
+}
+
 func (m *Model) renderChecks(checks []vsphere.Check) []string {
 	t := m.theme
 	lines := make([]string, 0, len(checks))
