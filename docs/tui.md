@@ -18,6 +18,25 @@ line instead. It never plays when `VSFLEET_NO_WELCOME` or `CI` is set. The
 last version welcomed is kept in `state.json` as `welcomed_version`; builds
 from a source checkout all count as the one version `dev`.
 
+## Upgrade prompt
+
+When a newer release is already known at launch, the interface asks about it
+once, right after any welcome animation and before the table:
+
+| Key | Does |
+|---|---|
+| `y` | Closes the interface, runs the upgrade in the foreground with the package manager's own output, then restarts into the new version. Only offered for Homebrew and `go install` on macOS and Linux. |
+| `c` | Copies the upgrade command, or the release page, for installs vsfleet can't upgrade itself: Scoop and winget (Windows can't replace a running `.exe`), `.deb`/`.rpm` (they need `sudo`), and release archives. |
+| `n` / `esc` | Not now. Asks again in a week; the header badge stays. |
+| `s` | Skips this release: no more prompt or badge until the next one. |
+
+If the upgrade fails, vsfleet reports the exit status and reopens on the
+current version. A release that turns up during a session only adds a
+`↑ v0.11.0 available` badge to the header; the prompt waits for the next
+launch. The check result, snooze and skip are kept in `update.json` beside
+`state.json`. `VSFLEET_NO_UPDATE_NOTIFIER=1` turns the check, prompt, badge and
+command-line notice off.
+
 ## Browse screen
 
 | Workflow | Key | Action |

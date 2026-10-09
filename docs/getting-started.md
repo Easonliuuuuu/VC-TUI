@@ -79,6 +79,18 @@ cd vsfleet
 go build -o vsfleet ./cmd/vsfleet
 ```
 
+### Upgrading
+
+vsfleet checks for a newer release at most once a day, in the background.
+When one is out, the next launch of the interface asks whether to upgrade.
+For Homebrew and `go install` it can run the upgrade for you and restart into
+the new version. Scoop, winget, `.deb`/`.rpm` packages and release archives
+get the command or download link to copy instead. Other commands print a short
+notice on stderr instead of asking. Set `VSFLEET_NO_UPDATE_NOTIFIER=1` to turn
+the check off; it never runs under CI or in the container image. See
+[Terminal UI](tui.md#upgrade-prompt) and [SECURITY.md](https://github.com/Easonliuuuuu/vsfleet/blob/main/SECURITY.md)
+for exactly what is sent.
+
 ## Look around first
 
 Before configuring anything, open the interface on sample data:

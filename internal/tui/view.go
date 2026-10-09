@@ -198,6 +198,9 @@ func (m *Model) headerBrand() string {
 	if m.demo {
 		brand += "  " + t.warn.Render(demoBadge)
 	}
+	if b := m.updateBadgeText(); b != "" {
+		brand += "  " + t.warn.Render(b)
+	}
 	return brand
 }
 
