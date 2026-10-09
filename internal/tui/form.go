@@ -52,9 +52,17 @@ type contextForm struct {
 	name, endpoint, username, password textinput.Model
 	datacenter, proxyAddr, proxyUser   textinput.Model
 	proxyPass, thumbprint              textinput.Model
-	via, viaMoRef                      string
+	// credSource is where an env, file or exec credential lives: a variable
+	// name, a path or a program. One input serves all three, because only
+	// one of them can be chosen at a time.
+	credSource    textinput.Model
+	via, viaMoRef string
 
-	credIdx int // 0 keyring, 1 prompt
+	credIdx int // an index into credOptions()
+	// noKeyring, once set, is why the OS keyring cannot hold a password. A
+	// new context then offers every source that works without one instead of
+	// taking a password it cannot store.
+	noKeyring string
 	// managedCred holds a credential reference this form does not offer to
 	// edit — env, file or exec. The form's credential row is a two-way choice
 	// between keyring and prompt, so without somewhere to keep it, editing an
@@ -112,6 +120,7 @@ func newContextForm(edit *contextState) *contextForm {
 		proxyUser:  newFormInput("optional", 30),
 		proxyPass:  newFormSecret(40),
 		thumbprint: newFormInput("", 60),
+		credSource: newFormInput("", 48),
 	}
 	if edit == nil {
 		return f
@@ -195,6 +204,53 @@ func newSeededContextForm(seed contextSeed) *contextForm {
 	return f
 }
 
+// credOptions is what the Credential row offers. With a keyring that is the
+// familiar choice of storing the password or being asked for it. Without one,
+// storing is not possible, so the row offers the prompt and the three sources
+// that resolve a password where it already lives.
+func (f *contextForm) credOptions() []string {
+	if f.noKeyring != "" {
+		return []string{credentials.SchemePrompt, credentials.SchemeEnv, credentials.SchemeFile, credentials.SchemeExec}
+	}
+	return []string{credentials.SchemeKeyring, credentials.SchemePrompt}
+}
+
+func (f *contextForm) credScheme() string {
+	opts := f.credOptions()
+	if f.credIdx < 0 || f.credIdx >= len(opts) {
+		return opts[0]
+	}
+	return opts[f.credIdx]
+}
+
+// keyringUnavailable switches a new form to the sources that work without a
+// keyring. An edited context keeps the reference it was saved with: changing
+// it because of this machine would be a decision the operator did not make.
+func (f *contextForm) keyringUnavailable(reason string) {
+	if f.editing || reason == "" {
+		return
+	}
+	f.noKeyring = reason
+	f.credIdx = 0
+	f.password.SetValue("")
+	f.syncFocus()
+}
+
+// credSourceRow is the input for an env, file or exec reference.
+func (f *contextForm) credSourceRow(scheme string) formRow {
+	switch scheme {
+	case credentials.SchemeEnv:
+		return formRow{label: "Environment variable", kind: rowText, input: &f.credSource,
+			hint: "read when vsfleet connects, e.g. VSFLEET_PROD_PASSWORD"}
+	case credentials.SchemeFile:
+		return formRow{label: "Password file", kind: rowText, input: &f.credSource,
+			hint: "one trailing newline is stripped; protecting the file is up to you"}
+	default:
+		return formRow{label: "Helper program", kind: rowText, input: &f.credSource,
+			hint: "prints the password on stdout; told the context name in VSFLEET_CONTEXT"}
+	}
+}
+
 // rows lays the form out. It is rebuilt on every keystroke rather than cached,
 // because which rows exist depends on the current values of others — the
 // SOCKS5 fields only make sense once socks5 is chosen, the thumbprint only
@@ -217,10 +273,20 @@ func (f *contextForm) rows() []formRow {
 		// "vsfleet context add --credential".
 		rows = append(rows, formRow{label: "Credential", kind: rowStatic, static: f.managedCred.String(),
 			hint: "resolved without a prompt; edit it with vsfleet context add --credential"})
+	} else if f.noKeyring != "" {
+		rows = append(rows,
+			formRow{label: "OS keyring", kind: rowStatic, static: "not available here — choose where the password comes from",
+				hint: f.noKeyring},
+			formRow{label: "Credential", kind: rowSelect, options: f.credOptions(), idx: &f.credIdx,
+				hint: "prompt asks every run; env, file and exec read it when vsfleet connects"},
+		)
+		if scheme := f.credScheme(); scheme != credentials.SchemePrompt {
+			rows = append(rows, f.credSourceRow(scheme))
+		}
 	} else {
-		rows = append(rows, formRow{label: "Credential", kind: rowSelect, options: []string{"keyring", "prompt"}, idx: &f.credIdx,
+		rows = append(rows, formRow{label: "Credential", kind: rowSelect, options: f.credOptions(), idx: &f.credIdx,
 			hint: "keyring stores the password in the OS secret store; prompt asks every run"})
-		if f.credIdx == 0 {
+		if f.credScheme() == credentials.SchemeKeyring {
 			label := "Password"
 			if f.editing {
 				label = "Password (blank keeps the stored one)"
@@ -332,11 +398,16 @@ func (f *contextForm) input() contextops.Input {
 	default:
 		in.TLS = config.TLSConfig{Mode: config.TLSSystem}
 	}
-	switch {
+	switch scheme := f.credScheme(); {
 	case !f.managedCred.IsZero():
 		in.Credential = f.managedCred
-	case f.credIdx == 1:
+	case scheme == credentials.SchemePrompt:
 		in.Credential = credentials.Ref{Scheme: credentials.SchemePrompt}
+	case scheme != credentials.SchemeKeyring:
+		// env, file or exec: the reference is the whole of it. There is no
+		// password to carry, so the connection test resolves it the way
+		// every later run will.
+		in.Credential = credentials.Ref{Scheme: scheme, Value: strings.TrimSpace(f.credSource.Value())}
 	default:
 		in.Credential = credentials.Ref{Scheme: credentials.SchemeKeyring, Value: in.Name}
 		if pw := f.password.Value(); pw != "" {
@@ -362,6 +433,8 @@ func (f *contextForm) validate() string {
 		return "proxy address is required"
 	case in.TLS.Mode == config.TLSThumbprint && in.TLS.Thumbprint == "":
 		return "thumbprint is required in thumbprint mode — use Discover, or switch policy"
+	case in.Credential.NonInteractive() && in.Credential.Value == "":
+		return strings.ToLower(f.credSourceRow(in.Credential.Scheme).label) + " is required for a " + in.Credential.Scheme + " credential"
 	default:
 		return ""
 	}
@@ -376,6 +449,9 @@ func (m *Model) showForm(f *contextForm) tea.Cmd {
 	m.form = f
 	m.mode = modeForm
 	m.form.syncFocus()
+	if kb, ok := m.backend.(keyringBackend); ok && !f.editing {
+		return tea.Batch(textinput.Blink, probeFormKeyring(m.ctx, kb, f))
+	}
 	return textinput.Blink
 }
 

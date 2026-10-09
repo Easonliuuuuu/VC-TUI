@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -219,10 +220,18 @@ func runContextAdd(ctx context.Context, a *App, f *contextFlags) error {
 	}
 
 	if interactive {
-		if err := runAddWizard(a, cc, f); err != nil {
+		if err := runAddWizard(ctx, a, cc, f); err != nil {
 			return err
 		}
-		if !havePassword {
+		if credRef.IsZero() {
+			credRef = cc.Credential
+		}
+		// env, file and exec resolve the password themselves, and the
+		// connection test below goes through them — which is the point: a
+		// missing variable or a failing helper shows up now, not on the first
+		// unattended run. A password typed here would be tested instead and
+		// then thrown away.
+		if !havePassword && !credRef.NonInteractive() {
 			s, err := p.ReadSecret(fmt.Sprintf("Password for %s: ", cc.Username))
 			if err != nil {
 				return err
@@ -277,7 +286,7 @@ func runContextAdd(ctx context.Context, a *App, f *contextFlags) error {
 	}
 	if res.StoreWarning != nil {
 		fmt.Fprintf(a.errOut(), "warning: %v\n", res.StoreWarning)
-		fmt.Fprintf(a.errOut(), "vsfleet will ask for it on each run. Set the credential to \"prompt\" to make that explicit.\n")
+		fmt.Fprintf(a.errOut(), "vsfleet will ask for it on each run. To run unattended instead, add the context again with --force and\n--credential env:<VAR>, file:<path> or exec:<program>.\n")
 	}
 	fmt.Fprintf(a.out(), "Saved context %q to %s\n", res.Context.Name, cfg.Path())
 	return nil
@@ -285,7 +294,7 @@ func runContextAdd(ctx context.Context, a *App, f *contextFlags) error {
 
 // runAddWizard fills in whatever the flags left empty. Editing TOML by hand is
 // a fine second step, but it should not be the first thing a new user meets.
-func runAddWizard(a *App, cc *config.Context, f *contextFlags) error {
+func runAddWizard(ctx context.Context, a *App, cc *config.Context, f *contextFlags) error {
 	p := a.Prompt()
 	out := a.errOut()
 	fmt.Fprintln(out, "Add vCenter")
@@ -359,6 +368,18 @@ func runAddWizard(a *App, cc *config.Context, f *contextFlags) error {
 	if cc.Username, err = ask("Username", firstNonEmpty(cc.Username, "administrator@vsphere.local"), true); err != nil {
 		return err
 	}
+	// A new context's password goes to the OS keyring by default. Where there
+	// is none, find out now and let the operator choose where it comes from,
+	// rather than taking the password, failing to store it, and downgrading
+	// to a prompt on every run behind a warning. A password already piped in
+	// with --password-stdin is a request for the keyring; leave it to Save.
+	if f.credential == "" && !f.passwordStdin {
+		if perr := a.Resolver().CheckAvailable(ctx, credentials.SchemeKeyring); perr != nil {
+			if cc.Credential, err = chooseCredentialSource(ask, choose, out, perr); err != nil {
+				return err
+			}
+		}
+	}
 	if f.transport == "" {
 		if cc.Transport.Type, err = choose("Connection", []string{
 			config.TransportDirect, config.TransportSOCKS5, config.TransportHTTPProxy, config.TransportHTTPSProxy,
@@ -389,6 +410,52 @@ func runAddWizard(a *App, cc *config.Context, f *contextFlags) error {
 	}
 	fmt.Fprintln(out)
 	return nil
+}
+
+// chooseCredentialSource asks where a password comes from when the OS keyring
+// cannot hold it. Every source that works without one is offered, and for
+// env, file and exec only where the password lives is collected — never the
+// password itself, which none of them stores. ask and choose are the wizard's
+// own question helpers, so this step reads like the rest of it.
+func chooseCredentialSource(
+	ask func(label, current string, required bool) (string, error),
+	choose func(label string, options []string, def string) (string, error),
+	out io.Writer,
+	reason error,
+) (credentials.Ref, error) {
+	fmt.Fprintf(out, "  No OS keyring is available here, so the password cannot be stored.\n")
+	fmt.Fprintf(out, "  (%v)\n", reason)
+	fmt.Fprintln(out, "  Where should the password come from?")
+	fmt.Fprintln(out, "    prompt  ask on every run; nothing is stored")
+	fmt.Fprintln(out, "    env     an environment variable")
+	fmt.Fprintln(out, "    file    a file you protect, such as a mounted secret")
+	fmt.Fprintln(out, "    exec    a helper program that prints it (vault, pass, op, ...)")
+	scheme, err := choose("Password source", []string{
+		credentials.SchemePrompt, credentials.SchemeEnv, credentials.SchemeFile, credentials.SchemeExec,
+	}, credentials.SchemePrompt)
+	if err != nil {
+		return credentials.Ref{}, err
+	}
+	if scheme == credentials.SchemePrompt {
+		return credentials.Ref{Scheme: credentials.SchemePrompt}, nil
+	}
+	label := map[string]string{
+		credentials.SchemeEnv:  "Environment variable",
+		credentials.SchemeFile: "Password file path",
+		credentials.SchemeExec: "Helper program path",
+	}[scheme]
+	for {
+		v, err := ask(label, "", true)
+		if err != nil {
+			return credentials.Ref{}, err
+		}
+		ref, err := credentials.ParseRef(scheme + ":" + v)
+		if err != nil {
+			fmt.Fprintf(out, "  %v\n", err)
+			continue
+		}
+		return ref, nil
+	}
 }
 
 // discoverThumbprint fetches the certificate a vCenter presents and, when a

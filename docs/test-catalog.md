@@ -37,9 +37,9 @@ systems with `-race`. Packages that need a vCenter start
 | Package | What it covers | Situations simulated |
 | --- | --- | --- |
 | `internal/assessment` | The history store, diffs, trends, capacity reports, timelines, policy, perf windows, schema migrations | interrupted captures, concurrent writers fenced by a lease, a VM renamed or moved across vCenters, a context missing from one run, failed collections that must not read as removals, migrating older database schemas |
-| `internal/cli` | Command wiring, flags, exit codes, JSON shapes, help text | unknown contexts, `--all-contexts` overrides, non-finite thresholds, RVTools import dry runs and repeats, offline exports that must not clobber files, every command having runnable examples |
+| `internal/cli` | Command wiring, flags, exit codes, JSON shapes, help text | unknown contexts, `--all-contexts` overrides, non-finite thresholds, RVTools import dry runs and repeats, offline exports that must not clobber files, every command having runnable examples, the `context add` wizard offering prompt, `env`, `file` and `exec` without a keyring and never asking for the password itself |
 | `internal/config` | Loading, validating, and saving configuration; SSH routes; thumbprints | future config versions, duplicate names, dangling `via` provenance, routes that must survive a save |
-| `internal/credentials` | `keyring:`, `prompt:`, `env:`, `file:` and `exec:` credential references | an unavailable keyring falling back to the prompt, unset vs empty variables, failing, silent, missing, or slow helpers, non-interactive references that must never prompt |
+| `internal/credentials` | `keyring:`, `prompt:`, `env:`, `file:` and `exec:` credential references | an unavailable keyring falling back to the prompt, probing the keyring without writing to it and without reaching the OS store from an in-memory resolver, unset vs empty variables, failing, silent, missing, or slow helpers, non-interactive references that must never prompt |
 | `internal/decommission` | The VM decommission check | strict blockers, unknown coverage, ambiguous identity, unresolved dependencies |
 | `internal/demo` | The offline demo estate | determinism, production-like size, referential integrity, shared names across contexts, five differing history runs |
 | `internal/health` | Health rules, readiness, orphan and zombie disk detection | threshold boundaries, empty state treated as unknown, partial or truncated datastore browsing, same-named datastores, schema-gated rules, passthrough devices |
@@ -57,7 +57,7 @@ systems with `-race`. Packages that need a vCenter start
 | `internal/testbed` | The loopback testbed lab itself | authenticated routes start, and wrong fixture credentials are rejected |
 | `internal/topology` | Topology and blast-radius queries | shared datastores across contexts, same-named objects that must stay distinct, blind contexts that downgrade results |
 | `internal/transport` | Direct, SOCKS5, and HTTP(S) proxy dialers | offline proxies, ambient proxy variables that must be ignored |
-| `internal/tui` | The Bubble Tea model: browse, detail, VM dashboard, history panes, datastore browser, credential and SSH prompts, context forms | stale async replies, narrow terminals, failed reloads keeping stale data, background refresh tiers, demo mode disabling external actions, SSH routing and alias precedence |
+| `internal/tui` | The Bubble Tea model: browse, detail, VM dashboard, history panes, datastore browser, credential and SSH prompts, context forms | stale async replies, narrow terminals, failed reloads keeping stale data, background refresh tiers, demo mode disabling external actions, SSH routing and alias precedence, the add-context form switching to prompt, `env`, `file` and `exec` without a keyring while an edited context keeps its reference |
 | `internal/vsphere` | Read-only inventory collection against the simulator | paging, partial failure of one kind, permission denial recorded as provenance, perf counters with gaps or without samples, license metadata without keys |
 | `cmd/vsfleet-demo` | The demo binary | seeded assessment history is wired in |
 

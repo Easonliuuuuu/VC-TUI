@@ -145,6 +145,13 @@ type Provider interface {
 	Delete(ctx context.Context, ref Ref) error
 }
 
+// Prober is implemented by a Provider whose backing store can be missing at
+// run time — the OS keyring on a machine with no Secret Service — so setup
+// can find out before relying on it.
+type Prober interface {
+	Probe(ctx context.Context) error
+}
+
 // Resolver dispatches to the Provider registered for a reference's scheme. It
 // is itself a Provider, so the rest of the application depends on one type.
 type Resolver struct {
@@ -191,6 +198,22 @@ func (r *Resolver) SetProvider(p Provider) {
 	if p.Scheme() == SchemePrompt {
 		r.Default = p
 	}
+}
+
+// CheckAvailable reports whether the provider registered for scheme can be
+// used right now. A provider that cannot go missing — an in-memory one in a
+// test or the testbed, a read-only source — is always available; only a
+// Prober is asked. Going through the registered provider, rather than the OS
+// keyring directly, is what keeps a resolver built for isolation isolated.
+func (r *Resolver) CheckAvailable(ctx context.Context, scheme string) error {
+	p, ok := r.providers[scheme]
+	if !ok {
+		return fmt.Errorf("no credential provider registered for scheme %q", scheme)
+	}
+	if pr, ok := p.(Prober); ok {
+		return pr.Probe(ctx)
+	}
+	return nil
 }
 
 // Prime records a credential already resolved outside the normal Get path. A

@@ -105,9 +105,22 @@ exec vault read -field=password "secret/vcenter/$VSFLEET_CONTEXT"
 The helper inherits no standard input, and a helper that hangs fails its own
 context's `--timeout` rather than holding up the rest of the estate.
 
-On systems without an active Secret Service and without one of the unattended
-sources configured, such as a headless server or SSH bastion, `context add`
-records `credential = "prompt"` with a warning.
+### Without an OS keyring
+
+A headless server, an SSH session to a bastion, WSL and most containers have
+no Secret Service, so there is nowhere to store a password. Before asking for
+one, the `context add` wizard and the terminal interface's add-context form
+check whether the keyring can be used. The check is a lookup only and never
+writes a test entry. When the keyring is unavailable, they say why and offer
+`prompt`, `env`, `file` and `exec` instead of `keyring`. For the last three
+they ask only where the password lives, then run the connection test through
+that source, so a missing variable or a failing helper shows up during setup
+rather than on the first unattended run.
+
+An unattended `context add` that pipes a password with `--password-stdin` and
+names no `--credential` still asks for the keyring. If the keyring write fails,
+the context is saved as `credential = "prompt"` with a warning, never as a
+keyring reference with nothing stored behind it.
 
 ## Network routes
 

@@ -120,6 +120,14 @@ type vmsPerfBackend interface {
 	VMsPerfSeries(ctx context.Context, cc *config.Context, vms []vsphere.VM, window time.Duration, interval int, now time.Time) ([]vsphere.VMSeriesResult, error)
 }
 
+// keyringBackend reports whether the keyring a new context's password would
+// be stored in can be used. It is optional and type-asserted: a backend
+// without it — a test fake, the demo — leaves the form offering the keyring as
+// it always has.
+type keyringBackend interface {
+	KeyringAvailable(ctx context.Context) error
+}
+
 // clockBackend lets a backend whose data is pinned to a fixed instant — the
 // synthetic demo estate — supply that instant, so ages computed in the
 // interface (a snapshot's, say) do not drift with the wall clock.
@@ -326,6 +334,13 @@ func (b *sessionBackend) VMsPerfSeries(ctx context.Context, cc *config.Context, 
 	return liveQuery(ctx, b, cc, func(client *vsphere.Client, opCtx context.Context) ([]vsphere.VMSeriesResult, error) {
 		return client.VMsPerfSeries(opCtx, vms, window, interval, now)
 	})
+}
+
+// KeyringAvailable implements keyringBackend. It asks the resolver's own
+// keyring provider, so a backend built around an in-memory one — the testbed —
+// never reaches the operator's real secret store.
+func (b *sessionBackend) KeyringAvailable(ctx context.Context) error {
+	return b.res.CheckAvailable(ctx, credentials.SchemeKeyring)
 }
 
 func (b *sessionBackend) Status(name string) (session.Status, bool) { return b.mgr.Status(name) }

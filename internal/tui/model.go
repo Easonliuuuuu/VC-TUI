@@ -1791,6 +1791,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case formKeyringMsg:
+		// The answer belongs to the form that asked. One cancelled and
+		// reopened in the meantime asks again for itself.
+		if m.form != nil && m.form == msg.form && msg.err != nil {
+			m.form.keyringUnavailable(msg.err.Error())
+		}
+		return m, nil
+
 	case formSaveMsg:
 		return m, m.applyFormSave(msg)
 
