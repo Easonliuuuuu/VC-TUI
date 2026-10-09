@@ -122,6 +122,16 @@ names no `--credential` still asks for the keyring. If the keyring write fails,
 the context is saved as `credential = "prompt"` with a warning, never as a
 keyring reference with nothing stored behind it.
 
+### When a source stops answering
+
+vsfleet keeps only the reference, so a variable, file or helper that is gone
+on a later run does not change the context; it fails to connect until the
+source is back, and never falls back to a prompt. The CLI prints the full
+reason (`environment variable LAB_VC_PW is not set (env:LAB_VC_PW)`); the
+terminal interface names it on the failed context's line and says how to fix
+it in the diagnosis, where `e` changes the source — see
+[a password source that is gone](tui.md#a-password-source-that-is-gone).
+
 ## Network routes
 
 | Transport | Behavior |

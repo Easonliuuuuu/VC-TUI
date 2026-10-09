@@ -502,6 +502,36 @@ hints shorten on a narrow terminal, so the table keeps its rows. A vCenter that
 failed keeps its own `✕` line with the `d` diagnosis hint instead of appearing
 twice. Estate search uses the same reasons (`✕ edge-vc not searched: not connected`).
 
+### A password source that is gone
+
+A context set to `env:`, `file:` or `exec:` reads its password each time it
+connects, and that source can disappear between runs: the variable is not
+exported in a new shell, the file is deleted, or the secret manager behind the
+helper is locked. The context is unchanged, but it cannot connect, and its line
+names the source instead of `connection failed`:
+
+```text
+✕ lab-vc: LAB_VC_PW is not set · d diagnose
+✕ lab-vc: password file /home/ops/.config/vsfleet/lab.pw does not exist · d diagnose
+✕ lab-vc: password helper vsfleet-credential failed: Vault is sealed · d diagnose
+```
+
+The diagnosis (`d`) adds a **How to fix** block written for that source:
+
+- **env:** set the variable in the shell vsfleet starts in, then start it
+  again. A running process never sees a variable exported after it started,
+  so `r` cannot fix this one.
+- **file:** put the password back in the file, then press `r`.
+- **exec:** run the helper yourself, with `VSFLEET_CONTEXT` set to the context
+  name, to see all of its output, then press `r` once it works.
+
+Press `e` in the diagnosis to change where the context's password comes from.
+The edit form offers every source (keyring, prompt, env, file and exec),
+opens on the saved one with its value filled in, and runs the connection
+test through the new source before saving. When an edit moves a context off
+the keyring, its old keyring entry is removed after the save, unless another
+context still uses the same key.
+
 Press `Enter` on a vApp to open its summary and expanded member hierarchy. The
 summary shows the vApp's CPU and memory allocation (limit, reservation, shares,
 expandable) and its startup order; the members table lists VMs in that order,

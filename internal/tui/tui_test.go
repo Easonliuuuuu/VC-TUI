@@ -1357,11 +1357,7 @@ func TestEditingAContextDropsWhatTheOldOneLoaded(t *testing.T) {
 	if !m.form.editing {
 		t.Fatalf("'e' did not open an edit of prod")
 	}
-	// Row order while editing: Name(static) Endpoint Username Credential
-	// Password Route TLS Datacenter Current Test Save Cancel.
-	for range 7 {
-		press(t, m, "down") // -> Datacenter
-	}
+	focusFormRow(t, m, "Default datacenter (optional)")
 	typeText(t, m, "Somewhere-Else")
 
 	// From here the context describes a different vCenter, and that vCenter
@@ -1629,11 +1625,7 @@ func TestEditContextPrefillsAndUpdatesInPlace(t *testing.T) {
 		t.Errorf("endpoint not prefilled: %q", got)
 	}
 
-	// Row order while editing: Name(static) Endpoint Username Credential
-	// Password Route TLS Datacenter Current Test Save Cancel.
-	for range 7 {
-		press(t, m, "down") // -> Datacenter
-	}
+	focusFormRow(t, m, "Default datacenter (optional)")
 	typeText(t, m, "Lab-DC")
 	for range 3 {
 		press(t, m, "down") // Current, Test, Save
@@ -1900,6 +1892,21 @@ func TestOptionsSeedTheStartingPosition(t *testing.T) {
 	if m.sortMode != sortByStatus {
 		t.Errorf("starting sort is %v, want status", m.sortMode)
 	}
+}
+
+// focusFormRow presses down until the form's cursor is on the row labelled
+// label. Which rows appear depends on the credential, route and certificate
+// choices, so a fixed number of presses would break whenever one of them
+// gains or loses a row.
+func focusFormRow(t *testing.T, m *Model, label string) {
+	t.Helper()
+	for range len(m.form.rows()) {
+		if m.form.rows()[m.form.cursor].label == label {
+			return
+		}
+		press(t, m, "down")
+	}
+	t.Fatalf("the form has no row labelled %q", label)
 }
 
 func hasLabel(rows []formRow, label string) bool {

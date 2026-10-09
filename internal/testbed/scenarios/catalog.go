@@ -48,6 +48,7 @@ var definitions = []Definition{
 	{Name: "stale-result", Profile: "presentation", Purpose: "late asynchronous data cannot replace newer state"},
 	{Name: "history-coverage-gap", Profile: "presentation", Purpose: "partial assessment coverage is visible instead of a false removal"},
 	{Name: "add-context-no-secret", Profile: "connected", Purpose: "context configuration contains references but no password"},
+	{Name: "credential-source-missing", Profile: "connected", Purpose: "a context whose env password is gone names the variable and says how to fix it"},
 	{Name: "datastore-browser", Profile: "presentation", Purpose: "a populated datastore root renders safely at each terminal size"},
 	{Name: "resize", Profile: "presentation", Purpose: "bounded terminal sizes render safely and preserve selection"},
 	{Name: "vm-dashboard", Profile: "presentation", Purpose: "every VM chart page and range stays inside the terminal at each size"},
@@ -118,8 +119,8 @@ func Run(ctx context.Context, name string, opts RunOptions) (result Result, runE
 	// Credential cancellation is a model-boundary scenario: it uses the
 	// deterministic backend and the focused prompt tests, while the context
 	// addition scenario exercises the connected production path below.
-	connected := name == "add-context-no-secret"
-	backend, service, closeBackend, err := setupBackend(ctx, connected)
+	connected := name == "add-context-no-secret" || name == "credential-source-missing"
+	backend, service, closeBackend, err := setupBackend(ctx, connected, name == "credential-source-missing")
 	if err != nil {
 		return Result{}, err
 	}
@@ -167,6 +168,17 @@ func Run(ctx context.Context, name string, opts RunOptions) (result Result, runE
 	switch name {
 	case "overview", "partial-failure", "add-context-no-secret":
 		// Initial inventory and the visible failed context are the contract.
+	case "credential-source-missing":
+		// The failure line is the screen an operator meets after the
+		// variable is gone; the diagnosis behind it carries the loopback
+		// port, so it is asserted by meaning rather than by golden.
+		if err := checkGoldens(name, m, opts); err != nil {
+			return Result{}, err
+		}
+		goldensChecked = true
+		if err := press(m, "d"); err != nil {
+			return Result{}, fmt.Errorf("diagnose prod-vc: %w", err)
+		}
 	case "credential-cancel":
 		promptBackend.arm()
 		promptDriver.send(keyMsg("r"), true)
@@ -637,6 +649,16 @@ func assertResult(result Result) error {
 		if !strings.Contains(result.View, "\n ● ") {
 			return fmt.Errorf("scenario %s did not render inventory", result.Name)
 		}
+	case "credential-source-missing":
+		if result.Observation.Mode != "doctor" {
+			return fmt.Errorf("scenario %s did not open the diagnosis (mode %q)", result.Name, result.Observation.Mode)
+		}
+		view := strings.Join(strings.Fields(result.View), " ")
+		for _, want := range []string{"VSFLEET_TESTBED_PASSWORD is not set", "How to fix", "start vsfleet again", "e change password source"} {
+			if !strings.Contains(view, want) {
+				return fmt.Errorf("scenario %s is missing %q from the diagnosis", result.Name, want)
+			}
+		}
 	case "partial-failure":
 		if !strings.Contains(result.View, "dr-site") {
 			return fmt.Errorf("scenario %s lost the failed context", result.Name)
@@ -735,7 +757,11 @@ func (b *promptDemoBackend) BeginInventory(ctx context.Context, cc *config.Conte
 	return b.Backend.BeginInventory(ctx, cc)
 }
 
-func setupBackend(ctx context.Context, connected bool) (tui.Backend, *assessment.Service, func(), error) {
+// setupBackend builds the backend a scenario runs against. missingSource
+// points prod-vc at an env: reference whose variable is never set — resolved
+// by an Env provider that does not read the process environment, so the
+// scenario cannot be changed by whatever the developer has exported.
+func setupBackend(ctx context.Context, connected, missingSource bool) (tui.Backend, *assessment.Service, func(), error) {
 	if !connected {
 		backend := demo.NewBackend()
 		service, closeHistory, err := backend.AssessmentService()
@@ -772,7 +798,8 @@ func setupBackend(ctx context.Context, connected bool) (tui.Backend, *assessment
 	}
 	keyring := credentials.NewStatic(credentials.SchemeKeyring, map[string]credentials.Credential{})
 	prompt := credentials.NewStatic(credentials.SchemePrompt, map[string]credentials.Credential{})
-	resolver := credentials.NewResolver(keyring, prompt)
+	env := &credentials.Env{LookupEnv: func(string) (string, bool) { return "", false }}
+	resolver := credentials.NewResolver(keyring, prompt, env)
 	for _, cc := range cfg.Contexts {
 		ref := credentials.Ref{Scheme: credentials.SchemeKeyring, Value: "scenario:" + cc.Name}
 		keyring.Store(ctx, ref, credentials.Credential{Username: testbed.FixtureUsername, Password: testbed.FixturePassword})
@@ -781,6 +808,9 @@ func setupBackend(ctx context.Context, connected bool) (tui.Backend, *assessment
 			proxyRef := credentials.Ref{Scheme: credentials.SchemeKeyring, Value: "proxy:" + cc.Name}
 			keyring.Store(ctx, proxyRef, credentials.Credential{Username: testbed.FixtureProxyUser, Password: testbed.FixtureProxyPassword})
 			cc.Transport.Credential = proxyRef
+		}
+		if missingSource && cc.Name == "prod-vc" {
+			cc.Credential = credentials.Ref{Scheme: credentials.SchemeEnv, Value: "VSFLEET_TESTBED_PASSWORD"}
 		}
 	}
 	manager := session.New(resolver)

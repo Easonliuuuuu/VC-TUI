@@ -1860,7 +1860,13 @@ func (m *Model) applyFormSave(msg formSaveMsg) tea.Cmd {
 	if msg.result.StoreWarning != nil {
 		note += " (password not stored: " + msg.result.StoreWarning.Error() + ")"
 	}
-	m.setMessage(note, msg.result.StoreWarning != nil)
+	switch {
+	case msg.result.DropWarning != nil:
+		note += " · " + msg.result.DropWarning.Error()
+	case !msg.result.Dropped.IsZero():
+		note += " · removed its old password from the keyring"
+	}
+	m.setMessage(note, msg.result.StoreWarning != nil || msg.result.DropWarning != nil)
 	return tea.Batch(m.reload(false)...)
 }
 
@@ -3198,6 +3204,16 @@ func (m *Model) handleDoctorKey(msg tea.KeyMsg) tea.Cmd {
 		m.mode = modeBrowse
 	case key.Matches(msg, m.keys.Reload):
 		return m.diagnoseContext(m.doctor)
+	case key.Matches(msg, m.keys.EditContext):
+		// Fixing what the diagnosis found is often an edit — above all a
+		// password source that is gone — so it is one key away rather than
+		// back out, open the contexts screen, find the row, and press e.
+		// Saving lands on the main screen, which reloads the context.
+		if m.demo || m.doctor == nil {
+			return nil
+		}
+		m.returnTo = modeBrowse
+		return m.enterForm(m.doctor)
 	}
 	return nil
 }

@@ -482,7 +482,14 @@ func (k keyMap) footerHints(m *Model) []key.Binding {
 		}
 		return []key.Binding{k.Up, k.Down, described(k.Open, "enter", "where"), k.PairClusters, k.Reload, k.Back, k.Help, k.Quit}
 	case modeDoctor:
-		return []key.Binding{k.Reload, k.Back, k.Help, k.Quit}
+		if m.demo || m.doctor == nil {
+			return []key.Binding{k.Reload, k.Back, k.Help, k.Quit}
+		}
+		edit := k.EditContext
+		if se, own := sourceFailure(m.doctor.diag); se != nil && own {
+			edit = described(edit, "e", "change password source")
+		}
+		return []key.Binding{edit, k.Reload, k.Back, k.Help, k.Quit}
 	case modeHelp:
 		return []key.Binding{k.Up, k.Down, k.Back, k.Quit}
 	case modeForm:

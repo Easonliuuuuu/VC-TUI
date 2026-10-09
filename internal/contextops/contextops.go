@@ -55,6 +55,12 @@ type Input struct {
 	SaveOnTestFailure bool
 	// SetCurrent makes this the current context once saved.
 	SetCurrent bool
+	// DropReplacedKeyring, with Replace, deletes the keyring entry the
+	// replaced context used when the new one no longer refers to it. Once
+	// the reference is gone nothing would ever remove that password — not
+	// even "context remove --with-credential" — so an edit that moves a
+	// context off the keyring asks for it to be cleaned up.
+	DropReplacedKeyring bool
 }
 
 // Build constructs and normalizes a context from Input without touching the
@@ -124,6 +130,11 @@ type Result struct {
 	Context      *config.Context
 	Diagnosis    *vsphere.Diagnosis
 	StoreWarning error
+	// Dropped is the keyring entry removed because of DropReplacedKeyring;
+	// zero when nothing was removed. DropWarning is set instead when the
+	// removal failed, which never undoes the save.
+	Dropped     credentials.Ref
+	DropWarning error
 }
 
 // Save validates Input, optionally tests the connection, stores the password
@@ -179,6 +190,12 @@ func Save(ctx context.Context, cfg *config.Config, resolver *credentials.Resolve
 			cc.Transport.Credential = credentials.Ref{Scheme: credentials.SchemePrompt}
 		}
 	}
+	var replaced credentials.Ref
+	if in.Replace && in.DropReplacedKeyring {
+		if old, err := cfg.Context(cc.Name); err == nil {
+			replaced = old.Credential
+		}
+	}
 	if err := cfg.Add(cc, in.Replace); err != nil {
 		return res, err
 	}
@@ -188,7 +205,29 @@ func Save(ctx context.Context, cfg *config.Config, resolver *credentials.Resolve
 	if err := cfg.Save(); err != nil {
 		return res, err
 	}
+	// Only after the save: a failed save keeps the old context, and with it
+	// the password it still needs.
+	if replaced.Scheme == credentials.SchemeKeyring && !refInUse(cfg, replaced) {
+		switch err := resolver.Delete(ctx, replaced); {
+		case err == nil:
+			res.Dropped = replaced
+		case !errors.Is(err, credentials.ErrNotFound):
+			res.DropWarning = fmt.Errorf("could not remove the old password %s from the keyring: %w", replaced, err)
+		}
+	}
 	return res, nil
+}
+
+// refInUse reports whether any configured context still resolves a password
+// through ref, as its own credential or its proxy's. A keyring key can be
+// shared by naming it explicitly, and deleting it would break the others.
+func refInUse(cfg *config.Config, ref credentials.Ref) bool {
+	for _, c := range cfg.Contexts {
+		if c.Credential == ref || c.Transport.Credential == ref {
+			return true
+		}
+	}
+	return false
 }
 
 // Remove deletes a context from the configuration and saves. It returns the
