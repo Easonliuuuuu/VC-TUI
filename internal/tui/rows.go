@@ -252,10 +252,12 @@ func columnsFor(kind vsphere.Kind, withContext bool) []column {
 	case vsphere.KindVApp:
 		cols = append(cols,
 			column{title: "NAME"},
-			column{title: "STATUS", width: 10},
-			column{title: "VMS", width: 5, right: true},
-			column{title: "CHILDREN", width: 18},
-			column{title: "DATACENTER", width: 14},
+			// STATUS, VMS and CHILDREN fit their values ("suspended",
+			// "12 vApp / 3 pool") so DATACENTER keeps the width.
+			column{title: "STATUS", width: 9},
+			column{title: "VMS", width: 3, right: true},
+			column{title: "CHILDREN", width: 16},
+			column{title: "DATACENTER", width: 18},
 		)
 	case vsphere.KindDatastore:
 		cols = append(cols,
