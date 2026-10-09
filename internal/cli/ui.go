@@ -2,11 +2,13 @@ package cli
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 
 	"github.com/easonliuuuuu/vsfleet/internal/tui"
 	"github.com/easonliuuuuu/vsfleet/internal/uistate"
+	"github.com/easonliuuuuu/vsfleet/internal/version"
 )
 
 // addRefreshFlag registers --refresh on a command that opens the interface.
@@ -64,6 +66,10 @@ The context, resource tab and sort order are remembered between runs, so
 closing vsfleet and opening it again picks up where you left off. --context
 overrides the remembered context for this run without changing what gets
 remembered next time.
+
+The first run, and the first run after each upgrade, opens with a short
+welcome animation while the remembered vCenter loads underneath. Any key
+skips it; set VSFLEET_NO_WELCOME=1 to turn it off.
 
 The interface shows nothing the command line cannot: it is a faster way to
 ask the same questions, not a second implementation of them.`,
@@ -124,6 +130,7 @@ func runUI(a *App, cmd *cobra.Command) error {
 	if historyErr != nil {
 		fmt.Fprintf(a.errOut(), "warning: historical assessments unavailable: %v\n", historyErr)
 	}
+	release := version.Release()
 	snap, runErr := tui.Run(cmd.Context(), backend, tui.Options{
 		Current:     current,
 		AllContexts: a.AllContexts,
@@ -142,12 +149,13 @@ func runUI(a *App, cmd *cobra.Command) error {
 		SSHUsers:         remembered.SSHUsers,
 		SSHIdentityFiles: remembered.SSHIdentityFiles,
 		SSHDestinations:  remembered.SSHDestinations,
+		Welcome:          welcomeFor(remembered.WelcomedVersion, release, len(cfg.Contexts) > 0, os.Getenv),
 	})
 	// A clean run is the only one worth remembering: a program that never
 	// really started (no TTY, say) has nothing truthful to say about where
 	// the cursor was.
 	if runErr == nil {
-		if err := uistate.Save("", uistate.State{Context: snap.Context, Kind: snap.Kind, Sort: snap.Sort, SSHUsers: snap.SSHUsers, SSHIdentityFiles: snap.SSHIdentityFiles, SSHDestinations: snap.SSHDestinations}); err != nil {
+		if err := uistate.Save("", uistate.State{Context: snap.Context, Kind: snap.Kind, Sort: snap.Sort, SSHUsers: snap.SSHUsers, SSHIdentityFiles: snap.SSHIdentityFiles, SSHDestinations: snap.SSHDestinations, WelcomedVersion: release}); err != nil {
 			fmt.Fprintf(a.errOut(), "warning: could not remember the last screen (%v)\n", err)
 		}
 	}

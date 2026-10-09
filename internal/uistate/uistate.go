@@ -41,6 +41,10 @@ type State struct {
 	// SSHDestinations holds the operator's chosen SSH destination for each
 	// machine, keyed "<context>/<moref>" the same way. See SSHDestination.
 	SSHDestinations map[string]SSHDestination `json:"ssh_destinations,omitempty"`
+	// WelcomedVersion is the release the welcome animation last played for
+	// (see version.Release). A different running release plays it once more,
+	// as an update; an empty value means it has never played.
+	WelcomedVersion string `json:"welcomed_version,omitempty"`
 }
 
 // SSHDestination is one machine's remembered SSH destination: either an

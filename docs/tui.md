@@ -4,6 +4,20 @@ Run `vsfleet` to browse your estate interactively. The Bubble Tea interface
 provides dense resource tables, immediate context switching, diagnostics, and
 quiet background refresh.
 
+## Welcome animation
+
+The first time you run `vsfleet`, and the first time after each upgrade, the
+interface opens with a short animation: the wordmark resolves while one ship
+per configured vCenter sails in. It lasts under three seconds, and the
+remembered vCenter loads underneath it, so it does not delay anything. Any key
+skips it; ctrl+c still quits.
+
+After an upgrade it names the old and new versions and links the release
+notes. In a terminal smaller than 64×18 the same line appears in the message
+line instead. It never plays when `VSFLEET_NO_WELCOME` or `CI` is set. The
+last version welcomed is kept in `state.json` as `welcomed_version`; builds
+from a source checkout all count as the one version `dev`.
+
 ## Browse screen
 
 | Workflow | Key | Action |
