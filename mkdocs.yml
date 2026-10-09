@@ -45,18 +45,33 @@ exclude_docs: |
 
 nav:
   - Home: index.md
-  - Getting Started: getting-started.md
-  - Containers: containers.md
-  - CLI Guide: commands.md
-  - Assessments: assessments.md
-  - License Metadata: licensing.md
-  - Terminal UI: tui.md
-  - Configuration: configuration.md
-  - Operator Recipes: recipes.md
-  - Troubleshooting: troubleshooting.md
-  - Architecture: architecture.md
-  - Testing: testing.md
-  - Test Catalogue: test-catalog.md
-  - Synthetic Testbed: testbed.md
-  - Contributing: https://github.com/Easonliuuuuu/vsfleet/blob/main/CONTRIBUTING.md
-  - Security: https://github.com/Easonliuuuuu/vsfleet/blob/main/SECURITY.md
+  - Start here:
+      - Getting started: getting-started.md
+      - Configuration: configuration.md
+      - CLI reference: commands.md
+      - Recipes: recipes.md
+      - Containers: containers.md
+      - Troubleshooting: troubleshooting.md
+  - Terminal UI:
+      - Browse and manage contexts: tui.md
+      - VM dashboard: tui-vm.md
+      - Detail actions and SSH: tui-actions.md
+      - Datastore browser: tui-storage.md
+      - Networks and clusters: tui-network.md
+  - Assessments:
+      - Capture and history: assessments.md
+      - Health and orphan checks: health.md
+      - Performance history: performance.md
+      - Inventory exports: exports.md
+      - Migration and capacity planning: planning.md
+      - Tags and custom attributes: metadata.md
+      - Sharing inventory: sharing.md
+      - License metadata: licensing.md
+  - Contributing:
+      - Architecture: architecture.md
+      - Synthetic testbed: testbed.md
+      - Testing: testing.md
+      - Test catalogue: test-catalog.md
+      - Writing documentation: writing.md
+      - Contribution policy: https://github.com/Easonliuuuuu/vsfleet/blob/main/CONTRIBUTING.md
+      - Security policy: https://github.com/Easonliuuuuu/vsfleet/blob/main/SECURITY.md

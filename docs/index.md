@@ -1,98 +1,82 @@
-# vSphere estate assessment and diagnostics across every vCenter
+# vsfleet documentation
 
-vsfleet is an open-source Go CLI and terminal UI for VMware vSphere operators
-and site reliability engineers. It inspects inventory, diagnoses connectivity,
-assesses migration readiness, and preserves historical observations across a
-whole estate in one run — from Linux, macOS or Windows, with no GUI and no .NET
-runtime. It organizes each vCenter into a named context, so you can search the
-estate and compare changes without juggling browser tabs or scripts.
+<span id="vsphere-estate-assessment-and-diagnostics-across-every-vcenter"></span>
+
+vsfleet inspects VMware vSphere inventory across named vCenter contexts.
+Use the terminal UI to browse live data, or the CLI to diagnose connections,
+capture assessments, and query stored history on Linux, macOS, or Windows.
+
+vsfleet never powers VMs on or off, changes networks, provisions resources,
+manages snapshots, or deletes inventory objects. Estate-wide operations keep
+healthy results when another vCenter fails.
 
 ![vsfleet inspecting VM performance and network wiring across three vCenters, then searching the estate and diagnosing an unavailable site](assets/vsfleet.gif){ width="1200" }
 
-## Try it without a vCenter
+<span id="try-it-without-a-vcenter"></span>
+
+## Start here
 
 ```sh
 vsfleet demo
 ```
 
-The demo opens the interface on a synthetic three-vCenter estate — two healthy
-sites and one whose proxy refuses the connection. The main site is production-sized
-(about 1,000 VMs, 36 datastores, 24 vApps) and History holds five dated
-assessments. It reads no configuration,
-opens no keyring, dials nothing, and writes nothing back. Every screen is
-marked `DEMO · SAMPLE DATA`.
+The demo uses synthetic inventory and five in-memory history captures. It
+needs no vCenter, configuration, or credentials, makes no network connections,
+and writes no state. Screens are marked `DEMO · SAMPLE DATA`.
 
-> [!NOTE]
-> vsfleet is a personal open-source project, not an official Dell Technologies
-> product, and is not sponsored, endorsed, or supported by Dell Technologies.
-> Its export interoperability was independently implemented without RVTools
-> source code or non-public documentation. RVTools is a Dell Technologies
-> product; references to RVTools describe export-file interoperability only.
+| Task | Guide |
+| --- | --- |
+| Install and connect your first vCenter | [Getting started](getting-started.md) |
+| Browse live inventory and diagnose failures | [Terminal UI](tui.md), [Troubleshooting](troubleshooting.md) |
+| Configure credentials, routes, and TLS | [Configuration](configuration.md) |
+| Find commands, filters, output formats, and exit codes | [CLI reference](commands.md) |
+| Schedule captures in CI, systemd, Docker, or Kubernetes | [Recipes](recipes.md), [Containers](containers.md) |
 
-## Export the estate for migration planning and sizing
+<span id="export-the-estate-for-migration-planning-and-sizing"></span>
+
+## Work with assessments
 
 ```sh
 vsfleet assessment run --all-contexts --label q3-audit
 vsfleet assessment export --format rvtools --file estate.xlsx
 ```
 
-The `rvtools` format renders a documented subset of worksheet layouts used by
-RVTools exports: `vInfo`, `vCPU`, `vMemory`, `vDisk`, `vPartition`, `vNetwork`,
-`vCD`, `vUSB`, `vSnapshot`, `vTools`, `vSource`, `vRP`, `vCluster`, `vHost`, `vHBA`, `vNIC`,
-`vSwitch`, `vPort`, `dvSwitch`, `dvPort`, `vSC_VMK`, `vDatastore`, `vMultiPath`, `vFileInfo`,
-and `vHealth`.
-This is an interoperability profile, not RVTools or a replacement for it — see
-[Assessments](assessments.md) for the full tab reference and the
-`vsfleetCoverage` sheet.
+Captures are stored locally in SQLite. Queries and exports read captured
+evidence without contacting vCenter; missing collection coverage remains
+visible in the output.
 
-> [!IMPORTANT]
-> **Strict read-only safety guarantee:** vsfleet never powers on or off VMs,
-> changes networks, provisions resources, manages snapshots, or deletes
-> inventory objects.
+| Task | Guide |
+| --- | --- |
+| Capture, compare, retain, and recover inventory history | [Assessments](assessments.md) |
+| Review health findings and orphan-disk evidence | [Health](health.md) |
+| Collect and interpret CPU and memory history | [Performance](performance.md) |
+| Export XLSX/CSV or check RVTools file interoperability | [Exports](exports.md) |
+| Review migration readiness and destination sizing | [Planning](planning.md) |
+| Report on tags and custom attributes | [Metadata](metadata.md) |
+| Share a scoped or pseudonymized workbook | [Sharing](sharing.md) |
+| Capture license metadata without license keys | [Licensing](licensing.md) |
 
-## Why vsfleet?
+<span id="why-vsfleet"></span>
+<span id="feature-comparison"></span>
 
-- Query every configured vCenter with one command using `--all-contexts`.
-- Search VMs, templates, hosts, clusters, vApps, datastores, and networks
-  across the estate.
-- Keep healthy results usable when another vCenter is offline or timing out.
-- Route each context independently through direct TCP, SOCKS5, HTTP, or HTTPS
-  CONNECT proxies.
-- Keep passwords in the operating system keyring, an interactive prompt, or an
-  unattended source for cron, systemd, containers and CI;
-  they never go into `config.toml`.
-- Pin TLS thumbprints for private or self-signed vCenters.
-- Capture immutable, local SQLite assessments and explain drift over time.
-- Use a responsive Bubble Tea TUI or stable JSON output for automation.
+## Contribute
 
-## Start here
+Read [Architecture](architecture.md) for data flow and design boundaries,
+[Testing](testing.md) for verification, and [Synthetic testbed](testbed.md)
+for offline UI development. [Writing documentation](writing.md) explains where
+to put new material and how to keep it concise.
 
-| Goal | Guide |
-|---|---|
-| Install and connect the first vCenter | [Getting Started](getting-started.md) |
-| Run unattended commands in Docker or Kubernetes | [Containers](containers.md) |
-| Find the right command or JSON output | [CLI Guide](commands.md) |
-| Capture, compare, and export inventory history | [Assessments](assessments.md) |
-| Learn the interactive terminal UI | [Terminal UI](tui.md) |
-| Configure credentials, routes, and TLS | [Configuration](configuration.md) |
-| Diagnose a failed connection | [Troubleshooting](troubleshooting.md) |
-| Understand the system design | [Architecture](architecture.md) |
-| Develop and verify the TUI without a vCenter | [Synthetic Testbed](testbed.md) |
+<span id="community-and-project-links"></span>
 
-## Feature comparison
+## Project links
 
-| Capability | `vsfleet` | `govc` | PowerCLI | vSphere Web Client |
-|---|:---:|:---:|:---:|:---:|
-| Multi-vCenter query in one command | **Yes** | No | Yes | No |
-| Estate-wide resource search, every kind at once | **Yes** | No | Per cmdlet | Per vCenter |
-| Partial results when one site fails | **Yes** | No | Custom error handling | Browser timeout |
-| Per-context proxy routing | **Yes** | Global env | Global env | Browser proxy |
-| Read-only safety guarantee | **Yes** | No | No | No |
-| Historical drift and snapshot age | **Yes** | Export only | Custom script | Point-in-time |
+[Releases](https://github.com/Easonliuuuuu/vsfleet/releases) ·
+[Source and issues](https://github.com/Easonliuuuuu/vsfleet) ·
+[Contributing](https://github.com/Easonliuuuuu/vsfleet/blob/main/CONTRIBUTING.md) ·
+[Security](https://github.com/Easonliuuuuu/vsfleet/blob/main/SECURITY.md)
 
-## Community and project links
-
-- [Releases](https://github.com/Easonliuuuuu/vsfleet/releases)
-- [Contributing guide](https://github.com/Easonliuuuuu/vsfleet/blob/main/CONTRIBUTING.md)
-- [Security policy](https://github.com/Easonliuuuuu/vsfleet/blob/main/SECURITY.md)
-- [Source code and issues](https://github.com/Easonliuuuuu/vsfleet)
+vsfleet is a personal open-source project, not an official Dell Technologies
+product, and is not sponsored, endorsed, or supported by Dell Technologies.
+Export interoperability was independently implemented without RVTools source
+code or non-public documentation. RVTools is a Dell Technologies product;
+references here describe export-file interoperability only.

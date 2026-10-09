@@ -1,4 +1,8 @@
-# Operator Recipes
+# Operator recipes
+
+These examples combine CLI commands for recurring tasks. See
+[Configuration](configuration.md#credentials) for credential sources and
+[CLI reference](commands.md#exit-codes) for automation exit codes.
 
 ## Estate-wide search with `jq`
 
@@ -11,14 +15,14 @@ vsfleet vm list --all-contexts -o json | \
 
 ## Unattended collection
 
-There is no keyring and no terminal in a container, a systemd unit or a CI job,
-so point the context at where the password actually lives. The reference is
-written to `config.toml`; the password is not.
+Choose an unattended credential source for a container, systemd unit, or CI
+job. Store its reference in `config.toml`, never the password.
 
 ### CI, with the secret in the environment
 
 ```sh
-vsfleet context add \
+VCENTER_PASSWORD="$CI_VCENTER_SECRET" \
+  vsfleet context add \
   --name prod \
   --endpoint https://vcsa.example.internal \
   --username administrator@vsphere.local \
@@ -31,8 +35,8 @@ VCENTER_PASSWORD="$CI_VCENTER_SECRET" \
 
 ### systemd, with the secret in a file
 
-`LoadCredential=` puts the secret in a file only this unit can read, and
-`$CREDENTIALS_DIRECTORY` is where systemd mounts it:
+`LoadCredential=` exposes the secret to the unit through
+`$CREDENTIALS_DIRECTORY`. Use a helper to read that runtime path:
 
 ```ini
 [Service]
@@ -42,20 +46,30 @@ ExecStart=/usr/local/bin/vsfleet assessment run --all-contexts --fail-on-partial
 ```
 
 ```sh
+#!/bin/sh
+# /usr/local/bin/vsfleet-systemd-credential (install as an executable)
+exec cat "$CREDENTIALS_DIRECTORY/vcenter"
+```
+
+Configure the context before starting the unit:
+
+```sh
 vsfleet context add --name prod \
   --endpoint https://vcsa.example.internal \
   --username administrator@vsphere.local \
-  --credential file:%d/vcenter \
-  --tls system
+  --credential exec:/usr/local/bin/vsfleet-systemd-credential \
+  --tls system --no-test
 ```
 
-The same shape works for a Kubernetes secret mount (`file:/var/run/secrets/...`)
-and a Docker secret (`file:/run/secrets/...`).
+`--no-test` defers the connection test until the service has its credential
+directory. vsfleet reads `file:` paths literally; systemd's `%d` expansion
+does not apply inside `config.toml`. For a fixed Kubernetes or Docker secret
+mount, use `file:/var/run/secrets/...` or `file:/run/secrets/...` instead.
 
 ### A secret manager, through a helper
 
-`exec:` runs a program and reads the password from its standard output. It is
-given the context name, so one helper serves the whole estate:
+`exec:` reads a program's standard output and passes the context name in
+`VSFLEET_CONTEXT`, so one helper can serve the estate:
 
 ```sh
 #!/bin/sh
@@ -71,14 +85,12 @@ vsfleet context add --name prod \
   --tls system
 ```
 
-The reference names a program and nothing else — no arguments, no shell — so
-put any arguments in the helper. See
-[Configuration](configuration.md#unattended-sources) for the details.
+Put arguments in the helper; the reference accepts only a program path, with
+no shell expansion. See [Unattended sources](configuration.md#unattended-sources).
 
 ### Reacting to a partial estate
 
-A scheduled capture should be able to tell "the whole estate answered" from
-"one site was down". `--fail-on-partial` makes that a distinct exit code:
+Use `--fail-on-partial` to distinguish a complete capture from a partial one:
 
 ```sh
 vsfleet assessment run --all-contexts --fail-on-partial
@@ -89,15 +101,13 @@ case $? in
 esac
 ```
 
-Without the flag a partial capture exits 0, so an existing job keeps its
-behavior. See [the exit-code table](commands.md#exit-codes) for the contract.
+Without the flag, a partial capture exits 0.
 
 ### Capacity projection gate
 
-A scheduled capacity check can keep the normal percentage floor and add an
-absolute floor for large datastores. It emits JSON for the job log and returns
-exit code `2` when a datastore is projected to cross either floor within the
-next 30 days:
+Check both percentage and absolute free-space floors. This example writes
+JSON and exits `2` if a datastore is projected to cross either floor within
+30 days:
 
 ```sh
 vsfleet assessment capacity latest --since 90d \
@@ -110,9 +120,8 @@ case $? in
 esac
 ```
 
-Use `--include-partial` only when the job wants to include incomplete captures;
-the report retains affected contexts as blind evidence and downgrades the
-projection confidence.
+`--include-partial` includes incomplete captures and lowers projection
+confidence. See [Capacity projection](assessments.md#capacity-attribution-and-projection).
 
 ## Customer enclave through SOCKS5
 
@@ -138,5 +147,5 @@ Use a short refresh interval to monitor VM placement changes interactively:
 vsfleet --refresh 3s
 ```
 
-For durable comparisons and scheduled checks, capture assessments and use the
-[assessment policy workflow](assessments.md#compare-runs) instead.
+For durable comparisons and scheduled checks, use
+[assessment policies](assessments.md#compare-runs).

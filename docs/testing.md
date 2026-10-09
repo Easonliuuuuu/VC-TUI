@@ -1,76 +1,23 @@
 # Testing
 
-vsfleet has complementary test tiers. Each tier answers a different question,
-so passing one is not evidence that the others are unnecessary. The synthetic
-lab and scenario harness are described in [testbed.md](testbed.md), and
-[test-catalog.md](test-catalog.md) lists every suite, scenario, journey, and
-fuzz target with the situation it simulates.
-
-## Synthetic TUI scenarios
-
-The repository-owned `scripts/testbed` harness drives the Bubble Tea model with
-the same deterministic fixtures that developers can inspect in sandbox mode:
-
-```sh
-scripts/testbed list
-scripts/testbed test
-scripts/testbed test partial-failure
-```
-
-The scenario layer asserts user-visible semantics, model observations, and
-read-only/credential-safety invariants. Six stable screens also have
-ANSI-normalized render contracts at `60x20`, `100x30`, and `140x40`. Goldens
-are changed only with the explicit `--update-goldens` flag.
-
-## Linux PTY process tests
-
-The tagged PTY suite is deliberately separate from the model-boundary
-scenarios. It builds and runs the actual connected `cmd/vsfleet-testbed`
-binary with terminal input, output, resize events, signals, loopback simulator
-endpoints, and isolated on-disk state:
-
-```sh
-scripts/testbed pty --results-dir /tmp/vsfleet-pty
-```
-
-The nine journeys launch inventory and quit, prove SSH failure restoration and
-Ctrl-C cancellation, cancel a credential prompt and continue, browse and
-recursively search a datastore, traverse and leave every History pane, resize
-from `60x20` to `140x40`, page through the VM performance dashboard and quit
-with a query in flight, and interrupt an active capture. They assert semantic
-output and clean exit behavior, not complete terminal byte snapshots. On
-failure, CI uploads redacted process output, an ANSI-normalized transcript, an
-event log, result metadata, and the isolated testbed state.
-
-Fuzz seeds for the TUI and for the configuration, SSH config, `--where`, and
-RVTools import parsers run with the normal Go suite; `fuzz.yml` runs a
-five-minute campaign per target every night, a one-minute campaign on pull
-requests that touch fuzzing, and on demand from the Actions tab. Neither the headless scenarios nor PTY tests prove
-behavior against a real vSphere deployment.
-
-## Release checks
-
-`scripts/check-release-pins.sh` runs in the Linux `build` job and fails when
-the goreleaser base-image annotation drifts from the `Dockerfile` digest, or
-when a pinned image version in the docs or the shipped CronJob differs from
-the released version. The `release-snapshot` job runs the release goreleaser
-configuration with `--snapshot --skip=publish,sign` and smoke-tests the
-resulting binaries and image. It is heavy (six cross-compiles plus two image
-builds), so leave it to CI rather than running it on a small workstation.
+Run the tiers relevant to your change. Unit tests check logic; simulator tests
+check collection and CLI behavior; TUI scenarios check the model; PTY journeys
+check the running terminal process. The [test catalogue](test-catalog.md)
+lists suites and fixtures; [testbed setup](testbed.md) describes profile
+boundaries. Automated fixtures are synthetic and do not prove real-vSphere
+behavior.
 
 ## Unit and package tests
 
-The untagged suite covers pure domain behavior, persistence, topology joins,
-health/readiness rules, CLI contracts, transport, and the read-only vSphere
-inventory layer:
+Run the untagged suite and static checks:
 
 ```sh
 go test -race ./...
 go vet ./...
 ```
 
-These tests are fast and run on every operating system in the normal CI
-`build` job. The Linux run also publishes a whole-suite coverage report:
+The CI `build` job runs these on Linux, macOS, and Windows. Linux also records
+whole-suite coverage, without enforcing a percentage threshold:
 
 ```sh
 go test -race -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./...
@@ -78,52 +25,63 @@ go tool cover -func=coverage.out
 go tool cover -html=coverage.out -o coverage.html
 ```
 
-`-coverpkg=./...` is deliberate: the in-process simulator tests below are in
-the separate `tests` package and exercise the real CLI plus its internal
-packages. A package-local profile would not credit that coverage. CI reports
-the result and retains the raw profile and HTML report as artifacts; it does
-not enforce a percentage threshold.
+Keep `-coverpkg=./...`: the separate `tests` package exercises the CLI and
+internal packages through the simulator. Package-local coverage would miss
+those calls. CI retains the profile and HTML report.
 
 ## In-process simulator tests
 
-The existing `tests/` package starts `govmomi/simulator` in the test process.
-It drives the real CLI through direct, SOCKS5, and HTTP proxy routes and is
-the right tier for command behavior, credentials, timeout handling, and
-read-only SOAP auditing without external dependencies.
+The untagged `tests/` suite starts `govmomi/simulator` inside the test process
+and drives the real CLI through direct, SOCKS5, and HTTP(S) routes. It covers
+credentials, deadlines, partial collection, offline exports, and read-only
+SOAP auditing. It runs with the unit suite above.
 
-The license-metadata tests (`internal/vsphere/license*_test.go`,
-`internal/report/license_test.go`, `tests/cli_license_test.go`) run against
-synthetic, visibly labelled licenses seeded into the in-process simulator. They
-plant distinctive fake license keys and assert those strings appear in no CLI
-output, JSON, XLSX, CSV or byte of the history database; that a denied or empty
-license answer becomes `unavailable` coverage; that a default assessment
-collects nothing; and that re-export is deterministic and needs no
-configuration. They prove the mapping and redaction, not real-vSphere license
-behavior.
+License tests use labelled synthetic records and planted fake keys to check
+redaction, coverage, default-off collection, and deterministic offline export.
+File-inventory tests check bounds, denial, truncation, coverage, byte sizes,
+stable export, and that file inventory cannot change health or orphan verdicts.
+Neither validates real server behavior or RVTools values. See the recorded
+[file-inventory comparison and remaining limits](exports.md#columns-and-compatibility)
+for real-datastore evidence.
 
-The opt-in datastore file inventory (`vFileInfo`) is covered at each layer
-with synthetic files only: `internal/vsphere` drives the simulator for sizes,
-types, denial, truncation, budget skipping and timeouts; `internal/report`
-proves byte sizes, path mapping, stable order, byte-identical re-export and
-every `vsfleetCoverage` state on a multi-datastore fixture;
-`internal/health` proves the inventory never changes orphan or health
-conclusions; and `tests/cli_file_inventory_test.go` proves that a default
-capture never browses, that limit flags cannot enable browsing, that export
-works from an empty configuration, and that denied and truncated scans are
-visible in human and JSON output. None of that is real-vSphere evidence: the
-comparison with an RVTools export of the same datastores is tracked on issue
-#219.
+<span id="219"></span>
+
+## Synthetic TUI scenarios
+
+Use the checked-in harness to drive the Bubble Tea model with deterministic
+fixtures:
+
+```sh
+scripts/testbed list
+scripts/testbed test
+scripts/testbed test partial-failure
+```
+
+Scenarios check visible behavior, model observations, and read-only and
+credential-safety invariants. Critical screens also have ANSI-normalized
+goldens at `60x20`, `100x30`, and `140x40`. Review rendering changes before
+using the explicit `--update-goldens` flag; see [render contracts](testbed.md#render-contracts).
+
+## Linux PTY process tests
+
+```sh
+scripts/testbed pty --results-dir /tmp/vsfleet-pty
+```
+
+The tagged suite builds and runs `cmd/vsfleet-testbed` in a pseudo-terminal
+with key input, resize events, signals, loopback endpoints, and isolated state.
+It checks semantic output and clean exits rather than complete byte snapshots.
+The [journey matrix](test-catalog.md#pty-journeys) records coverage. Failure
+artifacts include redacted process output, a normalized transcript, event logs,
+result metadata, and testbed state. PTY validation is Linux-only.
 
 ## Out-of-process vcsim integration
 
-The tagged suite starts one independent `cmd/vsfleet-vcsim` process per
-endpoint. The launcher is built against the govmomi version in `go.mod` because
-govmomi v0.56.0 ships the simulator library but not an installable
-`github.com/vmware/govmomi/vcsim` module. Each process has a kernel-assigned
-loopback port, TLS readiness is verified by fetching its certificate
-thumbprint, and stdout/stderr are captured for CI failure artifacts.
-
-Run it locally with:
+Each endpoint runs in an independent `cmd/vsfleet-vcsim` process on a
+kernel-assigned loopback port. The suite fetches the TLS certificate thumbprint
+to check readiness and captures process output for failure artifacts. The
+launcher uses the govmomi version in `go.mod`; v0.56.0 provides the simulator
+library but no installable `github.com/vmware/govmomi/vcsim` module.
 
 ```sh
 go build -o /tmp/vsfleet-vcsim ./cmd/vsfleet-vcsim
@@ -135,38 +93,71 @@ go test -tags integration -race -run '^TestVCSIM' ./tests/... -timeout 20m
 
 ### Fixture catalogue
 
-The fixtures are deterministic flag sets; endpoint processes still receive
-independent vCenter and VM identities.
+See the [fixture matrix](test-catalog.md#fixture-catalogue) and
+[integration cases](test-catalog.md#multi-vcenter-vcsim-integration).
+Fixture topology is deterministic, but endpoint identities are independent.
+vcsim performance samples vary, so tests assert coverage, provenance, and
+status rather than sample values.
 
-| Fixture | Topology and purpose |
-| --- | --- |
-| `basic-multivcenter` | `vc-prod`: two datacenters, one cluster per datacenter, two hosts per cluster, three VMs per resource pool, three datastores, three port groups, and one vApp per cluster. `vc-edge`: one datacenter, one cluster, two hosts, one VM pool, one datastore, one port group, and one vApp. |
-| `duplicate-names` | Two identical one-datacenter estates. Clustered VM names such as `DC0_C0_RP0_VM0` and local datastore names such as `LocalDS_0` collide deliberately across contexts. |
-| `partial-failure` | Healthy and killable external endpoints plus a closed-port context from the existing failure helper. |
-| `topology` | One datacenter, one cluster, two hosts, two VMs, two datastores, two port groups, and one vApp for exact hierarchy/attachment assertions. |
-| `history` | The basic small shape, captured three times with power and naming mutations between captures. |
+## Fuzzing
 
-The existing fixtures also carry the offline and collection scenarios: a lost
-context between two captures (`partial-failure`, diff and VM history report it
-as not covered rather than removed), destination sizing over complete and
-partial runs (`basic-multivcenter`), scoped pseudonymized exports
-(`duplicate-names`) and `assessment perf collect` with one endpoint taken down
-(`basic-multivcenter`). vcsim returns randomised performance samples, so the
-perf scenario asserts contexts, coverage, provenance and status, never values.
+Seeds run with `go test ./...`. `fuzz.yml` runs five minutes per target
+nightly and one minute on PRs that touch fuzzing. Start a campaign manually
+from **Actions → Fuzz → Run workflow**. Commit failing inputs under the
+package's `testdata/fuzz/<Target>/` so they become regression seeds. The
+[target matrix](test-catalog.md#fuzz-targets) lists inputs and invariants.
+
+## Kubernetes end-to-end
+
+Create the kind cluster and load `vsfleet:ci-test` and
+`vsfleet-vcsim:ci-test` images first, as the `kubernetes-e2e` CI job does.
+The script assumes those prerequisites exist:
+
+```sh
+scripts/test-kubernetes.sh
+```
+
+The `kubernetes-e2e` CI job runs the shipped CronJob in kind against two vcsim
+Services. It checks ConfigMap/Secret mounts, PVC ownership, DNS, persistence,
+and partial-capture exits. See the [case matrix](test-catalog.md#kubernetes-end-to-end)
+and script for prerequisites. These checks validate container deployment with
+synthetic endpoints.
+
+## Release checks
+
+`scripts/check-release-pins.sh` runs in the Linux `build` job to catch base
+image, annotation, and released-version drift. `release-snapshot` uses the
+release goreleaser configuration with `--snapshot --skip=publish,sign`, then
+smoke-tests the binaries and image. Leave its six cross-compiles and two image
+builds to CI on a small workstation. The [release matrix](test-catalog.md#release-snapshot-and-pins)
+describes the checks.
 
 ## What vcsim does not prove
 
-vcsim proves process isolation, CLI behavior, inventory collection, topology
-correlation, historical persistence, partial-coverage semantics, and the
-certificate/credential plumbing exercised by these fixtures. It is not a
-replacement for validation against real vSphere.
-
-In particular, it does not prove physical storage paths, ESXi
-kernel/storage semantics, real VMXNET3 or UPT behavior, SR-IOV/vGPU/RDM,
-patch-release quirks, or actual VM migration. k3s remains deferred until a
-concrete test requirement justifies adding it; containers are not a goal of
-this integration tier.
+Simulators test process isolation, collection, identity joins, persistence,
+partial coverage, and exercised TLS/credential paths. Real validation is still
+needed for physical storage, ESXi kernel behavior, VMXNET3/UPT, SR-IOV, vGPU,
+RDM, patch-release differences, performance counters, and migration.
+Automated tests also leave real desktop keyrings, macOS/Windows terminal
+process behavior, and the published signed image unverified.
 
 ## Real vCenter validation
 
-Tested against vCenter Server 8.0.3.
+vsfleet has been tested against vCenter Server 8.0.3. This does not establish
+acceptance of every feature. Record the server versions, fixture conditions,
+and results for each manual acceptance check in its issue or release PR.
+
+### Datastore browser acceptance
+
+Relationship-aware datastore browsing still needs acceptance against a real
+read-only account on a nested VMFS or NFS datastore. Record vCenter and ESXi
+versions and check:
+
+- A base VMDK, snapshot-chain file, template disk, shared/multi-reference disk,
+  and unreferenced descriptor.
+- Missing `Datastore.Browse` and partially unreadable VM configuration.
+- Path metadata, UNKNOWN/partial rendering, cancellation, and exact
+  VM/template jumps.
+- No datastore or VM mutation.
+
+Until those results are recorded, real-vSphere acceptance remains open.
