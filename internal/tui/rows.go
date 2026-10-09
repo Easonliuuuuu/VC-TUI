@@ -260,11 +260,14 @@ func columnsFor(kind vsphere.Kind, withContext bool) []column {
 	case vsphere.KindDatastore:
 		cols = append(cols,
 			column{title: "NAME"},
-			column{title: "TYPE", width: 8},
-			column{title: "CAPACITY", width: 10, right: true},
-			column{title: "FREE", width: 10, right: true},
-			column{title: "USED", width: 18},
-			column{title: "DATACENTER", width: 14},
+			// TYPE, CAPACITY, FREE and USED fit their widest values ("NFS41",
+			// "1023G", the bar) so NAME and DATACENTER keep the width, and
+			// DATACENTER still fits beside a usable NAME at 80 columns.
+			column{title: "TYPE", width: 5},
+			column{title: "CAPACITY", width: 8, right: true},
+			column{title: "FREE", width: 6, right: true},
+			column{title: "USED", width: datastoreBarWidth + usageBarSuffix},
+			column{title: "DATACENTER", width: 16},
 		)
 	case vsphere.KindNetwork:
 		cols = append(cols,
@@ -798,7 +801,7 @@ func datastoreRow(d vsphere.Datastore, inv *vsphere.Inventory, withContext bool)
 			humanize.Dash(d.Type),
 			humanize.Bytes(d.CapacityBytes),
 			humanize.Bytes(d.FreeBytes),
-			usageBar(d.UsedPercent(), 10),
+			usageBar(d.UsedPercent(), datastoreBarWidth),
 			humanize.Dash(d.Datacenter),
 		),
 		detail: []field{
@@ -1005,10 +1008,12 @@ func ratio(used, total string) string {
 // right-aligned percentage such as " 75%". A column holding a bar is the bar's
 // width plus this. hostBarWidth is the bar the Hosts table draws for CPU and
 // memory, short enough that both still fit beside the cluster at 80 columns;
-// Datastores keep their longer bar because they have only one.
+// Datastores keep their longer bar, datastoreBarWidth, because they have only
+// one.
 const (
-	usageBarSuffix = 5
-	hostBarWidth   = 8
+	usageBarSuffix    = 5
+	hostBarWidth      = 8
+	datastoreBarWidth = 10
 )
 
 // capacityBar is usageBar for a used/total pair, as the Hosts table draws CPU
