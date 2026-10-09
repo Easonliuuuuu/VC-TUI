@@ -510,6 +510,22 @@ type formDiscoverMsg struct {
 	err                   error
 }
 
+// formKeyringMsg carries whether the keyring can hold a new context's
+// password. err is nil when it can.
+type formKeyringMsg struct {
+	form *contextForm
+	err  error
+}
+
+// probeFormKeyring checks the keyring in the background. A missing Secret
+// Service answers at once, but a slow or locked one must not freeze the form
+// that is waiting on it.
+func probeFormKeyring(ctx context.Context, b keyringBackend, f *contextForm) tea.Cmd {
+	return func() tea.Msg {
+		return formKeyringMsg{form: f, err: b.KeyringAvailable(ctx)}
+	}
+}
+
 func testFormContext(ctx context.Context, b Backend, in contextops.Input) tea.Cmd {
 	return func() tea.Msg {
 		cc, d := b.TestContext(ctx, in)

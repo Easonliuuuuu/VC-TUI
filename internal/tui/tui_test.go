@@ -282,6 +282,7 @@ func settleForm(m *Model) {
 	for _, ti := range []*textinput.Model{
 		&f.name, &f.endpoint, &f.username, &f.password,
 		&f.datacenter, &f.proxyAddr, &f.proxyUser, &f.proxyPass, &f.thumbprint,
+		&f.credSource,
 	} {
 		ti.Cursor.SetMode(cursor.CursorStatic)
 	}
