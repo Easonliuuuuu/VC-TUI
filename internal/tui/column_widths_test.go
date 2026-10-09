@@ -349,3 +349,24 @@ func TestDatastoreColumnsLeaveRoomForNames(t *testing.T) {
 		}
 	}
 }
+
+// TestVAppColumnsLeaveRoomForDatacenter keeps VMS and CHILDREN next to STATUS
+// so DATACENTER has room for a long datacenter name.
+func TestVAppColumnsLeaveRoomForDatacenter(t *testing.T) {
+	for _, width := range []int{80, 100} {
+		monochrome(t)
+		m := newTestModel(t, twoHealthy(), Options{Current: "prod"})
+		m.width, m.height = width, 24
+		press(t, m, "7")
+		head := lineContaining(t, ansi.Strip(m.View()), "CHILDREN")
+		if got, want := strings.Index(head, "CHILDREN")-strings.Index(head, "STATUS"), len("suspended")+cellGap+len("VMS")+cellGap; got != want {
+			t.Errorf("%d columns: CHILDREN is %d after STATUS, want %d:\n%s", width, got, want, head)
+		}
+		if !strings.Contains(head, "DATACENTER") {
+			t.Errorf("%d columns: DATACENTER is dropped:\n%s", width, head)
+		}
+		if gap := strings.Index(head, "DATACENTER") - strings.Index(head, "CHILDREN"); gap > len("12 vApp / 3 pool")+cellGap {
+			t.Errorf("%d columns: CHILDREN is %d wide, wider than its values need:\n%s", width, gap-cellGap, head)
+		}
+	}
+}
