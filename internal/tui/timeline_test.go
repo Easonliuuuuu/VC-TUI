@@ -248,3 +248,42 @@ func TestTimelineReloadDoesNothingOnTheChangesTab(t *testing.T) {
 		t.Fatalf("r on the Changes tab read vCenter events: %v", b.reads)
 	}
 }
+
+// TestTimelineHintIsVMOnly pins the detail footer's "h timeline" hint to the
+// screens where "h" opens one: a VM with a history store. Every other kind's
+// detail used to advertise it while the key did nothing.
+func TestTimelineHintIsVMOnly(t *testing.T) {
+	offers := func(m *Model) bool {
+		for _, b := range m.keys.footerHints(m) {
+			if b.Help().Desc == "timeline" {
+				return true
+			}
+		}
+		return false
+	}
+	m := newTestModel(t, twoHealthy(), Options{Current: "prod", Assessment: &assessment.Service{}})
+	cases := []struct {
+		kind vsphere.Kind
+		name string
+		want bool
+	}{
+		{vsphere.KindVM, "app-01", true},
+		{vsphere.KindHost, "esxi-01", false},
+		{vsphere.KindDatastore, "nvme-01", false},
+		{vsphere.KindNetwork, "vlan-200", false},
+	}
+	for _, tc := range cases {
+		findRow(t, m, tc.kind, tc.name)
+		m.mode = modeDetail
+		if got := offers(m); got != tc.want {
+			t.Errorf("%v detail offers timeline = %v, want %v", tc.kind, got, tc.want)
+		}
+	}
+
+	m = newTestModel(t, twoHealthy(), Options{Current: "prod"})
+	findRow(t, m, vsphere.KindVM, "app-01")
+	m.mode = modeDetail
+	if offers(m) {
+		t.Error("VM detail offers timeline without a history store")
+	}
+}
