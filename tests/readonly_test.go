@@ -103,6 +103,7 @@ var readOnlyMethods = map[string]string{
 	"CreateCollectorForTasks":        "this tool's own private cursor over one VM's task history, to learn how its tasks ended; session-scoped, holds copies of task records and no inventory, and starts, changes or cancels no task",
 	"ReadNextTasks":                  "read: the pages of that same task history cursor; vCenter returns them newest first and the reader sorts them afterwards",
 	"DestroyCollector":               "cleanup of that same task history cursor; always sent, even when the read fails or is cancelled, and never touches inventory",
+	"CurrentTime":                    "read: returns the server's clock, so event times can be compared with this tool's run times (assessment run); changes nothing on the server",
 	"QueryEvents":                    "read: returns the event log entries matching a filter (vm events, the TUI timeline's vCenter events); unlike CreateCollectorForEvents it leaves no collector behind, and it changes nothing on the server",
 }
 
@@ -361,6 +362,7 @@ func TestOnlyPerfAndBrowserShimsDefineFault(t *testing.T) {
 		filepath.Join("internal", "vsphere", "license_query.go"),
 		filepath.Join("internal", "vsphere", "event_query.go"),
 		filepath.Join("internal", "vsphere", "task_history.go"),
+		filepath.Join("internal", "vsphere", "clock_query.go"),
 	}
 	for _, path := range faultMethods {
 		reviewed := false
@@ -421,6 +423,21 @@ func TestOnlyPerfAndBrowserShimsDefineFault(t *testing.T) {
 		if !taskRequests[name] {
 			t.Fatalf("task history SOAP shim names requests %v, want only %v", taskRequests, wantTaskRequests)
 		}
+	}
+
+	// The clock shim may name exactly one request type: the read-only
+	// CurrentTime, which returns the server's time. No operation that sets or
+	// synchronizes a clock may be reachable.
+	clockSrc, err := os.ReadFile(filepath.Join(root, "internal", "vsphere", "clock_query.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	clockRequests := map[string]bool{}
+	for _, m := range regexp.MustCompile(`Req\s+\*types\.([A-Za-z]+)`).FindAllStringSubmatch(string(clockSrc), -1) {
+		clockRequests[m[1]] = true
+	}
+	if len(clockRequests) != 1 || !clockRequests["CurrentTime"] {
+		t.Fatalf("clock SOAP shim names requests %v, want only CurrentTime", clockRequests)
 	}
 
 	path := filepath.Join(root, "internal", "vsphere", "datastore_browse.go")

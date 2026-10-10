@@ -83,6 +83,12 @@ type VMEvent struct {
 	// taskKey is the key of the task a task event records, which joins it to
 	// that task's history record.
 	taskKey string
+
+	// SetCPU, SetMemoryMB and SetName are what a reconfiguration set, when it
+	// set them; matching compares them with the values a run recorded.
+	SetCPU      int32  `json:"set_cpu,omitempty"`
+	SetMemoryMB int64  `json:"set_memory_mb,omitempty"`
+	SetName     string `json:"set_name,omitempty"`
 }
 
 // VMEventListing is one VMEvents read: the events for one VM on one vCenter,
@@ -223,6 +229,7 @@ func ClassifyEvent(e types.BaseEvent) VMEvent {
 	case *types.VmReconfiguredEvent:
 		ev.Label, ev.Explains = "reconfigure", EventModified
 		ev.Fields, ev.Detail = reconfiguredFields(x.ConfigSpec)
+		ev.SetCPU, ev.SetMemoryMB, ev.SetName = x.ConfigSpec.NumCPUs, x.ConfigSpec.MemoryMB, x.ConfigSpec.Name
 	case *types.VmCreatedEvent:
 		ev.Label, ev.Explains = "create", EventCreated
 	case *types.VmClonedEvent:

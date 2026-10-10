@@ -57,6 +57,9 @@ func TestClassifyEventMapsEventClassesToStoredChanges(t *testing.T) {
 			if strings.Join(ev.Fields, ",") != "cpu,memory" || ev.Detail != "cpu 4 · memory 8192 MB" {
 				t.Fatalf("fields %v detail %q", ev.Fields, ev.Detail)
 			}
+			if ev.SetCPU != 4 || ev.SetMemoryMB != 8192 || ev.SetName != "" {
+				t.Fatalf("set values cpu=%d memory=%d name=%q", ev.SetCPU, ev.SetMemoryMB, ev.SetName)
+			}
 		}},
 		{name: "created", event: &types.VmCreatedEvent{VmEvent: vmEvent()}, label: "create", explains: vsphere.EventCreated, result: vsphere.ResultOK},
 		{name: "removed", event: &types.VmRemovedEvent{VmEvent: vmEvent()}, label: "remove", explains: vsphere.EventRemoved, result: vsphere.ResultOK},

@@ -75,6 +75,19 @@ type Run struct {
 	SuccessfulContexts     int       `json:"successful_contexts"`
 	RequestedCollections   int       `json:"requested_collections,omitempty"`
 	SuccessfulCollections  int       `json:"successful_collections,omitempty"`
+	// ClockOffsetsMS is, by context name, how far in milliseconds that
+	// vCenter's clock was ahead of the local clock when the run captured it
+	// (negative when behind). A context is absent when the run predates the
+	// measurement or the vCenter's clock could not be read; consumers must
+	// treat that as unknown, not as zero.
+	ClockOffsetsMS map[string]int64 `json:"clock_offsets_ms,omitempty"`
+}
+
+// ClockOffset is how far the named context's vCenter clock was ahead of the
+// local clock when this run captured it, and whether that was measured.
+func (r Run) ClockOffset(context string) (time.Duration, bool) {
+	ms, ok := r.ClockOffsetsMS[context]
+	return time.Duration(ms) * time.Millisecond, ok
 }
 
 type ContextRun struct {

@@ -182,7 +182,15 @@ between the same two runs, its kind can produce that change, it did not fail,
 and the details agree. An event logged while a run was collecting counts
 toward that run's changes if it explains one, and toward the next run's
 otherwise. For example, a migration explains `moved` only if it
-ended on the host the run recorded.
+ended on the host the run recorded, and a reconfiguration that set memory to
+512 MB does not explain memory that ended at 256 MB.
+
+Event times are the vCenter's clock and run times are the local one, so each
+capture now measures the difference (one read-only `CurrentTime` call per
+vCenter) and stores it with the run. The timeline converts event times with it
+before placing them. History captured earlier has no stored difference; there,
+an event within five seconds of a run edge that explains nothing on its own
+side is attributed across the edge to a change that nothing else explains.
 
 vCenter events are read only when you open an events tab or press `r` on
 one. Opening a tab reads vCenters that are already connected. `r` also
