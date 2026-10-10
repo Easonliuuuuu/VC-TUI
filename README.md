@@ -91,7 +91,14 @@ Opens the TUI on a synthetic three-vCenter estate, with no configuration, creden
 
 ### 2. Connect your first vCenter
 
-Running `vsfleet` with no contexts configured opens the interactive setup wizard:
+Run `vsfleet`. With no contexts configured, it opens the interactive setup wizard, and you can add more vCenters from inside the TUI later.
+
+```sh
+# Open the TUI; the setup wizard starts when no contexts exist
+vsfleet
+```
+
+To open the wizard directly, or to check a context from the command line:
 
 ```sh
 # Launch the setup wizard
