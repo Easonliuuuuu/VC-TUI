@@ -128,6 +128,16 @@ func TestClassifyEventFallsBackToTheMessageForDetail(t *testing.T) {
 			summary: "Created virtual machine vapp-web",
 		},
 		{
+			name:    "a removal drops the host and the datacenter it was removed from",
+			event:   &types.VmRemovedEvent{VmEvent: event("Removed vapp-web on 192.168.150.12 from DC-Lab")},
+			summary: "Removed vapp-web",
+		},
+		{
+			name:    "a task event leaves no summary, because its label says what the task does",
+			event:   &types.TaskEvent{Event: event("Task: Create virtual machine snapshot").Event, Info: types.TaskInfo{Name: "CreateSnapshot_Task", Key: "task-1"}},
+			display: "",
+		},
+		{
 			name:    "a leading scope that says host",
 			event:   &types.VmDisconnectedEvent{VmEvent: event("vapp-web on host 192.168.150.12 in DC-Lab is disconnected")},
 			summary: "is disconnected",

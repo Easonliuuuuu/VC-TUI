@@ -24,13 +24,15 @@ type eventsBackend struct {
 	mu     sync.Mutex
 	reads  []string
 	events map[string][]vsphere.VMEvent
+	// taskErrs is why a target's task history could not be read.
+	taskErrs map[string]string
 }
 
 func (b *eventsBackend) VMEvents(_ context.Context, cc *config.Context, vmID string, limit int) (vsphere.VMEventListing, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.reads = append(b.reads, cc.Name+"/"+vmID)
-	return vsphere.VMEventListing{Context: cc.Name, VMID: vmID, Limit: limit, Events: b.events[cc.Name+"/"+vmID]}, nil
+	return vsphere.VMEventListing{Context: cc.Name, VMID: vmID, Limit: limit, Events: b.events[cc.Name+"/"+vmID], TaskHistoryError: b.taskErrs[cc.Name+"/"+vmID]}, nil
 }
 
 func (b *eventsBackend) readCount() int {
@@ -198,6 +200,22 @@ func TestTimelineEventsWaitForAnUnconnectedVCenter(t *testing.T) {
 	}
 	if got := viewText(m); strings.Contains(got, "customer-a is not connected") || !strings.Contains(got, "LIVE from customer-a, prod") {
 		t.Fatalf("after r the events tab should name both vCenters:\n%s", got)
+	}
+}
+
+// TestTimelineNamesAnUnreadableTaskHistory: the events still list, but the
+// tabs say once that task results are unknown, and why.
+func TestTimelineNamesAnUnreadableTaskHistory(t *testing.T) {
+	b := &eventsBackend{fakeBackend: twoHealthy(), events: map[string][]vsphere.VMEvent{"prod/vm-1": {billingRemoved()}},
+		taskErrs: map[string]string{"prod/vm-1": "NoPermission: System.View"}}
+	m := timelineModel(t, b)
+	drive(t, m, m.openTimeline("billing", modeBrowse, nil))
+	for _, tab := range []string{"2", "3"} {
+		press(t, m, tab)
+		got := viewText(m)
+		if strings.Count(got, "task history unreadable") != 1 || !strings.Contains(got, "NoPermission: System.View") || !strings.Contains(got, "remove") {
+			t.Fatalf("tab %s does not name the unreadable task history once beside the events:\n%s", tab, got)
+		}
 	}
 }
 

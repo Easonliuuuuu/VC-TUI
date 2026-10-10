@@ -308,6 +308,21 @@ func TestEveryCommandIsReadOnly(t *testing.T) {
 	}
 }
 
+// outsideSourceTree reports whether a directory the source scans reach is
+// not part of this checkout's own tree: git metadata, vendored code, or
+// another checkout nested inside it, such as an agent's git worktree under
+// .claude/worktrees, which has its own .git and its own run of these tests.
+func outsideSourceTree(root, path string, d fs.DirEntry) bool {
+	if d.Name() == ".git" || d.Name() == "vendor" {
+		return true
+	}
+	if path == root {
+		return false
+	}
+	_, err := os.Lstat(filepath.Join(path, ".git"))
+	return err == nil
+}
+
 // TestOnlyPerfAndBrowserShimsDefineFault keeps the deliberate exceptions to
 // the package-level mutation guard narrow and reviewable. A hand-rolled SOAP
 // body must not quietly become a second escape hatch for arbitrary vSphere
@@ -321,7 +336,7 @@ func TestOnlyPerfAndBrowserShimsDefineFault(t *testing.T) {
 			return err
 		}
 		if d.IsDir() {
-			if d.Name() == ".git" || d.Name() == "vendor" {
+			if outsideSourceTree(root, path, d) {
 				return fs.SkipDir
 			}
 			return nil
@@ -506,7 +521,7 @@ func TestNoMutationCapablePackageIsImported(t *testing.T) {
 			return err
 		}
 		if d.IsDir() {
-			if d.Name() == ".git" || d.Name() == "vendor" {
+			if outsideSourceTree(root, path, d) {
 				return fs.SkipDir
 			}
 			return nil

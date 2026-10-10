@@ -667,7 +667,8 @@ func (m *Model) eventsSourceLine() string {
 
 // eventsProblems are the lines that name what the events read could not
 // cover: a vCenter that is not connected or not configured, one that refused,
-// or a backend that cannot read events at all.
+// one whose task history could not be read, or a backend that cannot read
+// events at all.
 func (m *Model) eventsProblems() []string {
 	t := m.theme
 	if _, ok := m.backend.(vmEventsBackend); !ok {
@@ -682,8 +683,12 @@ func (m *Model) eventsProblems() []string {
 	var out []string
 	for _, target := range m.timelineTargets() {
 		if r, ok := read[target.key()]; ok {
-			if r.err != nil {
+			switch {
+			case r.err != nil:
 				out = append(out, t.bad.Render("  "+r.target.context+": ")+t.dim.Render(firstLine(r.err.Error())))
+			case r.listing.TaskHistoryError != "":
+				out = append(out, t.warn.Render("  "+r.target.context+": task history unreadable")+
+					t.dim.Render(" · task results unknown, failed tasks may be missing · "+firstLine(r.listing.TaskHistoryError)))
 			}
 			continue
 		}
