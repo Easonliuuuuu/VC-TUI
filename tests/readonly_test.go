@@ -69,6 +69,12 @@ import (
 //     serves one caller at a time and the interface reads several resource
 //     kinds at once. Destroying the collector releases the filter with it.
 //     DestroyPropertyFilter is therefore absent: it is never called.
+//   - CreateCollectorForTasks/DestroyCollector are the same bargain for the
+//     task history of one VM, which is the only place vCenter records how a
+//     task ended. The collector is a private cursor over task records that
+//     this tool creates, reads with ReadNextTasks and destroys before the
+//     read returns; it holds copies of records, not inventory, and no task is
+//     started, changed or cancelled.
 //
 // Everything else is a pure read.
 //
@@ -94,6 +100,9 @@ var readOnlyMethods = map[string]string{
 	"SearchDatastore_Task":           "read: the same bargain for one directory rather than a whole tree — the interactive datastore file browser; returns file metadata and cannot modify inventory",
 	"QueryAssignedLicenses":          "read: lists which entities hold which licenses for opt-in license collection (assessment run --include-licenses); returns license metadata and cannot assign, remove or alter a license. The license list itself is the LicenseManager.licenses property, read through the property collector",
 	"QueryPerf":                      "read: returns performance statistics for the entities it is given; changes nothing on the server. Counters and intervals come from the property collector, not a second operation",
+	"CreateCollectorForTasks":        "this tool's own private cursor over one VM's task history, to learn how its tasks ended; session-scoped, holds copies of task records and no inventory, and starts, changes or cancels no task",
+	"ReadNextTasks":                  "read: the pages of that same task history cursor, oldest first",
+	"DestroyCollector":               "cleanup of that same task history cursor; always sent, even when the read fails or is cancelled, and never touches inventory",
 	"QueryEvents":                    "read: returns the event log entries matching a filter (vm events, the TUI timeline's vCenter events); unlike CreateCollectorForEvents it leaves no collector behind, and it changes nothing on the server",
 }
 
@@ -108,6 +117,19 @@ func (r *soapRecorder) record(method string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.methods = append(r.methods, method)
+}
+
+// count returns how many requests for one operation were seen.
+func (r *soapRecorder) count(method string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 0
+	for _, m := range r.methods {
+		if m == method {
+			n++
+		}
+	}
+	return n
 }
 
 // distinct returns the set of operations seen, sorted, for a stable report.
@@ -268,6 +290,14 @@ func TestEveryCommandIsReadOnly(t *testing.T) {
 	}
 	t.Logf("operations sent to vCenter across every command:\n  %s", strings.Join(seen, "\n  "))
 
+	// A task history collector is created only to be read and released, so
+	// the two must pair up: a leaked collector counts against the user's
+	// limit on a real vCenter until the session ends.
+	if created := rec.count("CreateCollectorForTasks"); created == 0 || created != rec.count("DestroyCollector") {
+		t.Errorf("task history collectors created=%d destroyed=%d, want equal and nonzero",
+			created, rec.count("DestroyCollector"))
+	}
+
 	for _, m := range seen {
 		if _, ok := readOnlyMethods[m]; !ok {
 			t.Errorf("vsfleet sent %q, which is not an approved read-only operation.\n"+
@@ -330,6 +360,7 @@ func TestOnlyPerfAndBrowserShimsDefineFault(t *testing.T) {
 		filepath.Join("internal", "vsphere", "perf_query.go"),
 		filepath.Join("internal", "vsphere", "license_query.go"),
 		filepath.Join("internal", "vsphere", "event_query.go"),
+		filepath.Join("internal", "vsphere", "task_history.go"),
 	}
 	for _, path := range faultMethods {
 		reviewed := false
@@ -369,6 +400,27 @@ func TestOnlyPerfAndBrowserShimsDefineFault(t *testing.T) {
 	}
 	if len(eventRequests) != 1 || !eventRequests["QueryEvents"] {
 		t.Fatalf("event SOAP shim names requests %v, want only QueryEvents", eventRequests)
+	}
+
+	// The task history shim may name exactly the three requests that read a
+	// VM's task history. Everything else on a TaskManager or a collector is
+	// either a write (CreateTask) or unneeded; none may be reachable from here.
+	taskSrc, err := os.ReadFile(filepath.Join(root, "internal", "vsphere", "task_history.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskRequests := map[string]bool{}
+	for _, m := range regexp.MustCompile(`Req\s+\*types\.([A-Za-z]+)`).FindAllStringSubmatch(string(taskSrc), -1) {
+		taskRequests[m[1]] = true
+	}
+	wantTaskRequests := map[string]bool{"CreateCollectorForTasks": true, "ReadNextTasks": true, "DestroyCollector": true}
+	if len(taskRequests) != len(wantTaskRequests) {
+		t.Fatalf("task history SOAP shim names requests %v, want only %v", taskRequests, wantTaskRequests)
+	}
+	for name := range wantTaskRequests {
+		if !taskRequests[name] {
+			t.Fatalf("task history SOAP shim names requests %v, want only %v", taskRequests, wantTaskRequests)
+		}
 	}
 
 	path := filepath.Join(root, "internal", "vsphere", "datastore_browse.go")
