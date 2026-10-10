@@ -17,11 +17,11 @@
 <p align="center">
   <picture>
     <source media="(prefers-reduced-motion: reduce)" srcset="docs/assets/vsfleet.png">
-    <img src="docs/assets/vsfleet.gif" alt="vsfleet browsing a synthetic three-vCenter estate, opening VM performance charts and distributed-switch wiring, widening a VM filter into an estate-wide search, and diagnosing an unavailable DR site" width="1200">
+    <img src="docs/assets/vsfleet.gif" alt="vsfleet demo command and startup animation, a connection form preview, VM details and timeline, network wiring and policies, vApp members, and estate-wide search" width="1200">
   </picture>
 </p>
 
-<p align="center"><sub>Healthy inventory stays usable even when another vCenter is offline.</sub></p>
+<p align="center"><sub>Explore a synthetic estate: connection setup, VM details and timeline, networks, vApps, and search.</sub></p>
 
 <p align="center">
   <a href="#why-vsfleet">Why vsfleet?</a> &bull;

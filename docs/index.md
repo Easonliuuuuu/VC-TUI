@@ -10,7 +10,7 @@ vsfleet never powers VMs on or off, changes networks, provisions resources,
 manages snapshots, or deletes inventory objects. Estate-wide operations keep
 healthy results when another vCenter fails.
 
-![vsfleet inspecting VM performance and network wiring across three vCenters, then searching the estate and diagnosing an unavailable site](assets/vsfleet.gif){ width="1200" }
+![vsfleet demo command and startup animation, a connection form preview, VM details and timeline, network wiring and policies, vApp members, and estate-wide search](assets/vsfleet.gif){ width="1200" }
 
 <span id="try-it-without-a-vcenter"></span>
 

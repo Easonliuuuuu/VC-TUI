@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"os"
+
 	"github.com/spf13/cobra"
 
 	"github.com/easonliuuuuu/vsfleet/internal/demo"
@@ -26,6 +28,10 @@ The main site is sized like production: about 1,000 VMs across six clusters,
 36 datastores, 24 vApps (some nested), resource pools and 30 networks. The
 second healthy site has about 180 VMs. Everything is generated
 deterministically, so every run shows the same estate.
+
+The startup animation plays on each launch unless VSFLEET_NO_WELCOME or CI
+is set. On Contexts, n previews the connection form; tests, certificate
+discovery and saving are disabled. Escape discards the preview.
 
 Nothing here touches your machine or your network. The demo reads no
 configuration file, opens no keyring, resolves no credentials, dials nothing,
@@ -65,6 +71,15 @@ func runDemo(a *App, cmd *cobra.Command) error {
 		In:              a.in(),
 		Out:             a.out(),
 		Assessment:      service,
+		Welcome:         demoWelcome(os.Getenv),
 	})
 	return err
+}
+
+// Demo launches always replay the greeting without reading or writing state.
+func demoWelcome(getenv func(string) string) tui.Welcome {
+	if welcomeFor("", "dev", true, getenv).Kind == tui.WelcomeNone {
+		return tui.Welcome{}
+	}
+	return tui.Welcome{Kind: tui.WelcomeDemo}
 }

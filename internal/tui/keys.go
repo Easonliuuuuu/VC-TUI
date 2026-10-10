@@ -295,7 +295,7 @@ func defaultKeys() keyMap {
 func (k keyMap) helpSections(demo bool) []helpSection {
 	ctxBindings := []key.Binding{k.UseContext, k.NewContext, k.EditContext, k.DeleteContext, k.LogoutContext}
 	if demo {
-		ctxBindings = []key.Binding{k.UseContext}
+		ctxBindings = []key.Binding{k.UseContext, k.NewContext}
 	}
 	return []helpSection{
 		{"Move", []key.Binding{k.Up, k.Down, k.PageUp, k.PageDown, k.Home, k.End}},
@@ -537,7 +537,7 @@ func (k keyMap) footerHints(m *Model) []key.Binding {
 		return []key.Binding{k.Confirm, k.ToggleKeep, k.Back}
 	case modeContexts:
 		if m.demo {
-			return []key.Binding{k.UseContext, k.AllScopeBrief, k.Doctor, k.Back, k.Help}
+			return []key.Binding{k.UseContext, k.AllScopeBrief, k.NewContext, k.Doctor, k.Back, k.Help}
 		}
 		return []key.Binding{k.UseContext, k.AllScopeBrief, k.NewContext, k.EditContext, k.DeleteContext, k.LogoutContext, k.Doctor, k.Back, k.Help}
 	case modeSearch:

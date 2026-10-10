@@ -66,6 +66,9 @@ connects one and selects it; `c`, then `d`, diagnoses without connecting.
 Long lists and narrow-terminal hints collapse to save space. Estate search
 reports the same missing-context reasons.
 
+In `vsfleet demo`, `n` opens a read-only setup preview. Connection tests,
+certificate discovery, and saving are disabled; `Esc` discards the form.
+
 ### A password source that is gone
 
 `env:`, `file:`, and `exec:` passwords are read on each connection. A
@@ -260,6 +263,7 @@ seconds while the remembered vCenter loads. Any key skips it; `Ctrl+C` quits.
 Upgrades show old/new versions and release notes. Below 64×18, the message
 line replaces the animation.
 
+`vsfleet demo` replays the animation on every launch without storing state.
 `VSFLEET_NO_WELCOME` or `CI` disables it. `state.json` stores
 `welcomed_version`; source builds share version `dev`.
 
