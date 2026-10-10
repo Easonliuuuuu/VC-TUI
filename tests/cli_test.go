@@ -93,7 +93,13 @@ func (b *lockedBuffer) String() string {
 
 func newRunner(t *testing.T) *runner {
 	t.Helper()
-	return &runner{t: t, configPath: filepath.Join(t.TempDir(), "config.toml")}
+	// --config alone leaves the history database and the interface state at
+	// their per-user defaults, so a command that opens history would migrate
+	// and write the developer's own database. Keep both inside the test.
+	dir := t.TempDir()
+	t.Setenv("VSFLEET_HISTORY_DB", filepath.Join(dir, "history.db"))
+	t.Setenv("VSFLEET_STATE", filepath.Join(dir, "state.json"))
+	return &runner{t: t, configPath: filepath.Join(dir, "config.toml")}
 }
 
 // run executes one command. stdin feeds interactive prompts, which is how the
