@@ -1065,11 +1065,13 @@ func Parse(f *excelize.File, opts Options) (*Result, error) {
 	hostSub(sheetVSwitch, applyVSwitchRow)
 	hostSub(sheetVPort, applyVPortRow)
 
-	// Distributed switches. dvPort names its switch by display name, so the
-	// join is scoped to context and datacenter and refused when it is not
-	// unique — a distributed port group is never attached to a guess. Rows are
-	// read even when the kind is already unavailable so the dry-run column
-	// report is complete; they are simply never stored.
+	// Distributed switches. dvPort names its switch by display name. When
+	// Datacenter is present in the dvPort row, matching scopes to switch name
+	// and datacenter; when Datacenter is absent or empty, matching scopes to
+	// switch name within the context if exactly one switch has that name.
+	// Ambiguous names are refused — a distributed port group is never attached
+	// to a guess. Rows are read even when the kind is already unavailable so the
+	// dry-run column report is complete; they are simply never stored.
 	if _, present := tables[sheetDVSwitch]; present {
 		attachResourceRows(tables, sheetDVSwitch, kindDVSwitch, &warnings, &ambiguities, contextFor, func(c *importedContext, t sheetTable, row []string) string {
 			v := dvSwitchFromRow(t, row, c.name)
@@ -1091,21 +1093,31 @@ func Parse(f *excelize.File, opts Options) (*Result, error) {
 					warn("%s: row belongs to a context with no %s rows; skipped", sheetDVPort, sheetDVSwitch)
 					continue
 				}
+				dvsName := t.cell(row, "DVS")
+				datacenter := t.cell(row, "Datacenter")
 				var match []*vsphere.DVSwitch
 				for _, sw := range c.dvswitches {
-					if sw.Name == t.cell(row, "DVS") && sw.Datacenter == t.cell(row, "Datacenter") {
-						match = append(match, sw)
+					if sw.Name != dvsName {
+						continue
 					}
+					if datacenter != "" && sw.Datacenter != datacenter {
+						continue
+					}
+					match = append(match, sw)
 				}
 				switch len(match) {
 				case 1:
 					match[0].PortGroups = append(match[0].PortGroups, dvPortFromRow(t, row, match[0].Name))
 				case 0:
-					warn("%s: port group %q names switch %q, which is not in %s; skipped", sheetDVPort, t.cell(row, "Port group"), t.cell(row, "DVS"), sheetDVSwitch)
+					warn("%s: port group %q names switch %q, which is not in %s; skipped", sheetDVPort, t.cell(row, "Port group"), dvsName, sheetDVSwitch)
 					c.setGap(kindDVSwitch, fmt.Sprintf("port group %q could not be attached to any distributed switch", t.cell(row, "Port group")))
 				default:
-					ambiguities.add(Ambiguity{Sheet: sheetDVPort, Context: c.name, Identity: t.cell(row, "DVS"), Detail: "more than one distributed switch shares this name and datacenter; port groups are not attached to either"})
-					c.setGap(kindDVSwitch, fmt.Sprintf("distributed switch name %q is ambiguous", t.cell(row, "DVS")))
+					detail := "more than one distributed switch shares this name; port groups are not attached to either"
+					if datacenter != "" {
+						detail = "more than one distributed switch shares this name and datacenter; port groups are not attached to either"
+					}
+					ambiguities.add(Ambiguity{Sheet: sheetDVPort, Context: c.name, Identity: dvsName, Detail: detail})
+					c.setGap(kindDVSwitch, fmt.Sprintf("distributed switch name %q is ambiguous", dvsName))
 				}
 			}
 		}

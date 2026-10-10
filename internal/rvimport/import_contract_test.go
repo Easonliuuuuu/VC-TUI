@@ -3,6 +3,7 @@ package rvimport
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -479,6 +480,153 @@ func TestDistributedSwitchesJoinPortGroupsByContextDatacenterAndName(t *testing.
 	if col := collectionOf(t, store2, run2.ID, "alpha", "dvswitch"); col.Status != "unavailable" {
 		t.Errorf("dvswitch = %+v, want unavailable rather than a port group attached to a guess", col)
 	}
+}
+
+func TestDistributedSwitchesJoinPortGroupsWhenDatacenterAbsent(t *testing.T) {
+	sw := func(id, name, dc string) vsphere.DVSwitch {
+		return vsphere.DVSwitch{
+			Location: vsphere.Location{Datacenter: dc}, ID: id, Name: name,
+			PortGroups: []vsphere.DVPortGroup{{ID: "dvpg-" + id, Key: "key-" + id, Name: "pg-" + id, Switch: name, VLAN: "120"}},
+		}
+	}
+
+	t.Run("dvPort without Datacenter matches uniquely named switches", func(t *testing.T) {
+		path := writeFixtureWorkbook(t, func(data *assessment.ExportData) {
+			data.Resources = append(data.Resources,
+				dvsResource(t, "alpha", "vc-alpha-uuid", sw("dvs-1", "DVS-Prod", "dc-a")),
+				dvsResource(t, "alpha", "vc-alpha-uuid", sw("dvs-2", "DVS-DMZ", "dc-b")))
+		})
+		f := openFixture(t, path)
+		blankHeader(t, f, sheetDVPort, "Datacenter")
+		result, run, store := importFixture(t, f, Options{})
+
+		for _, c := range result.contexts {
+			if c.name != "alpha" {
+				continue
+			}
+			if len(c.dvswitches) != 2 {
+				t.Fatalf("dvswitches = %d, want 2", len(c.dvswitches))
+			}
+			for _, d := range c.dvswitches {
+				if len(d.PortGroups) != 1 || d.PortGroups[0].Switch != d.Name {
+					t.Errorf("switch %s (%s) port groups = %+v, want its unique switch port group attached", d.ID, d.Name, d.PortGroups)
+				}
+			}
+		}
+		if col := collectionOf(t, store, run.ID, "alpha", "dvswitch"); col.Status != "success" {
+			t.Errorf("dvswitch = %+v, want success", col)
+		}
+		if len(result.Report.Ambiguities) != 0 {
+			t.Errorf("unexpected ambiguities: %+v", result.Report.Ambiguities)
+		}
+	})
+
+	t.Run("dvPort without Datacenter refuses ambiguous switch names", func(t *testing.T) {
+		path := writeFixtureWorkbook(t, func(data *assessment.ExportData) {
+			data.Resources = append(data.Resources,
+				dvsResource(t, "alpha", "vc-alpha-uuid", sw("dvs-1", "DVS-Prod", "dc-a")),
+				dvsResource(t, "alpha", "vc-alpha-uuid", sw("dvs-2", "DVS-Prod", "dc-b")))
+		})
+		f := openFixture(t, path)
+		blankHeader(t, f, sheetDVPort, "Datacenter")
+		result, run, store := importFixture(t, f, Options{})
+
+		if len(result.Report.Ambiguities) == 0 {
+			t.Fatal("expected ambiguity recorded when multiple switches share the same name without datacenter")
+		}
+		found := false
+		for _, a := range result.Report.Ambiguities {
+			if a.Sheet == sheetDVPort && a.Identity == "DVS-Prod" {
+				found = true
+				if a.Detail != "more than one distributed switch shares this name; port groups are not attached to either" {
+					t.Errorf("ambiguity detail = %q, want detail mentioning shared switch name", a.Detail)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("ambiguities = %+v, want DVS-Prod reported", result.Report.Ambiguities)
+		}
+		if col := collectionOf(t, store, run.ID, "alpha", "dvswitch"); col.Status != "unavailable" {
+			t.Errorf("dvswitch = %+v, want unavailable rather than ambiguous attachment", col)
+		}
+	})
+
+	t.Run("dvPort with empty Datacenter cell matches uniquely named switches", func(t *testing.T) {
+		path := writeFixtureWorkbook(t, func(data *assessment.ExportData) {
+			data.Resources = append(data.Resources,
+				dvsResource(t, "alpha", "vc-alpha-uuid", sw("dvs-1", "DVS-Prod", "dc-a")),
+				dvsResource(t, "alpha", "vc-alpha-uuid", sw("dvs-2", "DVS-DMZ", "dc-b")))
+		})
+		f := openFixture(t, path)
+		rows, err := f.GetRows(sheetDVPort)
+		if err != nil || len(rows) == 0 {
+			t.Fatalf("get rows: %v", err)
+		}
+		dcCol := -1
+		for i, h := range rows[0] {
+			if h == "Datacenter" {
+				dcCol = i + 1
+				break
+			}
+		}
+		if dcCol < 1 {
+			t.Fatal("Datacenter column not found in dvPort fixture")
+		}
+		colName, err := excelize.ColumnNumberToName(dcCol)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for r := 2; r <= len(rows); r++ {
+			if err := f.SetCellValue(sheetDVPort, fmt.Sprintf("%s%d", colName, r), ""); err != nil {
+				t.Fatal(err)
+			}
+		}
+		result, run, store := importFixture(t, f, Options{})
+		for _, c := range result.contexts {
+			if c.name != "alpha" {
+				continue
+			}
+			if len(c.dvswitches) != 2 {
+				t.Fatalf("dvswitches = %d, want 2", len(c.dvswitches))
+			}
+			for _, d := range c.dvswitches {
+				if len(d.PortGroups) != 1 || d.PortGroups[0].Switch != d.Name {
+					t.Errorf("switch %s (%s) port groups = %+v, want port group attached", d.ID, d.Name, d.PortGroups)
+				}
+			}
+		}
+		if col := collectionOf(t, store, run.ID, "alpha", "dvswitch"); col.Status != "success" {
+			t.Errorf("dvswitch = %+v, want success", col)
+		}
+	})
+
+	t.Run("dvPort with Datacenter matches explicitly even when switch names collide", func(t *testing.T) {
+		path := writeFixtureWorkbook(t, func(data *assessment.ExportData) {
+			data.Resources = append(data.Resources,
+				dvsResource(t, "alpha", "vc-alpha-uuid", sw("dvs-1", "DVS-Prod", "dc-a")),
+				dvsResource(t, "alpha", "vc-alpha-uuid", sw("dvs-2", "DVS-Prod", "dc-b")))
+		})
+		result, run, store := importFixture(t, openFixture(t, path), Options{})
+		for _, c := range result.contexts {
+			if c.name != "alpha" {
+				continue
+			}
+			if len(c.dvswitches) != 2 {
+				t.Fatalf("dvswitches = %d, want 2", len(c.dvswitches))
+			}
+			for _, d := range c.dvswitches {
+				if len(d.PortGroups) != 1 || d.PortGroups[0].ID != "dvpg-"+d.ID {
+					t.Errorf("switch %s (%s) port groups = %+v, want explicit match by datacenter", d.ID, d.Datacenter, d.PortGroups)
+				}
+			}
+		}
+		if col := collectionOf(t, store, run.ID, "alpha", "dvswitch"); col.Status != "success" {
+			t.Errorf("dvswitch = %+v, want success", col)
+		}
+		if len(result.Report.Ambiguities) != 0 {
+			t.Errorf("unexpected ambiguities: %+v", result.Report.Ambiguities)
+		}
+	})
 }
 
 // --- identity ---
