@@ -186,7 +186,7 @@ are allowed:
 | `vMetaData` | capture time, when its timestamp can be interpreted |
 
 Dry runs list ignored worksheets and recognized, ignored, and missing
-columns. Mapped headers accept vsfleet and RVTools 4.8 spellings, including
+columns. Mapped headers accept vsfleet and RVTools spellings, including
 `Shared Bus`/`SharedBus`, `Switch`/`DVS`, `Max Ports`/`# Max ports`,
 `Port`/`Port group`, `Allow Promiscuous`/`Promiscuous mode`, and
 `Policy`/`Teaming policy`. `Rolling Order` maps to `Failback`.
@@ -323,7 +323,7 @@ vsfleet compatibility report -o json | jq         # for a pipeline
 
 The report is generated from exporter definitions and runs without
 configuration, keyrings, or vCenter. It describes vsfleet output and observed
-differences from RVTools 4.8.1.4, not the complete RVTools schema. See
+differences from RVTools, not the complete RVTools schema. See
 [interoperability limits](exports.md#rvtools-file-interoperability).
 
 ## Assessments
