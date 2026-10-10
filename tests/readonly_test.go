@@ -101,7 +101,7 @@ var readOnlyMethods = map[string]string{
 	"QueryAssignedLicenses":          "read: lists which entities hold which licenses for opt-in license collection (assessment run --include-licenses); returns license metadata and cannot assign, remove or alter a license. The license list itself is the LicenseManager.licenses property, read through the property collector",
 	"QueryPerf":                      "read: returns performance statistics for the entities it is given; changes nothing on the server. Counters and intervals come from the property collector, not a second operation",
 	"CreateCollectorForTasks":        "this tool's own private cursor over one VM's task history, to learn how its tasks ended; session-scoped, holds copies of task records and no inventory, and starts, changes or cancels no task",
-	"ReadNextTasks":                  "read: the pages of that same task history cursor, oldest first",
+	"ReadNextTasks":                  "read: the pages of that same task history cursor; vCenter returns them newest first and the reader sorts them afterwards",
 	"DestroyCollector":               "cleanup of that same task history cursor; always sent, even when the read fails or is cancelled, and never touches inventory",
 	"QueryEvents":                    "read: returns the event log entries matching a filter (vm events, the TUI timeline's vCenter events); unlike CreateCollectorForEvents it leaves no collector behind, and it changes nothing on the server",
 }
