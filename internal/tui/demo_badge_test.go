@@ -17,7 +17,7 @@ func TestDemoBadgeOnEveryScreenHeader(t *testing.T) {
 		setup func(m *Model)
 	}
 	var variants []variant
-	for md := modeBrowse; md <= modeSwitchPGDetail; md++ {
+	for md := modeBrowse; md <= modeVLANMap; md++ {
 		variants = append(variants, variant{name: "mode", setup: func(m *Model) { m.mode = md }})
 	}
 	for _, pane := range []int{historyPaneChanges, historyPaneTrends, historyPaneRuns, historyPaneHealth} {

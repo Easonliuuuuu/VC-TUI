@@ -21,13 +21,13 @@ func TestTrendsLeadsWithDatastoresThatHaveEvidence(t *testing.T) {
 	m.historySnapshots = &assessment.SnapshotTrend{Points: []assessment.SnapshotTrendPoint{{Run: run}}}
 	m.historyCapacityReport = &assessment.CapacityReport{Datastores: []assessment.DatastoreCapacity{
 		{Object: assessment.Object{Name: "quiet-1"}},
-		{Object: assessment.Object{Name: "VxRail-Virtual-SAN-Datastore-81703777-3800-478d-aeac-7781358aff3c"},
+		{Object: assessment.Object{Name: "HCI-Virtual-SAN-Datastore-1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"},
 			UsedGrowthBytes: &growth, Projection: &assessment.CapacityProjection{DaysRemaining: &days}},
 		{Object: assessment.Object{Name: "quiet-2"}},
 	}}
 
 	view := strings.Join(m.viewHistoryTrends(), "\n")
-	for _, want := range []string{"DATASTORE", "in 3d", "VxRail-Virtual-SAN-Data…", "+ 2 datastores without enough history", "#7"} {
+	for _, want := range []string{"DATASTORE", "in 3d", "HCI-Virtual-SAN-Datasto…", "+ 2 datastores without enough history", "#7"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("Trends missing %q:\n%s", want, view)
 		}

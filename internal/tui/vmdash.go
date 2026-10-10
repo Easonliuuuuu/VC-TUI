@@ -446,7 +446,9 @@ func (m *Model) vmDetailLines(r row, withActions bool) []string {
 	}
 	rightW := m.width - leftW - ansi.StringWidth(dashRule)
 	right := m.vmDashLines(r, rightW)
-	n := max(len(left), len(right))
+	// Run the rule to the bottom of the pane even when both columns are
+	// shorter, as joinSideBySide does for the history split.
+	n := max(max(len(left), len(right)), m.bodyHeight())
 	out := make([]string, n)
 	rule := t.faint.Render(dashRule)
 	for i := range out {

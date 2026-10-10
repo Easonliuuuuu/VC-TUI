@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -18,6 +19,28 @@ const (
 	EnvHelperContext = "VSFLEET_CONTEXT"
 	EnvHelperRef     = "VSFLEET_CREDENTIAL_REF"
 )
+
+// SourceError is an env, file or exec source that could not hand back a
+// password: a variable that is not set, a file that is gone, a helper that
+// failed. Its message is the full explanation; Short is the same fact in a few
+// words, for a one-line status where the reference itself is already implied.
+// A caller that wants to tell an operator what to do next finds it with
+// errors.As and switches on Ref.Scheme.
+type SourceError struct {
+	Ref   Ref
+	Short string
+	msg   string
+	err   error
+}
+
+func (e *SourceError) Error() string { return e.msg }
+func (e *SourceError) Unwrap() error { return e.err }
+
+// sourceError builds a SourceError. full is the message every existing caller
+// already shows; wrapped, when non-nil, stays reachable through errors.Is.
+func sourceError(ref Ref, short string, wrapped error, format string, args ...any) error {
+	return &SourceError{Ref: ref, Short: short, msg: fmt.Sprintf(format, args...), err: wrapped}
+}
 
 // maxSecretBytes bounds what a file: or exec: source may hand back. A password
 // is a line, not a stream; without a ceiling a mistaken reference at a device
@@ -69,14 +92,16 @@ func (e *Env) lookup(name string) (string, bool) {
 func (e *Env) Get(_ context.Context, ref Ref) (Credential, error) {
 	secret, ok := e.lookup(ref.Value)
 	if !ok {
-		return Credential{}, fmt.Errorf("environment variable %s is not set (%s)", ref.Value, ref)
+		return Credential{}, sourceError(ref, ref.Value+" is not set", nil,
+			"environment variable %s is not set (%s)", ref.Value, ref)
 	}
 	// An empty variable is reported separately from a missing one. Both are
 	// mistakes, but they have different causes — unset means the variable
 	// never reached the process, empty means something produced nothing — and
 	// saying which saves an operator a round of guessing.
 	if secret == "" {
-		return Credential{}, fmt.Errorf("environment variable %s is set but empty (%s)", ref.Value, ref)
+		return Credential{}, sourceError(ref, ref.Value+" is empty", nil,
+			"environment variable %s is set but empty (%s)", ref.Value, ref)
 	}
 	return Credential{Password: secret}, nil
 }
@@ -109,23 +134,28 @@ func (f *File) Get(_ context.Context, ref Ref) (Credential, error) {
 	fh, err := os.Open(ref.Value)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return Credential{}, fmt.Errorf("credential file %s does not exist (%s)", ref.Value, ref)
+			return Credential{}, sourceError(ref, "password file "+ref.Value+" does not exist", err,
+				"credential file %s does not exist (%s)", ref.Value, ref)
 		}
-		return Credential{}, fmt.Errorf("read credential file %s: %w", ref.Value, err)
+		return Credential{}, sourceError(ref, "password file "+ref.Value+" cannot be read", err,
+			"read credential file %s: %v", ref.Value, err)
 	}
 	defer func() { _ = fh.Close() }()
 	var buf bytes.Buffer
 	// One byte past the ceiling, so going over is distinguishable from
 	// landing exactly on it.
 	if _, err := buf.ReadFrom(io.LimitReader(fh, maxSecretBytes+1)); err != nil {
-		return Credential{}, fmt.Errorf("read credential file %s: %w", ref.Value, err)
+		return Credential{}, sourceError(ref, "password file "+ref.Value+" cannot be read", err,
+			"read credential file %s: %v", ref.Value, err)
 	}
 	if buf.Len() > maxSecretBytes {
-		return Credential{}, fmt.Errorf("credential file %s is larger than %d bytes; that is not a password", ref.Value, maxSecretBytes)
+		return Credential{}, sourceError(ref, "password file "+ref.Value+" is not a password", nil,
+			"credential file %s is larger than %d bytes; that is not a password", ref.Value, maxSecretBytes)
 	}
 	secret := trimSecret(buf.Bytes())
 	if secret == "" {
-		return Credential{}, fmt.Errorf("credential file %s is empty (%s)", ref.Value, ref)
+		return Credential{}, sourceError(ref, "password file "+ref.Value+" is empty", nil,
+			"credential file %s is empty (%s)", ref.Value, ref)
 	}
 	return Credential{Password: secret}, nil
 }
@@ -177,9 +207,13 @@ func (e *Exec) Get(ctx context.Context, ref Ref) (Credential, error) {
 		ctx = context.Background()
 	}
 	program := strings.TrimSpace(ref.Value)
+	// The short forms name the helper by its file name: a full path rarely
+	// fits a status line, and the full message still carries it.
+	name := filepath.Base(program)
 	path, err := exec.LookPath(program)
 	if err != nil {
-		return Credential{}, fmt.Errorf("credential helper %s: %w", program, err)
+		return Credential{}, sourceError(ref, "password helper "+name+" not found", err,
+			"credential helper %s: %v", program, err)
 	}
 	cmd := exec.CommandContext(ctx, path)
 	cmd.Env = append(e.environ(), EnvHelperRef+"="+ref.String())
@@ -201,19 +235,24 @@ func (e *Exec) Get(ctx context.Context, ref Ref) (Credential, error) {
 	cmd.Stdin = nil
 	if err := cmd.Run(); err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return Credential{}, fmt.Errorf("credential helper %s did not finish: %w", program, ctxErr)
+			return Credential{}, sourceError(ref, "password helper "+name+" did not finish", ctxErr,
+				"credential helper %s did not finish: %v", program, ctxErr)
 		}
 		if msg := firstLine(stderr.String()); msg != "" {
-			return Credential{}, fmt.Errorf("credential helper %s failed: %w: %s", program, err, msg)
+			return Credential{}, sourceError(ref, "password helper "+name+" failed: "+msg, err,
+				"credential helper %s failed: %v: %s", program, err, msg)
 		}
-		return Credential{}, fmt.Errorf("credential helper %s failed: %w", program, err)
+		return Credential{}, sourceError(ref, "password helper "+name+" failed ("+err.Error()+")", err,
+			"credential helper %s failed: %v", program, err)
 	}
 	if stdout.Len() > maxSecretBytes {
-		return Credential{}, fmt.Errorf("credential helper %s wrote more than %d bytes; that is not a password", program, maxSecretBytes)
+		return Credential{}, sourceError(ref, "password helper "+name+" printed something that is not a password", nil,
+			"credential helper %s wrote more than %d bytes; that is not a password", program, maxSecretBytes)
 	}
 	secret := trimSecret(stdout.Bytes())
 	if secret == "" {
-		return Credential{}, fmt.Errorf("credential helper %s wrote nothing to standard output (%s)", program, ref)
+		return Credential{}, sourceError(ref, "password helper "+name+" printed nothing", nil,
+			"credential helper %s wrote nothing to standard output (%s)", program, ref)
 	}
 	return Credential{Password: secret}, nil
 }

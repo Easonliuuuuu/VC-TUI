@@ -38,14 +38,14 @@ Managing multiple VMware vCenters traditionally requires juggling browser tabs, 
 
 **vsfleet** organizes each vCenter into a named **context**—similar to a `kubectl` context—keeping endpoints, credentials, network routes, and certificate policies strictly separated:
 
-- 🌐 **Estate-Wide Multi-vCenter Queries**: Query every configured vCenter in parallel with a single command using `--all-contexts`.
-- 🛡️ **Partial Failure Resilience**: Unreachable or timing-out sites do not block results; healthy vCenters remain responsive and usable.
-- 🔒 **Strict Read-Only Safety**: Never powers VMs on or off, reverts snapshots, modifies networks, or alters inventory. See [SECURITY.md](SECURITY.md).
-- 🔀 **Independent Proxy Routing**: Route each context independently through direct TCP, SOCKS5, HTTP, or HTTPS CONNECT proxies, with optional TLS thumbprint pinning.
-- 🔑 **Secure Credential Handling**: Zero plaintext passwords in `config.toml`. Resolves credentials via native OS keyrings, interactive prompts, or unattended sources.
-- 📊 **Historical Drift & RVTools-Compatible Exports**: Capture immutable local SQLite snapshots, track drift over time, and export 25-sheet Excel workbooks for migration sizing ([details](docs/assessments.md#deterministic-exports)).
-- 🌐 **Distributed-Network Readiness**: Compare cross-cluster VLAN mappings, policy, MTU, host coverage, and affected VMs before migration.
-- 🖥️ **Interactive TUI + Scriptable JSON**: Fast Bubble Tea terminal UI with local workstation handoffs (SSH, web browser, clipboard) alongside stable JSON for automation.
+- <img src="docs/assets/icons/globe.svg" width="16" height="16" alt=""> **Estate-Wide Multi-vCenter Queries**: Query every configured vCenter in parallel with a single command using `--all-contexts`.
+- <img src="docs/assets/icons/shield-check.svg" width="16" height="16" alt=""> **Partial Failure Resilience**: Unreachable or timing-out sites do not block results; healthy vCenters remain responsive and usable.
+- <img src="docs/assets/icons/lock.svg" width="16" height="16" alt=""> **Strict Read-Only Safety**: Never powers VMs on or off, reverts snapshots, modifies networks, or alters inventory. See [SECURITY.md](SECURITY.md).
+- <img src="docs/assets/icons/arrow-switch.svg" width="16" height="16" alt=""> **Independent Proxy Routing**: Route each context independently through direct TCP, SOCKS5, HTTP, or HTTPS CONNECT proxies, with optional TLS thumbprint pinning.
+- <img src="docs/assets/icons/key.svg" width="16" height="16" alt=""> **Secure Credential Handling**: Zero plaintext passwords in `config.toml`. Resolves credentials via native OS keyrings, interactive prompts, or unattended sources.
+- <img src="docs/assets/icons/graph.svg" width="16" height="16" alt=""> **Historical Drift & RVTools-Compatible Exports**: Capture immutable local SQLite snapshots, track drift over time, and export 25-sheet Excel workbooks for migration sizing ([details](docs/assessments.md#deterministic-exports)).
+- <img src="docs/assets/icons/workflow.svg" width="16" height="16" alt=""> **Distributed-Network Readiness**: Compare cross-cluster VLAN mappings, policy, MTU, host coverage, and affected VMs before migration.
+- <img src="docs/assets/icons/terminal.svg" width="16" height="16" alt=""> **Interactive TUI + Scriptable JSON**: Fast Bubble Tea terminal UI with local workstation handoffs (SSH, web browser, clipboard) alongside stable JSON for automation.
 
 ### Feature comparison
 
@@ -138,15 +138,15 @@ The full operator guide is published at **[easonliuuuuu.github.io/vsfleet](https
 
 | Guide | Description |
 |---|---|
-| 🚀 **[Getting Started](https://easonliuuuuu.github.io/vsfleet/getting-started/)** | Installation, first configuration, shell completion |
-| 💻 **[CLI Guide](https://easonliuuuuu.github.io/vsfleet/commands/)** | Commands, flags, filters, JSON output |
-| 🖥️ **[Terminal UI](https://easonliuuuuu.github.io/vsfleet/tui/)** | Keybindings, filtering, workstation actions |
-| 📦 **[Containers](https://easonliuuuuu.github.io/vsfleet/containers/)** | Docker, Kubernetes, CI automation |
-| 📊 **[Assessments & History](https://easonliuuuuu.github.io/vsfleet/assessments/)** | Captures, diffs, trends, export formats |
-| ⚙️ **[Configuration](https://easonliuuuuu.github.io/vsfleet/configuration/)** | Proxies, TLS thumbprints, credential sources |
-| 📖 **[Operator Recipes](https://easonliuuuuu.github.io/vsfleet/recipes/)** | Real-world workflows and pipelines |
-| 🔧 **[Troubleshooting](https://easonliuuuuu.github.io/vsfleet/troubleshooting/)** | `vsfleet doctor` and common fixes |
-| 🏛️ **[Architecture](https://easonliuuuuu.github.io/vsfleet/architecture/)** | Concurrency, session caching, security invariants |
+| <img src="docs/assets/icons/rocket.svg" width="16" height="16" alt=""> **[Getting Started](https://easonliuuuuu.github.io/vsfleet/getting-started/)** | Installation, first configuration, shell completion |
+| <img src="docs/assets/icons/code.svg" width="16" height="16" alt=""> **[CLI Guide](https://easonliuuuuu.github.io/vsfleet/commands/)** | Commands, flags, filters, JSON output |
+| <img src="docs/assets/icons/terminal.svg" width="16" height="16" alt=""> **[Terminal UI](https://easonliuuuuu.github.io/vsfleet/tui/)** | Keybindings, filtering, workstation actions |
+| <img src="docs/assets/icons/package.svg" width="16" height="16" alt=""> **[Containers](https://easonliuuuuu.github.io/vsfleet/containers/)** | Docker, Kubernetes, CI automation |
+| <img src="docs/assets/icons/graph.svg" width="16" height="16" alt=""> **[Assessments & History](https://easonliuuuuu.github.io/vsfleet/assessments/)** | Captures, diffs, trends, export formats |
+| <img src="docs/assets/icons/gear.svg" width="16" height="16" alt=""> **[Configuration](https://easonliuuuuu.github.io/vsfleet/configuration/)** | Proxies, TLS thumbprints, credential sources |
+| <img src="docs/assets/icons/book.svg" width="16" height="16" alt=""> **[Operator Recipes](https://easonliuuuuu.github.io/vsfleet/recipes/)** | Real-world workflows and pipelines |
+| <img src="docs/assets/icons/tools.svg" width="16" height="16" alt=""> **[Troubleshooting](https://easonliuuuuu.github.io/vsfleet/troubleshooting/)** | `vsfleet doctor` and common fixes |
+| <img src="docs/assets/icons/stack.svg" width="16" height="16" alt=""> **[Architecture](https://easonliuuuuu.github.io/vsfleet/architecture/)** | Concurrency, session caching, security invariants |
 
 ---
 

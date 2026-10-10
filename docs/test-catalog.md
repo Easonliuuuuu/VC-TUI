@@ -1,13 +1,9 @@
-# Test Catalogue
+# Test catalogue
 
-This page is the map of every automated test in vsfleet: what each suite runs,
-which situation it simulates, what it asserts, and where it runs in CI. Read
-[Testing](testing.md) for how to run each tier and why the tiers are kept
-separate, and [Synthetic Testbed](testbed.md) for the fixtures they share.
-
-Every fixture is synthetic. No suite talks to a real vCenter, so none of them
-is evidence about real vSphere behavior; [what nothing here
-proves](#what-nothing-here-proves) lists the gaps.
+This reference lists automated suites, cases, and CI coverage. See
+[Testing](testing.md) for execution and limitations and
+[Testbed](testbed.md) for fixture setup. Every fixture is synthetic; no suite
+connects to a real vCenter.
 
 ## At a glance
 
@@ -30,42 +26,41 @@ workflow tests (`node --test scripts/test-labeler.cjs`) and a coverage report.
 
 ## Unit and package tests
 
-Untagged `_test.go` files next to the code. They run on all three operating
-systems with `-race`. Packages that need a vCenter start
-`govmomi/simulator` in-process; nothing here starts a separate process.
+Untagged `_test.go` files run on Linux, macOS, and Windows with `-race`.
+Packages needing a vCenter use an in-process simulator.
 
 | Package | What it covers | Situations simulated |
 | --- | --- | --- |
-| `internal/assessment` | The history store, diffs, trends, capacity reports, timelines, policy, perf windows, schema migrations | interrupted captures, concurrent writers fenced by a lease, a VM renamed or moved across vCenters, a context missing from one run, failed collections that must not read as removals, migrating older database schemas |
-| `internal/cli` | Command wiring, flags, exit codes, JSON shapes, help text | unknown contexts, `--all-contexts` overrides, non-finite thresholds, RVTools import dry runs and repeats, offline exports that must not clobber files, every command having runnable examples |
-| `internal/config` | Loading, validating, and saving configuration; SSH routes; thumbprints | future config versions, duplicate names, dangling `via` provenance, routes that must survive a save |
-| `internal/credentials` | `keyring:`, `prompt:`, `env:`, `file:` and `exec:` credential references | an unavailable keyring falling back to the prompt, unset vs empty variables, failing, silent, missing, or slow helpers, non-interactive references that must never prompt |
+| `internal/assessment` | History, diffs, trends, capacity, timelines, policy, perf, migrations | interruption, writer leases, renamed/moved VMs, missing contexts, failed collections, old schemas |
+| `internal/cli` | Commands, flags, exits, JSON, examples | invalid inputs, offline import/export, no clobbering, add-context credential choices without a keyring |
+| `internal/config` | Load/save validation, SSH routes, thumbprints | future versions, duplicate names, dangling `via`, route preservation |
+| `internal/contextops` | CLI/TUI context saving | keyring cleanup only after save and when requested; shared keys preserved; cleanup failure cannot undo edit |
+| `internal/credentials` | Keyring, prompt, env, file, exec sources | lookup-only probing, isolated resolvers, unset/empty variables, missing/failing/silent/slow helpers, no unattended prompts, concise failure reasons |
 | `internal/decommission` | The VM decommission check | strict blockers, unknown coverage, ambiguous identity, unresolved dependencies |
-| `internal/demo` | The offline demo estate | determinism, production-like size, referential integrity, shared names across contexts, five differing history runs |
-| `internal/health` | Health rules, readiness, orphan and zombie disk detection | threshold boundaries, empty state treated as unknown, partial or truncated datastore browsing, same-named datastores, schema-gated rules, passthrough devices |
+| `internal/demo` | Offline demo estate | determinism, realistic size, referential integrity, duplicate names, five history runs |
+| `internal/health` | Health, readiness, orphan/zombie disks | thresholds, empty/partial/truncated evidence, duplicate datastore names, schema gates, passthrough |
 | `internal/humanize`, `internal/limiter`, `internal/uistate` | Formatting, bounded concurrency, persisted TUI state | cancellation while waiting for a slot, corrupt or missing state files, untrustworthy saved SSH destinations |
-| `internal/metareport` | Saved tag/custom-attribute reports | unreadable metadata sources giving *undetermined* rather than *no*, failed collections not reported as removals |
+| `internal/metareport` | Saved metadata reports | unreadable sources produce undetermined membership; failed collections cannot imply removal |
 | `internal/network` | Cross-vCenter network comparison | VLAN gaps, MTU mismatches, a blind distributed switch, ambiguous cluster names |
 | `internal/perf` | Performance summaries and sizing classification | missing samples that are not zero, too few samples, periodic peaks vs sustained low use, contention |
-| `internal/query` | The `--where` predicate language | numeric vs lexical comparison, type errors, tag and custom-attribute predicates that need a name |
-| `internal/report` | RVTools-compatible XLSX/CSV export, sharing, licensing, `vFileInfo`, `vSource` | byte-identical re-export, pseudonymized sharing that must fail closed, license keys that must never appear, old runs without newer evidence, worksheet row limits |
-| `internal/rvimport` | Importing RVTools workbooks | missing or extra worksheets and columns, duplicate VM identities, oversized workbooks refused before opening, malformed files, repeat imports, imports that can never reach a mutation-capable client |
+| `internal/query` | `--where` predicates | numeric comparisons, type errors, named tag/custom fields |
+| `internal/report` | XLSX/CSV, sharing, licenses, `vFileInfo`, `vSource` | deterministic export, fail-closed pseudonymization, key redaction, old evidence, row limits |
+| `internal/rvimport` | RVTools import | missing/extra fields, duplicate identities, size limits, malformed/repeated imports, no mutation client |
 | `internal/search` | Cross-vCenter search matching | case-insensitive substring matching, kind restriction |
 | `internal/session` | Operation deadlines and streaming idle timeouts | long work that keeps streaming, silent streams, timeout errors naming their stage |
 | `internal/sizing` | Destination sizing (N-1, growth, storage) | partial coverage that is never *fit*, shared RDMs counted once, missing assumptions reported as unknown |
-| `internal/sshalias` | Discovering SSH aliases in `~/.ssh/config` | nested and cyclic `Include`, depth/file/byte/candidate limits, stale aliases pointing at another IP |
+| `internal/sshalias` | OpenSSH alias discovery | nested/cyclic includes, depth/file/byte/candidate limits, stale aliases |
 | `internal/testbed` | The loopback testbed lab itself | authenticated routes start, and wrong fixture credentials are rejected |
 | `internal/topology` | Topology and blast-radius queries | shared datastores across contexts, same-named objects that must stay distinct, blind contexts that downgrade results |
 | `internal/transport` | Direct, SOCKS5, and HTTP(S) proxy dialers | offline proxies, ambient proxy variables that must be ignored |
-| `internal/tui` | The Bubble Tea model: browse, detail, VM dashboard, history panes, datastore browser, credential and SSH prompts, context forms | stale async replies, narrow terminals, failed reloads keeping stale data, background refresh tiers, demo mode disabling external actions, SSH routing and alias precedence |
-| `internal/vsphere` | Read-only inventory collection against the simulator | paging, partial failure of one kind, permission denial recorded as provenance, perf counters with gaps or without samples, license metadata without keys |
+| `internal/tui` | Browse/detail, dashboards, history, datastore browser, prompts, context forms | stale replies, narrow renders, failed reloads, refresh tiers, demo restrictions, SSH precedence, unavailable keyring, missing credential diagnosis/edit |
+| `internal/vsphere` | Read-only simulator inventory | paging, failed/denied collections, provenance, perf gaps, key-free license metadata |
 | `cmd/vsfleet-demo` | The demo binary | seeded assessment history is wired in |
 
 ## In-process simulator tests
 
-The untagged files in `tests/` drive the real CLI end to end against a
-`govmomi/simulator` started inside the test process. They run in the `build`
-job alongside the unit tests.
+The untagged `tests/` suite drives the CLI against an in-process
+`govmomi/simulator` in the `build` job.
 
 | File | Situation | Asserts |
 | --- | --- | --- |
@@ -82,9 +77,9 @@ job alongside the unit tests.
 
 ## Multi-vCenter vcsim integration
 
-Tagged `integration`. Each endpoint is a separate `cmd/vsfleet-vcsim` process
-on its own loopback port, so a test can kill one mid-run. The fixtures are
-described in [Testing](testing.md#fixture-catalogue).
+Tagged `integration`. Each loopback endpoint runs in its own
+`cmd/vsfleet-vcsim` process and can be killed mid-test. Fixtures are listed
+[below](#fixture-catalogue).
 
 | Test | Fixture | Situation | Asserts |
 | --- | --- | --- | --- |
@@ -101,38 +96,50 @@ described in [Testing](testing.md#fixture-catalogue).
 | `TestVCSIMSizingCompleteAndPartialRuns` | `basic-multivcenter` | destination sizing over complete and partial runs | partial input is never reported as *fit* |
 | `TestVCSIMSharedExportPseudonymizesDuplicateNames` | `duplicate-names` | a scoped, pseudonymized export | colliding names stay distinguishable and originals never leak |
 
+### Fixture catalogue
+
+Deterministic topology flags create endpoints with independent vCenter and VM
+identities.
+
+| Fixture | Topology |
+| --- | --- |
+| `basic-multivcenter` | `vc-prod`: two datacenters, one cluster each, two hosts per cluster, three VMs per resource pool, three datastores, three port groups, one vApp per cluster. `vc-edge`: one datacenter/cluster, two hosts, one VM pool, datastore, port group, and vApp. |
+| `duplicate-names` | Identical one-datacenter estates with colliding VM and datastore names. |
+| `partial-failure` | Healthy and killable endpoints plus a closed-port context. |
+| `topology` | One datacenter/cluster, two hosts, VMs, datastores, and port groups, one vApp. |
+| `history` | Small basic estate, captured three times with power and name changes. |
+
 ## TUI scenarios
 
-`scripts/testbed test` runs each scenario through `cmd/vsfleet-harness`: it
-builds the TUI model, sends keys and resize events directly, and checks the
-view and the model's semantic `Observation`. Presentation scenarios use the
-offline demo estate; connected scenarios start the loopback lab. Scenarios
-marked with goldens are also rendered at `60x20`, `100x30`, and `140x40` and
-compared with `internal/testbed/scenarios/testdata/golden/`. Update goldens
-only with `--update-goldens`, and review the diff.
+The harness sends keys and resizes to the TUI model and checks its view and
+semantic `Observation`. Golden scenarios compare renders at `60x20`,
+`100x30`, and `140x40` with
+`internal/testbed/scenarios/testdata/golden/`. See [render contracts](testbed.md#render-contracts)
+before updating goldens.
 
 | Scenario | Profile | Drives | Asserts | Goldens |
 | --- | --- | --- | --- | --- |
 | `overview` | presentation | load all contexts with `R` | inventory renders while the failed site stays visible | yes |
 | `partial-failure` | presentation | load all contexts | the failed `dr-site` context is still shown | no |
 | `duplicate-names` | presentation | load all contexts | same-named resources render as context-qualified rows | no |
-| `credential-cancel` | presentation | load the demo estate, explicitly reload through the prompt coordinator, capture the open prompt, then cancel it with Esc | the prompt is labelled for `prod-vc`, wraps at each golden size, closes after cancellation, reports the cancellation, and renders no fixture secret | yes |
-| `stale-result` | presentation | initial load only | a context is selected. The reordered-reply case itself is covered by `FuzzStaleMessagesCannotReplaceNewerState` and unit tests | no |
-| `history-coverage-gap` | presentation | open History with `H` | History opens; the coverage gap is recorded by the goldens | yes |
-| `add-context-no-secret` | connected | boots the loopback lab with in-memory keyring references | a context is selected over the production backend. The harness does not yet inspect the saved configuration for a password; `TestContextopsSave*` and `TestFormPreservesANonInteractiveCredential` cover that | no |
-| `datastore-browser` | presentation | open Datastores, select the populated `nvme-01` fixture, and open its file browser at the root | the browser stays in datastore mode at `/`, names the datastore, and renders directory entries at each golden size | yes |
+| `credential-cancel` | presentation | open the labelled prompt, then Esc | prompt wraps; cancellation closes it and reports the result without fixture secrets | yes |
+| `stale-result` | presentation | initial load | context selected only; reordered replies are covered by fuzz/unit tests | no |
+| `history-coverage-gap` | presentation | `H` | History opens; goldens record the gap | yes |
+| `add-context-no-secret` | connected | start with in-memory keyring refs | production backend selects a context; password-free saves are checked by `TestContextopsSave*` and `TestFormPreservesANonInteractiveCredential`, not this scenario | no |
+| `credential-source-missing` | connected | missing fixture env source, then diagnosis | failure names `VSFLEET_TESTBED_PASSWORD`; diagnosis says set/restart or edit with `e`; provider never reads real environment | yes |
+| `datastore-browser` | presentation | open `nvme-01` browser | root `/`, datastore name, entries, and browser mode at each size | yes |
 | `resize` | presentation | resize through `60x20`, `100x30`, `140x40` | inventory still renders and selection is kept | no |
-| `vm-dashboard` | presentation | open the first VM, then visit chart pages `0`–`4` and step ranges `1h`→`30d`→`1h` at each size | every frame fits the terminal's width and height, the selected page tab is shown whole, and the pane stays in detail mode | yes |
-| `network-switches` | presentation | open the Networks tab, open DVS-Production and visit both workspace pages at each size; then fold it and open DVS-Storage's Wiring page on its vMotion port group | every frame fits the terminal, both page tabs are shown, and the wiring page names the switch and port group | yes |
-| `cluster-workspace` | presentation | open the Clusters tab, open compute-a and visit Summary, Hosts & VMs (unfolding a host) and Storage at each size; then open compute-b | every frame fits the terminal, each page tab is shown, Storage names the host missing a datastore, and compute-b's Summary flags its HA failover capacity below the reserve | yes |
+| `vm-dashboard` | presentation | pages `0`–`4`, ranges `1h`→`30d`→`1h` at each size | bounded frames, whole page tabs, detail mode retained | yes |
+| `network-switches` | presentation | both DVS-Production pages; DVS-Storage Wiring/vMotion | bounded frames, page tabs, switch and port-group names | yes |
+| `host-network` | presentation | esxi-db-08 Network; move switch cursor; open DVS-Storage and return | bounded frames/tabs, missing switch and unattached NICs shown, Esc returns to host | yes |
+| `vlan-map` | presentation | all-context VLAN map/where panel; pair compute-a on prod-vc and edge-vc | bounded frames, both context columns, lost-connectivity VLANs named | yes |
+| `cluster-workspace` | presentation | compute-a Summary, Hosts & VMs (unfold host), Storage; compute-b | bounded frames/tabs, missing datastore named, low HA reserve flagged | yes |
 
 ## PTY journeys
 
-Tagged `linux && pty`. Each journey builds `cmd/vsfleet-testbed`, starts it in
-a real pseudo-terminal with an isolated `HOME`, XDG directories, and loopback
-simulators, types like a user, and asserts on the normalized terminal output.
-On failure CI uploads the redacted raw output, a plain transcript, an event
-log, and the testbed state.
+Tagged `linux && pty`. Journeys run `cmd/vsfleet-testbed` in a pseudo-terminal
+with isolated home/XDG directories and loopback simulators. Assertions use
+normalized output; see [PTY execution and artifacts](testing.md#linux-pty-process-tests).
 
 | Journey | Situation | Asserts |
 | --- | --- | --- |
@@ -151,13 +158,7 @@ single multi-rune key, so `"rq"` matches neither reload nor quit.
 
 ## Fuzz targets
 
-Seed inputs run as ordinary tests in every `go test ./...`. The nightly
-`fuzz.yml` workflow runs each target for 5 minutes in parallel. A pull request
-that changes a fuzz target, its seeds, or the workflow gets a 1-minute run per
-target, and **Actions → Fuzz → Run workflow** starts one by hand with any
-duration. A failing
-input lands in the package's `testdata/fuzz/<Target>/`; commit it there and it
-becomes a permanent regression test.
+See [Fuzzing](testing.md#fuzzing) for seeds, campaigns, and regression inputs.
 
 | Target | Package | Input | Invariants |
 | --- | --- | --- | --- |
@@ -170,16 +171,10 @@ becomes a permanent regression test.
 | `FuzzDiscover` | `internal/sshalias` | an arbitrary `~/.ssh/config` plus one includable file, under small limits | only `ErrTruncated` as an error, never more aliases than the limit, only literal unique aliases. Includes that could leave the temporary home are skipped |
 | `FuzzParseAndEvaluate` | `internal/query` | arbitrary `--where` expressions with tags and custom attributes readable or not | accepted unquoted predicates print back to an identical parse, `tag.`/`custom.` always carry a name, and `Evaluate` never contradicts `Match` |
 
-`FuzzParseAndEvaluate` found that `custom.=""` used to be accepted as a
-predicate on an attribute with an empty name. Its failing input is kept as a
-seed.
-
 ## Kubernetes end-to-end
 
-`scripts/test-kubernetes.sh` applies the checked-in
-`deploy/kubernetes/cronjob.yaml` to a kind cluster, with the CI image swapped
-in, against two vcsim Deployments (`prod` and `edge`). It then runs the job
-four times with different arguments.
+The kind suite uses `deploy/kubernetes/cronjob.yaml` with the CI image and two
+vcsim Deployments, `prod` and `edge`.
 
 | Step | Situation | Asserts |
 | --- | --- | --- |
@@ -189,20 +184,16 @@ four times with different arguments.
 | `vsfleet-partial` | `edge` scaled to zero, `--fail-on-partial` | the job fails with exit code 3 and the result is `partial`, 1 of 2 contexts |
 | `vsfleet-readiness` | `assessment readiness latest` | the verdict is not `ready` and unresolved items are listed |
 
-This tier is the only one that proves the container works with a mounted
-ConfigMap, a Secret used as `file:` credentials, a PVC with the right
-ownership, and Service DNS names.
+This tier checks ConfigMap mounts, Secret-backed `file:` credentials, PVC
+ownership, and Service DNS.
 
 ## Release snapshot and pins
 
 `release-snapshot` runs `goreleaser release --snapshot --skip=publish,sign`
-with the same Go version and goreleaser configuration as `release.yml`,
-except that the multi-platform `index,` annotation prefix is stripped because
-buildx rejects it on the per-platform images a snapshot loads. It
-checks that an archive exists for each of the six OS/architecture pairs, then
-runs `--version` on the Linux binary and `--version`/`--help` in the amd64
-container image. A broken `.goreleaser.yaml`, `Dockerfile`, or cross-compile
-fails here instead of when a tag is pushed.
+with the release Go version and configuration. It strips the multi-platform
+`index,` annotation prefix because buildx rejects it for loaded per-platform
+images. It checks six OS/architecture archives, Linux binary `--version`,
+and amd64 image `--version`/`--help`.
 
 `scripts/check-release-pins.sh` fails when:
 
@@ -217,17 +208,11 @@ fails here instead of when a tag is pushed.
 
 ## What nothing here proves
 
-- Behavior against real vCenter or ESXi builds, patch-release quirks, or real
-  performance counter values.
-- Physical storage paths, real VMXNET3/UPT, SR-IOV, vGPU, RDM, or migration.
-- Terminal behavior on macOS and Windows consoles: PTY journeys are
-  Linux-only, and the scenarios run there only at the model boundary.
-- Keyring backends on real desktops: tests use static or isolated keyrings.
-- The published, signed image: the snapshot skips signing and publishing.
+See [validation limits](testing.md#what-vcsim-does-not-prove) and
+[real-vCenter acceptance](testing.md#real-vcenter-validation).
 
 ## Keeping this page current
 
-When you add a scenario, PTY journey, fuzz target, vcsim test, or CI job, add
-a row here in the same change. `TestCatalogueDocumentsEveryScenarioAndFuzzTarget`
-in `internal/testbed/scenarios` fails when a scenario or fuzz target is
-missing from this page or a fuzz target is missing from `fuzz.yml`.
+Add a row with each new scenario, journey, fuzz target, vcsim test, or CI job.
+`TestCatalogueDocumentsEveryScenarioAndFuzzTarget` in
+`internal/testbed/scenarios` enforces scenario/fuzz rows and fuzz workflow entries.

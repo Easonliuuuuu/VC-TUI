@@ -183,18 +183,41 @@ func clusterReference(data assessment.ExportData, subject topology.Subject) Clus
 }
 
 func reachableNetworks(data assessment.ExportData, cluster ClusterRef) []NetworkSummary {
+	hosts := make([]vsphere.Host, 0)
+	switches := make([]vsphere.DVSwitch, 0)
+	for _, resource := range data.Resources {
+		if !sameContext(resource.Context, cluster.Context) {
+			continue
+		}
+		switch resource.Kind {
+		case "host":
+			var host vsphere.Host
+			if assessment.DecodeResource(resource, &host) && strings.EqualFold(host.Cluster, cluster.Name) {
+				hosts = append(hosts, host)
+			}
+		case "dvswitch":
+			var switchValue vsphere.DVSwitch
+			if assessment.DecodeResource(resource, &switchValue) {
+				switches = append(switches, switchValue)
+			}
+		}
+	}
+	return Reachable(hosts, switches)
+}
+
+// Reachable is the networks a cluster's hosts can reach: every standard port
+// group on any of them and every port group of every distributed switch,
+// each with how many of the hosts have it. hosts are the cluster's hosts with
+// their network configuration; switches are the distributed switches of the
+// cluster's vCenter. It is the evidence Compare matches, taken from whatever
+// source the caller has, a stored assessment or a live read.
+func Reachable(hostList []vsphere.Host, switchList []vsphere.DVSwitch) []NetworkSummary {
 	type hostRecord struct {
 		host vsphere.Host
 	}
-	hosts := make([]hostRecord, 0)
-	for _, resource := range data.Resources {
-		if resource.Kind != "host" || !sameContext(resource.Context, cluster.Context) {
-			continue
-		}
-		var host vsphere.Host
-		if assessment.DecodeResource(resource, &host) && strings.EqualFold(host.Cluster, cluster.Name) {
-			hosts = append(hosts, hostRecord{host: host})
-		}
+	hosts := make([]hostRecord, 0, len(hostList))
+	for _, host := range hostList {
+		hosts = append(hosts, hostRecord{host: host})
 	}
 	sort.SliceStable(hosts, func(i, j int) bool {
 		return objectSortKey(hosts[i].host.Name, hosts[i].host.ID) < objectSortKey(hosts[j].host.Name, hosts[j].host.ID)
@@ -236,17 +259,11 @@ func reachableNetworks(data assessment.ExportData, cluster ClusterRef) []Network
 	// host's cluster placement. Match by both host name and managed-object ID.
 	switches := make([]struct {
 		switchValue vsphere.DVSwitch
-	}, 0)
-	for _, resource := range data.Resources {
-		if resource.Kind != "dvswitch" || !sameContext(resource.Context, cluster.Context) {
-			continue
-		}
-		var switchValue vsphere.DVSwitch
-		if assessment.DecodeResource(resource, &switchValue) {
-			switches = append(switches, struct {
-				switchValue vsphere.DVSwitch
-			}{switchValue: switchValue})
-		}
+	}, 0, len(switchList))
+	for _, switchValue := range switchList {
+		switches = append(switches, struct {
+			switchValue vsphere.DVSwitch
+		}{switchValue: switchValue})
 	}
 	sort.SliceStable(switches, func(i, j int) bool {
 		return objectSortKey(switches[i].switchValue.Name, switches[i].switchValue.ID) < objectSortKey(switches[j].switchValue.Name, switches[j].switchValue.ID)
@@ -295,6 +312,38 @@ func reachableNetworks(data assessment.ExportData, cluster ClusterRef) []Network
 	sort.SliceStable(result, func(i, j int) bool { return summarySortKey(result[i]) < summarySortKey(result[j]) })
 	return result
 }
+
+// MatchNetworks pairs each source network with a target network the way
+// Compare does: by VLAN first, preferring the same name among networks that
+// share one, then by name. It returns the pairs and the networks on one side
+// only. Callers with live data should give both sides VLANs in the same form
+// (ParseVLAN(...).String()), since an empty VLAN means no VLAN evidence here.
+func MatchNetworks(source, target []NetworkSummary) (matched []NetworkMatch, sourceOnly, targetOnly []NetworkSummary) {
+	pairs, sourceOnly, targetOnly := matchNetworks(source, target)
+	matched = make([]NetworkMatch, 0, len(pairs))
+	for _, pair := range pairs {
+		matched = append(matched, NetworkMatch{Source: pair.source, Target: pair.target, MatchBasis: pair.matchBasis})
+	}
+	return matched, sourceOnly, targetOnly
+}
+
+// Differences is what differs within a matched pair, with each difference's
+// severity as Compare and Verdict judge it.
+func Differences(match NetworkMatch) []Difference {
+	return networkDifferences(networkPair{source: match.Source, target: match.Target, matchBasis: match.MatchBasis})
+}
+
+// GapSeverity is how Compare judges a network found only on the source: a
+// blocker when VMs use it, an advisory otherwise.
+func GapSeverity(attachedVMs int) string {
+	if attachedVMs > 0 {
+		return severityBlocker
+	}
+	return severityAdvisory
+}
+
+// IsBlocker reports whether a severity stops a migration.
+func IsBlocker(severity string) bool { return severity == severityBlocker }
 
 func matchNetworks(source, target []NetworkSummary) ([]networkPair, []NetworkSummary, []NetworkSummary) {
 	used := make([]bool, len(target))
@@ -373,7 +422,9 @@ func networkDifferences(pair networkPair) []Difference {
 	}
 	if source.TotalHosts > 0 && target.TotalHosts > 0 {
 		left, right := coverageText(source), coverageText(target)
-		add("host_coverage", left, right, severityBlocker, left != right || source.CoveredHosts < source.TotalHosts || target.CoveredHosts < target.TotalHosts)
+		// Clusters of different sizes that each reach the network from every
+		// host do not differ in any way a migration cares about.
+		add("host_coverage", left, right, severityBlocker, source.CoveredHosts < source.TotalHosts || target.CoveredHosts < target.TotalHosts)
 	}
 	if source.Contact != "" && target.Contact != "" {
 		add("contact", source.Contact, target.Contact, severityAdvisory, source.Contact != target.Contact)

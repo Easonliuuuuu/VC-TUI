@@ -50,9 +50,8 @@ Editing or removing a context invalidates its existing session and cache.
 
 ## Credentials
 
-A credential reference names *where* the password lives. It never contains the
-password, so it is safe in `config.toml`, in version control, and in anything
-that prints your configuration.
+A credential reference names the password source, never the password itself.
+It can be stored in `config.toml` or version control.
 
 | Value | Behavior |
 |---|---|
@@ -62,34 +61,24 @@ that prints your configuration.
 | `file:<path>` | Read the password from a file; one trailing newline is stripped |
 | `exec:<program>` | Run a program and read the password from its standard output |
 
-Passwords never go into TOML, logs, or command history.
+vsfleet never writes passwords to TOML or logs. Avoid putting them in shell
+commands that would save them in command history.
 
 ### Unattended sources
 
-`env`, `file` and `exec` resolve without a terminal, which is what makes cron,
-systemd, containers and CI possible. They are read-only: they say where a
-password is, and nothing stores one through them, so `--password-stdin` is
-rejected when combined with them rather than accepted and silently discarded.
+Use `env`, `file`, or `exec` for cron, systemd, containers, and CI. These
+sources are read-only: `--password-stdin` is rejected with them. A missing or
+failing source produces a specific error and never falls back to a prompt.
 
-They also never fall back to the interactive prompt. A missing variable or an
-unreadable file is an error naming exactly what is missing — not a password
-prompt that would read whatever a scheduled job happened to have on standard
-input.
+- `env`: useful for injected secrets. Another process running as the same
+  user may read `/proc/<pid>/environ`; prefer `file` when that matters.
+- `file`: works with systemd `LoadCredential=`, Kubernetes secret mounts,
+  and Docker secrets. vsfleet does not enforce file permissions; protect the
+  file using your platform's controls.
+- `exec`: runs one program with no arguments or shell. Use a wrapper when
+  your secret-manager helper needs arguments. Secrets stay off the command line.
 
-`env` suits CI runners and container runtimes that inject secrets into the
-process environment. On a shared host another process of the same user can
-read `/proc/<pid>/environ`, so prefer `file` where that matters.
-
-`file` is the shape a systemd `LoadCredential=` unit, a Kubernetes secret
-mount, and a Docker secret all present. File permissions are not enforced,
-because Kubernetes projects secret volumes world-readable inside the container
-by default; protecting the file is yours to decide.
-
-`exec` reaches a secret manager vsfleet does not integrate with. The reference
-names a program and nothing else — no arguments and no shell — so a
-configuration file cannot become a shell command, and no secret is ever placed
-on a command line where `ps` would show it. A helper needing arguments is a
-wrapper script; it is told which context it is answering for:
+The helper receives the context name, for example:
 
 ```sh
 #!/bin/sh
@@ -102,12 +91,29 @@ exec vault read -field=password "secret/vcenter/$VSFLEET_CONTEXT"
 | `VSFLEET_CONTEXT` | The context whose password is being resolved |
 | `VSFLEET_CREDENTIAL_REF` | The reference being resolved, e.g. `exec:/usr/local/bin/vsfleet-credential` |
 
-The helper inherits no standard input, and a helper that hangs fails its own
-context's `--timeout` rather than holding up the rest of the estate.
+The helper receives no standard input. A hung helper is bounded by its
+context's `--timeout`.
 
-On systems without an active Secret Service and without one of the unattended
-sources configured, such as a headless server or SSH bastion, `context add`
-records `credential = "prompt"` with a warning.
+### Without an OS keyring
+
+Headless servers, SSH sessions, WSL, and containers may lack an OS keyring.
+The CLI wizard and TUI add-context form probe it with a lookup, without writing
+a test entry. If unavailable, they explain the failure and offer `prompt`,
+`env`, `file`, and `exec`. Unattended sources ask for a reference, then test
+the connection through it.
+
+With `--password-stdin` and no `--credential`, unattended `context add`
+still attempts keyring storage. If the write fails, it saves
+`credential = "prompt"` and warns.
+
+### When a source stops answering
+
+A missing variable, file, or helper leaves the context configured but unable
+to connect. Restore the source or edit its reference; vsfleet never prompts as
+a fallback. The CLI prints the cause, such as
+`environment variable LAB_VC_PW is not set (env:LAB_VC_PW)`. The TUI names
+the source on the failure line and offers a fix in its
+[diagnosis](tui.md#a-password-source-that-is-gone), where `e` edits it.
 
 ## Network routes
 
@@ -131,31 +137,25 @@ user = "ubuntu"
 # host_user = "root"
 ```
 
-Sets the default remote username the TUI's SSH handoff action (see
-[Detail pane actions](tui.md#detail-pane-actions)) fills in ahead of a target
-address. `vm_user` applies to VM guest IPs and `host_user` applies to ESXi host
-names. The older shared `user` setting remains the fallback for both kinds.
-When the applicable setting is empty, `ssh` resolves a user through
-`~/.ssh/config` and then the local username.
+The [SSH handoff](tui-actions.md#detail-pane-actions) uses `vm_user` for VM
+guests and `host_user` for ESXi hosts, falling back to the shared `user`.
+With no configured user, OpenSSH uses `~/.ssh/config` and then the local
+username.
 
-A user and private-key path selected in the TUI's **SSH with a different
-destination, user or key…** overlay are remembered per machine and take
-precedence over these defaults; they are stored in `state.json`, not in this
-file. Selecting OpenSSH default leaves `~/.ssh/config` and `ssh-agent` in
-control. An explicitly selected identity uses public-key authentication only.
+Per-machine users and private-key paths chosen in the TUI override these
+defaults and are saved in `state.json`. OpenSSH default lets
+`~/.ssh/config` and `ssh-agent` choose; an explicit identity uses public-key
+authentication only.
 
-SSH through a proxied context follows the same route vsfleet itself uses —
-an unauthenticated SOCKS5 or HTTP CONNECT proxy becomes an `ssh -o
-ProxyCommand=...` argument automatically when a compatible `nc` is installed.
-HTTPS and authenticated proxies are declined because their credentials or TLS
-handshake cannot safely be represented by the generated command.
+An unauthenticated SOCKS5 or HTTP CONNECT context can generate
+`ssh -o ProxyCommand=...` with a compatible `nc`. HTTPS and authenticated
+proxies are declined: their TLS handshake or credentials cannot safely be
+represented in the generated command.
 
 ### SSH routes
 
-A context's transport describes how vsfleet reaches the **vCenter**. A VM's
-guest address is a different destination: vCenter reports it, but that does not
-mean your workstation can reach it the same way. `[[ssh.routes]]` describes the
-route to SSH targets separately, chosen by context and destination network:
+Use `[[ssh.routes]]` when a VM guest network needs a different route from
+its vCenter. Rules select the SSH route by context and destination CIDR:
 
 ```toml
 [ssh]
@@ -168,11 +168,9 @@ type = "http"
 proxy_address = "100.109.21.17:8080"
 ```
 
-Here the vCenter behind `tdc-1f` may stay `direct`; only SSH to guests in
-`172.31.7.0/24` goes through the HTTP CONNECT proxy, exactly as if you had run
-`ssh -o 'ProxyCommand=nc -X connect -x 100.109.21.17:8080 %h %p'`. The rendered
-command in the detail pane shows the route in use. Your remembered user and
-identity for the machine are unaffected.
+This sends SSH to `tdc-1f` guests in `172.31.7.0/24` through HTTP CONNECT,
+while the vCenter route may stay direct. The rendered command shows the route:
+`ssh -o 'ProxyCommand=nc -X connect -x 100.109.21.17:8080 %h %p'`.
 
 | Key | Meaning |
 |---|---|
@@ -181,64 +179,40 @@ identity for the machine are unaffected.
 | `type` | `direct`, `socks5` or `http`. `direct` overrides a proxied context for that network. |
 | `proxy_address` | `host:port` of the proxy. Required for `socks5` and `http`; not allowed for `direct`. |
 
-Selection is deterministic and never probes the network:
+Selection uses the guest IP reported by vSphere, even when SSH targets a DNS
+name. It never resolves a hostname or probes routes:
 
-1. The route for the selected context whose `cidr` contains the VM's IP address
-   applies; when several match, the **longest prefix** wins.
-2. With no match, SSH inherits the context's own transport, as before.
-3. With neither, `ssh` connects normally and `~/.ssh/config` decides.
+1. Use the matching context/CIDR rule with the longest prefix.
+2. With no match, inherit the context's transport.
+3. Without a transport override, let OpenSSH choose normally.
 
-Routes match the guest IP vSphere reports, whether you connect by DNS name or
-by address, and are never chosen by resolving a hostname. ESXi hosts are known
-by name rather than IP, so they keep following the context's transport. A route
-only adds a `ProxyCommand` when it is a proxy type; it does not replace
-`~/.ssh/config`. There is no fallback between routes: a connection that fails
-through its route fails, rather than being retried through another proxy.
+ESXi hosts use the context transport because their targets are host names.
+Proxy rules add `ProxyCommand` without replacing other OpenSSH configuration.
+A failed route is not retried through another route.
 
-`https` and authenticated proxies are rejected in routes for the reason above,
-and routes carry no credentials. Duplicate rules for the same context and
-network are an error unless identical, and `vsfleet` refuses to start on an
-invalid route.
+Routes carry no credentials and reject HTTPS or authenticated proxies.
+Conflicting duplicate context/network rules and other invalid routes prevent
+startup; identical duplicates are allowed.
 
 ### Three complementary routing sources
 
-`[[ssh.routes]]` is one of three ways a VM's SSH handoff is routed, each
-suited to a different scope:
+Three sources can choose a VM's route:
 
-```text
-OpenSSH alias
-    -> preferred when an operator's own ~/.ssh/config already describes a
-       complete, working route to the VM's guest IP — a Host block, its
-       ProxyJump, key, user and port, proven with a bounded "ssh -G" rather
-       than reconstructed inside vsfleet (see
-       "OpenSSH alias discovery" in tui.md)
+| Source | Scope |
+| --- | --- |
+| OpenSSH alias | An existing `~/.ssh/config` route, validated with bounded `ssh -G` against the VM's guest IP |
+| Per-VM remembered route | A TUI choice saved for one machine in `state.json` |
+| `[[ssh.routes]]` | Context/CIDR policy in `config.toml` |
 
-per-VM remembered route
-    -> an interactive, one-off choice (Automatic / OpenSSH default / Direct /
-       HTTP / SOCKS5) made in the TUI's destination picker and remembered in
-       state.json, for a single machine that needs something other than the
-       estate-wide default
+See [destination and route](tui-actions.md#destination-and-route) for
+precedence and [alias discovery](tui-actions.md#openssh-alias-discovery) for
+validation. Aliases are revalidated on every use; stale entries are dropped
+and rediscovered. Route choices are explicit, never inferred by trying a
+connection.
 
-[[ssh.routes]]
-    -> deterministic context/CIDR policy for repeatable, estate-wide routing,
-       version-controlled alongside the rest of config.toml
-```
-
-vsfleet never infers a security route by trying one speculatively: an
-OpenSSH alias is used only once a bounded `ssh -G` proves its effective
-hostname matches the VM, and a per-VM route or `[[ssh.routes]]` rule is only
-ever an explicit choice — either typed into `config.toml` or picked in the
-TUI — never a guess. Full precedence is documented in
-[Destination and route](tui.md#destination-and-route).
-
-Per-VM destinations are stored in `state.json` alongside the remembered user
-and identity, keyed the same way (`<context>/<moref>`). An OpenSSH alias
-entry there is never trusted on its own: it is re-validated against the VM's
-current guest IP on every use, and dropped and rediscovered the moment it no
-longer matches, rather than risk connecting somewhere else. Neither entry
-ever carries a password, private key, proxy credential, or shell command
-fragment — only the alias name, or the route kind and the proxy's own
-`host:port`.
+Per-VM preferences use the key `<context>/<moref>` and save only user,
+identity path, alias name, or route kind and proxy `host:port`. They contain
+no passwords, private-key contents, proxy credentials, or shell fragments.
 
 ## TLS policies
 
@@ -261,18 +235,17 @@ credentials or session cookies.
 
 ## vSphere permissions
 
-Use a read-only vSphere account; the built-in ReadOnly role is enough for
-the connection test and all inventory reads. Inventory and assessment
-collection do not need write privileges. The optional `vsfleet assessment run
---browse-datastores` path, and the separate opt-in `--datastore-file-inventory`
-path, additionally need `Datastore.Browse` on the datastores to inspect
-VM disk-file metadata (or, for the inventory, list file names and sizes); it still performs no inventory
-mutation. The interactive datastore file browser in the terminal interface
-(see [Terminal interface](tui.md#datastore-file-browser)) needs the same
-privilege and is likewise read-only. The datastore backing identity properties are part of the same
-read-only datastore inventory and require no additional privilege. Without
-`Datastore.Browse` or without the flag, zombie-VMDK health is reported as not
-evaluated. The opt-in `--include-licenses` path needs the `Global.Licenses`
-privilege, which the built-in ReadOnly role lacks; without it license
-coverage is reported `unavailable`, never as zero licenses (see
-[License metadata](licensing.md)).
+The built-in ReadOnly role covers connection tests and standard inventory
+collection, including datastore backing identity. Optional reads need extra
+privileges:
+
+| Feature | Additional privilege |
+| --- | --- |
+| `assessment run --browse-datastores`, `--datastore-file-inventory`, interactive datastore browser | `Datastore.Browse` on the inspected datastores |
+| `assessment run --include-licenses` | `Global.Licenses`, absent from the built-in ReadOnly role |
+
+These paths remain read-only. Without browsing or its privilege, zombie-VMDK
+health is not evaluated. Denied license collection reports `unavailable`,
+never zero licenses; see [license metadata](licensing.md). File inventory
+exports paths and filenames; review [its limits and privacy notes](exports.md#datastore-file-inventory-vfileinfo)
+before enabling it.

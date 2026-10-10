@@ -260,3 +260,77 @@ func TestNonInteractiveMissNeverFallsBackToThePrompt(t *testing.T) {
 		}
 	}
 }
+
+// Every way an env, file or exec source can fail to answer is a SourceError,
+// so a status line can say what is missing in a few words while the error's
+// own message stays the full explanation it always was.
+func TestNonInteractiveMissesAreSourceErrors(t *testing.T) {
+	dir := t.TempDir()
+	empty := filepath.Join(dir, "empty")
+	if err := os.WriteFile(empty, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("VSFLEET_TEST_EMPTY", "")
+
+	type miss struct {
+		name     string
+		provider credentials.Provider
+		ref      string
+		short    string
+		full     string
+	}
+	cases := []miss{
+		{"env unset", credentials.NewEnv(), "env:VSFLEET_TEST_ABSENT", "VSFLEET_TEST_ABSENT is not set", "environment variable VSFLEET_TEST_ABSENT is not set"},
+		{"env empty", credentials.NewEnv(), "env:VSFLEET_TEST_EMPTY", "VSFLEET_TEST_EMPTY is empty", "is set but empty"},
+		{"file missing", credentials.NewFile(), "file:" + filepath.Join(dir, "gone"), "password file " + filepath.Join(dir, "gone") + " does not exist", "does not exist"},
+		{"file empty", credentials.NewFile(), "file:" + empty, "password file " + empty + " is empty", "is empty"},
+		{"exec missing", credentials.NewExec(), "exec:" + filepath.Join(dir, "no-such-helper"), "password helper no-such-helper not found", "credential helper"},
+	}
+	if runtime.GOOS != "windows" {
+		cases = append(cases,
+			miss{"exec failing", credentials.NewExec(), "exec:" + helperScript(t, "echo 'Vault is sealed' >&2\nexit 2"), "failed: Vault is sealed", "exit status 2: Vault is sealed"},
+			miss{"exec silent", credentials.NewExec(), "exec:" + helperScript(t, "exit 0"), "printed nothing", "wrote nothing to standard output"},
+		)
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ref, err := credentials.ParseRef(tc.ref)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = tc.provider.Get(context.Background(), ref)
+			var se *credentials.SourceError
+			if !errors.As(err, &se) {
+				t.Fatalf("Get error %v (%T) is not a SourceError", err, err)
+			}
+			if se.Ref != ref {
+				t.Errorf("SourceError.Ref = %v, want %v", se.Ref, ref)
+			}
+			if !strings.Contains(se.Short, tc.short) {
+				t.Errorf("Short = %q, want it to contain %q", se.Short, tc.short)
+			}
+			if !strings.Contains(err.Error(), tc.full) {
+				t.Errorf("message = %q, want it to keep %q", err.Error(), tc.full)
+			}
+		})
+	}
+}
+
+// A helper that runs out of time is still reported as one, and the deadline
+// stays reachable for callers that treat timeouts specially.
+func TestExecTimeoutIsASourceErrorThatKeepsTheDeadline(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the helper fixture is a shell script")
+	}
+	ref, _ := credentials.ParseRef("exec:" + helperScript(t, "sleep 5"))
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	_, err := credentials.NewExec().Get(ctx, ref)
+	var se *credentials.SourceError
+	if !errors.As(err, &se) || !strings.Contains(se.Short, "did not finish") {
+		t.Fatalf("a timed-out helper = %v, want a SourceError saying it did not finish", err)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("the deadline is no longer reachable through %v", err)
+	}
+}

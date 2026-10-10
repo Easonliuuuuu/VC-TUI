@@ -120,6 +120,15 @@ type keyMap struct {
 	// pane otherwise ignores.
 	ClusterPage key.Binding
 	FoldHost    key.Binding
+	// HostPage picks a host detail pane's page: Summary or Network.
+	HostPage key.Binding
+	// VLANMap opens the Networks tab's VLAN map. PairClusters and ClearPair
+	// pick and drop the source and target cluster it compares; PickCluster
+	// is the picker's enter.
+	VLANMap      key.Binding
+	PairClusters key.Binding
+	ClearPair    key.Binding
+	PickCluster  key.Binding
 	// NetKeys is Fold and NetView's shared help line. The help overlay has to
 	// fit the minimum terminal height, and one line more than this moves the
 	// Connection keys below the bottom of it.
@@ -225,15 +234,20 @@ func defaultKeys() keyMap {
 		FindFiles: key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "find in datastore")),
 		CopyPath:  key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy datastore path")),
 
-		Sort:        key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort: name/status")),
-		Fold:        key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "fold switch")),
-		NetView:     key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "networks: tree/list")),
-		SwitchPage:  key.NewBinding(key.WithKeys("0", "1"), key.WithHelp("0/1", "page")),
-		ClusterPage: key.NewBinding(key.WithKeys("0", "1", "2"), key.WithHelp("0-2", "page")),
-		FoldHost:    key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "fold")),
-		NetKeys:     key.NewBinding(key.WithHelp("space/t", "networks: fold, list")),
-		Help:        key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
-		Quit:        key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+		Sort:         key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort: name/status")),
+		Fold:         key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "fold switch")),
+		NetView:      key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "networks: tree/list")),
+		SwitchPage:   key.NewBinding(key.WithKeys("0", "1"), key.WithHelp("0/1", "page")),
+		ClusterPage:  key.NewBinding(key.WithKeys("0", "1", "2"), key.WithHelp("0-2", "page")),
+		FoldHost:     key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "fold")),
+		HostPage:     key.NewBinding(key.WithKeys("0", "1"), key.WithHelp("0/1", "page")),
+		VLANMap:      key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "VLAN map")),
+		PairClusters: key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "pair clusters")),
+		ClearPair:    key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "clear pair")),
+		PickCluster:  key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "choose")),
+		NetKeys:      key.NewBinding(key.WithHelp("space/t/v", "fold · list · VLANs")),
+		Help:         key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
+		Quit:         key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 
 		UseContext:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "use")),
 		NewContext:    key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new")),
@@ -361,6 +375,22 @@ func (k keyMap) historyHelpSections(pane int, canCapture bool) []helpSection {
 	return []helpSection{panes, {"History hub", hub}}
 }
 
+// vlanMapHelpSections is the help panel for the VLAN map. Like the history
+// hub's it replaces the browse sections, none of which do anything here.
+func (k keyMap) vlanMapHelpSections() []helpSection {
+	return []helpSection{
+		{"VLAN map", []key.Binding{
+			k.Up, k.Down, k.PageUp, k.PageDown,
+			described(k.Open, "enter", "where it is · VMs"),
+			described(k.PairClusters, "p", "pick source, target"),
+			k.ClearPair,
+			described(k.Reload, "r", "read wiring again"),
+			described(k.Back, "esc", "back to Networks"),
+		}},
+		{"Other", []key.Binding{k.Help, k.Quit}},
+	}
+}
+
 type helpSection struct {
 	title    string
 	bindings []key.Binding
@@ -410,6 +440,12 @@ func (k keyMap) footerHints(m *Model) []key.Binding {
 			}
 			return []key.Binding{k.Up, k.Down, k.Open, k.ClusterPage, k.Back, k.Help, k.Quit}
 		}
+		if r, ok := m.detailRow(); ok && r.host() && m.hostPagesOffered() {
+			if m.hostState(r).page == 1 {
+				return []key.Binding{k.Up, k.Down, described(k.Open, "enter", "open switch"), k.HostPage, k.Reload, k.Back, k.Help, k.Quit}
+			}
+			return []key.Binding{k.Up, k.Down, k.Open, k.HostPage, k.Timeline, k.Back, k.Help, k.Quit}
+		}
 		if m.vmChartsDrawn() {
 			return []key.Binding{k.Up, k.Down, k.Open, k.PerfRange, k.Timeline, k.Back, k.Help, k.Quit}
 		}
@@ -437,8 +473,23 @@ func (k keyMap) footerHints(m *Model) []key.Binding {
 			return []key.Binding{k.Up, k.Down, k.RunAction, k.CancelAction}
 		}
 		return []key.Binding{k.Up, k.Down, k.Open, k.Back, k.Help, k.Quit}
+	case modeVLANMap:
+		if m.vmap != nil && m.vmap.pick != nil {
+			return []key.Binding{k.Up, k.Down, k.PickCluster, k.CancelAction, k.Help}
+		}
+		if m.vpair != nil {
+			return []key.Binding{k.Up, k.Down, described(k.Open, "enter", "VMs"), k.PairClusters, k.ClearPair, k.Reload, k.Back, k.Help, k.Quit}
+		}
+		return []key.Binding{k.Up, k.Down, described(k.Open, "enter", "where"), k.PairClusters, k.Reload, k.Back, k.Help, k.Quit}
 	case modeDoctor:
-		return []key.Binding{k.Reload, k.Back, k.Help, k.Quit}
+		if m.demo || m.doctor == nil {
+			return []key.Binding{k.Reload, k.Back, k.Help, k.Quit}
+		}
+		edit := k.EditContext
+		if se, own := sourceFailure(m.doctor.diag); se != nil && own {
+			edit = described(edit, "e", "change password source")
+		}
+		return []key.Binding{edit, k.Reload, k.Back, k.Help, k.Quit}
 	case modeHelp:
 		return []key.Binding{k.Up, k.Down, k.Back, k.Quit}
 	case modeForm:

@@ -2,6 +2,7 @@ package vsphere
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/vmware/govmomi/simulator"
@@ -42,6 +43,29 @@ func TestMapHostVMKernelRecordsDistributedPortGroup(t *testing.T) {
 	}}, false)
 	if vmk.PortGroup != "" || vmk.DVSwitchUUID != "uuid-prod" || vmk.DVPortGroupKey != "dvportgroup-7" {
 		t.Fatalf("vmk = %+v", vmk)
+	}
+}
+
+func TestMapHostVMKernelRecordsIPv6(t *testing.T) {
+	vmk := mapHostVMKernel(types.HostVirtualNic{Device: "vmk0", Spec: types.HostVirtualNicSpec{
+		Ip: &types.HostIpConfig{IpV6Config: &types.HostIpConfigIpV6AddressConfiguration{IpV6Address: []types.HostIpConfigIpV6Address{
+			{IpAddress: "fe80::250:56ff:fe6a:1", PrefixLength: 64},
+			{IpAddress: "2001:db8::10", PrefixLength: 64},
+		}}},
+	}}, false)
+	if got := strings.Join(vmk.IPv6, ","); got != "fe80::250:56ff:fe6a:1/64,2001:db8::10/64" {
+		t.Fatalf("IPv6 = %s", got)
+	}
+	if got := vmk.Address(); got != "2001:db8::10" {
+		t.Errorf("Address() = %s, want the global address", got)
+	}
+	vmk.IPv6 = vmk.IPv6[:1]
+	if got := vmk.Address(); got != "fe80::250:56ff:fe6a:1" {
+		t.Errorf("Address() = %s, want the link-local address when it is the only one", got)
+	}
+	vmk.IP = "10.0.0.5"
+	if got := vmk.Address(); got != "10.0.0.5" {
+		t.Errorf("Address() = %s, want IPv4 first", got)
 	}
 }
 

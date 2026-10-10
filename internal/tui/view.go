@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 
+	"github.com/easonliuuuuu/vsfleet/internal/credentials"
 	"github.com/easonliuuuuu/vsfleet/internal/humanize"
 	"github.com/easonliuuuuu/vsfleet/internal/vsphere"
 )
@@ -68,6 +69,8 @@ func (m *Model) View() string {
 		body = strings.Join(m.viewSwitchDetail(), "\n")
 	case m.mode == modeSwitchPGDetail:
 		body = strings.Join(m.viewSwitchPGDetail(), "\n")
+	case m.mode == modeVLANMap:
+		body = strings.Join(m.viewVLANMap(), "\n")
 	case m.mode == modeDoctor:
 		body = strings.Join(m.viewDoctor(), "\n")
 	case m.mode == modeHelp:
@@ -195,6 +198,9 @@ func (m *Model) headerBrand() string {
 	if m.demo {
 		brand += "  " + t.warn.Render(demoBadge)
 	}
+	if b := m.updateBadgeText(); b != "" {
+		brand += "  " + t.warn.Render(b)
+	}
 	return brand
 }
 
@@ -316,6 +322,7 @@ func (m *Model) viewBrowse() []string {
 
 	cols := m.browseColumns()
 	widths := layoutColumns(cols, w-glyphGutter)
+	m.fitColumns(cols, widths)
 	head := make([]string, 0, len(cols))
 	for i, c := range cols {
 		if widths[i] == 0 {
@@ -337,8 +344,15 @@ func (m *Model) viewBrowse() []string {
 	// vCenters that did answer are still the answer to the question asked.
 	for _, st := range m.failuresInScope() {
 		reason, action := "connection failed", "d diagnose"
-		if errors.Is(st.err, errPromptCanceled) {
+		var source *credentials.SourceError
+		switch {
+		case errors.Is(st.err, errPromptCanceled):
 			reason, action = "credential entry canceled", "r retry"
+		case errors.As(st.err, &source):
+			// The password never left its source, so no network stage was
+			// reached: saying "connection failed" would send the operator to
+			// check the route. Name what is actually missing.
+			reason = source.Short
 		}
 		lines = append(lines, t.bad.Render(truncate(
 			fmt.Sprintf("%s %s: %s · %s", glyphFail, st.cc.Name, reason, m.failureHint(action)), w)))
@@ -362,6 +376,26 @@ func (m *Model) browseColumns() []column {
 		return networkTreeColumns(m.showContext())
 	}
 	return columnsFor(m.kind, m.showContext())
+}
+
+// fitColumns narrows each fit column to its widest value across every row in
+// scope. It measures the unfiltered rows so the columns do not shift while the
+// operator types a filter.
+func (m *Model) fitColumns(cols []column, widths []int) {
+	for i, c := range cols {
+		if !c.fit || widths[i] == 0 {
+			continue
+		}
+		widest := ansi.StringWidth(c.title)
+		for _, st := range m.inScope() {
+			for _, r := range st.rowsFor(m.kind, m.showContext()) {
+				if i < len(r.cells) {
+					widest = max(widest, ansi.StringWidth(r.cells[i]))
+				}
+			}
+		}
+		widths[i] = min(widths[i], widest)
+	}
 }
 
 // failureHint keeps diagnosis reachable even when the selected healthy row
@@ -751,6 +785,13 @@ func (m *Model) viewDetailRow(r row) []string {
 		}
 		header = joinEnds(header, m.clusterPageTabs(cv.page), m.width)
 	}
+	if r.kind == vsphere.KindHost && m.hostPagesOffered() {
+		hv := m.hostState(r)
+		if hv.page != 0 {
+			return m.viewHostNetwork(r, hv)
+		}
+		header = joinEnds(header, m.pageTabs(hostPages, hv.page), m.width)
+	}
 	lines := []string{header, ""}
 	for i, f := range r.detail {
 		// A value too long for the terminal is cut rather than left to wrap
@@ -892,6 +933,12 @@ func (m *Model) viewDoctor() []string {
 		lines = append(lines, "  "+t.ok.Render("Connection successful.")+t.dim.Render("  "+humanize.Duration(d.Latency)))
 	} else {
 		lines = append(lines, "  "+t.bad.Render("Stopped at the first failing stage."))
+		if fix := sourceFix(d, st.cc.Name, !m.demo); fix != "" {
+			lines = append(lines, "", "  "+t.header.Render("How to fix"))
+			for _, l := range wrap(fix, max(20, min(m.width-4, 76))) {
+				lines = append(lines, "  "+t.text.Render(l))
+			}
+		}
 	}
 	if d.Thumbprint != "" {
 		lines = append(lines, "", "  "+t.label.Render(pad("Served thumbprint", labelColumnPad, false)))
@@ -903,6 +950,49 @@ func (m *Model) viewDoctor() []string {
 // renderChecks renders a diagnosis's stages, shared by the doctor panel and
 // the form's "last test" summary so a connection reads the same way in
 // either place.
+// sourceFailure is the env, file or exec source behind a diagnosis that
+// stopped before the network, and whether it is the context's own password
+// (as opposed to its proxy's).
+func sourceFailure(d *vsphere.Diagnosis) (se *credentials.SourceError, own bool) {
+	if d == nil {
+		return nil, false
+	}
+	for _, c := range d.Checks {
+		if c.Status == vsphere.CheckFail && errors.As(c.Err, &se) {
+			return se, c.Name == "Credential available"
+		}
+	}
+	return nil, false
+}
+
+// sourceFix is the next step for a password source that could not answer,
+// written for that kind of source. It is empty for every other failure, whose
+// stages already say what was tried. canEdit offers changing the source from
+// the edit form, which only exists for the context's own password.
+func sourceFix(d *vsphere.Diagnosis, context string, canEdit bool) string {
+	se, own := sourceFailure(d)
+	if se == nil {
+		return ""
+	}
+	var fix string
+	switch se.Ref.Scheme {
+	case credentials.SchemeEnv:
+		// A running process never sees a variable exported after it started,
+		// so retrying cannot help. Say that, or the operator will try.
+		fix = "vsfleet reads " + se.Ref.Value + " from the shell it was started in, so a variable set now is not visible to it. Set it, then start vsfleet again."
+	case credentials.SchemeFile:
+		fix = "Put the password back in " + se.Ref.Value + " as a single line, then press r."
+	case credentials.SchemeExec:
+		fix = "Run the helper yourself to see all of its output: VSFLEET_CONTEXT=" + context + " " + se.Ref.Value + " — once it prints the password, press r."
+	default:
+		return ""
+	}
+	if own && canEdit {
+		fix += " Or press e to change where this context's password comes from."
+	}
+	return fix
+}
+
 func (m *Model) renderChecks(checks []vsphere.Check) []string {
 	t := m.theme
 	lines := make([]string, 0, len(checks))
@@ -1099,6 +1189,9 @@ func (m *Model) overlayKeys(hints [][2]string) []string {
 func (m *Model) helpLines() []string {
 	t := m.theme
 	sections, title := m.keys.helpSections(m.demo), "Keys"
+	if m.helpFrom == modeVLANMap {
+		sections, title = m.keys.vlanMapHelpSections(), "Keys · VLAN map"
+	}
 	if m.helpFrom == modeChanges {
 		// Opened from the history hub: show that pane's keys in place of the
 		// browse sections, which describe a screen that is not visible.

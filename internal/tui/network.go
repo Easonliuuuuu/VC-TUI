@@ -61,7 +61,12 @@ func (m *Model) showingNetworks() bool {
 	case modeSwitchDetail, modeSwitchPGDetail:
 		return true
 	case modeDetail:
+		if _, open := m.hostNetworkOpen(); open {
+			return true
+		}
 		return m.detailFrom == modeBrowse && m.kind == vsphere.KindNetwork
+	case modeVLANMap:
+		return true
 	}
 	return false
 }
@@ -78,6 +83,11 @@ func (m *Model) ensureNetTopology(force bool) tea.Cmd {
 		return nil
 	}
 	states := m.inScope()
+	if r, open := m.hostNetworkOpen(); open {
+		if st, ok := m.byName[r.context]; ok {
+			states = []*contextState{st}
+		}
+	}
 	if m.sw != nil {
 		if st, ok := m.byName[m.sw.context]; ok {
 			states = []*contextState{st}

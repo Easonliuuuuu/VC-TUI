@@ -90,6 +90,7 @@ const (
 	modeDatastoreFind
 	modeSwitchDetail
 	modeSwitchPGDetail
+	modeVLANMap
 )
 
 const (
@@ -530,6 +531,25 @@ type Options struct {
 	// backend.go) and for the same reason — a feature that launches real
 	// external processes is only testable behind one.
 	Handoff Handoff
+	// Welcome plays the once-per-version welcome animation before the
+	// interface. The zero value, which every caller but "vsfleet ui" passes,
+	// opens the interface straight away.
+	Welcome Welcome
+	// Upgrade asks about a newer release at launch, after any welcome. Nil
+	// asks nothing. UpgradeChosen is told "not now" and "skip" so the caller
+	// can remember them; "upgrade now" comes back in Snapshot.Upgrade.
+	Upgrade       *UpgradeOffer
+	UpgradeChosen func(UpgradeChoice)
+	// UpdateBadge is a newer release already known at launch, shown in the
+	// header. CheckUpdate, when set, asks for one in the background and
+	// returns it ("" for none); its answer only ever updates the badge,
+	// never interrupting the session with a prompt.
+	UpdateBadge string
+	CheckUpdate checkUpdateFunc
+	// Notice opens the message line with a note, such as why the program
+	// came back after a failed upgrade. NoticeBad colours it as a failure.
+	Notice    string
+	NoticeBad bool
 }
 
 // Snapshot is what is worth remembering about the interface between runs:
@@ -548,6 +568,9 @@ type Snapshot struct {
 	// SSHDestinations is every SSH destination remembered for a machine,
 	// keyed "<context>/<moref>".
 	SSHDestinations map[string]uistate.SSHDestination
+	// Upgrade reports that the operator answered the launch prompt with
+	// "upgrade now": the caller runs the upgrade once the terminal is back.
+	Upgrade bool
 }
 
 // Observation is the stable, non-persistent view of model state used by the
@@ -575,6 +598,7 @@ func (m *Model) Observe() Observation {
 		modeHistoryTimelineDetail: "history-timeline-detail", modeHistoryRunEdit: "history-edit",
 		modeDatastoreFiles: "datastore", modeDatastoreEntry: "datastore-entry", modeDatastoreFind: "datastore-find",
 		modeSwitchDetail: "switch-detail", modeSwitchPGDetail: "switch-portgroup-detail",
+		modeVLANMap: "vlan-map",
 	}[m.mode]
 	if mode == "" {
 		mode = "unknown"
@@ -627,6 +651,7 @@ func (m *Model) Snapshot() Snapshot {
 	if st := m.current(); st != nil {
 		snap.Context = st.cc.Name
 	}
+	snap.Upgrade = m.upgradeNow
 	return snap
 }
 
@@ -766,8 +791,15 @@ type Model struct {
 	netTopoGen uint64
 
 	// cl is the open cluster pane's page, host cursor and folds; see
-	// cluster.go.
+	// cluster.go. hv is the open host pane's page and switch cursor; see
+	// hostnet.go.
 	cl *clusterView
+	hv *hostView
+	// vmap is the VLAN map's cursor and cluster picker, and vpair the source
+	// and target cluster it compares; the pair outlives the map, so leaving
+	// and coming back keeps the comparison. See vlanmap.go.
+	vmap  *vlanMapView
+	vpair *vlanPair
 	// ds holds the read-only datastore file browser while it is open. Like
 	// vapp it is kept apart from the browse cursor, and unlike everything
 	// else on this struct it is the one view whose contents come from a live
@@ -858,6 +890,12 @@ type Model struct {
 	// Successful inventory counts describe the browse screen only.
 	messageInventory bool
 	quitting         bool
+
+	// updateBadge is a newer release to note in the header; checkUpdate
+	// looks for one in the background; upgradeNow records "upgrade now".
+	updateBadge string
+	checkUpdate checkUpdateFunc
+	upgradeNow  bool
 }
 
 // New builds the interface over a backend.
@@ -900,6 +938,11 @@ func New(ctx context.Context, backend Backend, opts Options) *Model {
 		sshDestinations:  copySSHDestinations(opts.SSHDestinations),
 		handoff:          opts.Handoff,
 		out:              opts.Out,
+		updateBadge:      opts.UpdateBadge,
+		checkUpdate:      opts.CheckUpdate,
+	}
+	if opts.Notice != "" {
+		m.setMessage(opts.Notice, opts.NoticeBad)
 	}
 	if m.handoff == nil {
 		m.handoff = realHandoff{}
@@ -959,13 +1002,13 @@ func refreshInterval(d time.Duration) time.Duration {
 // explicit reload-all action.
 func (m *Model) Init() tea.Cmd {
 	if len(m.states) == 0 {
-		return tea.Batch(m.enterForm(nil), m.spin.Tick)
+		return tea.Batch(m.enterForm(nil), m.spin.Tick, m.updateCheckCmd())
 	}
 	startup := m.ensureSelectedLoadedAtStartup()
 	if cmd := m.nextCredPromptCmd(); cmd != nil {
 		startup = append(startup, cmd)
 	}
-	cmds := []tea.Cmd{afterInitialPaint(m.ctx, startup)}
+	cmds := []tea.Cmd{afterInitialPaint(m.ctx, startup), m.updateCheckCmd()}
 	if cmd := scheduleRefresh(m.refreshInterval); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
@@ -1555,6 +1598,13 @@ func (m *Model) status(name string) session.Status {
 // Update is the whole event loop.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case updateCheckedMsg:
+		// A release found mid-session only lights the badge; the prompt
+		// waits for the next launch.
+		if msg.latest != "" {
+			m.updateBadge = msg.latest
+		}
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.clampCursor()
@@ -1782,6 +1832,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case formKeyringMsg:
+		// The answer belongs to the form that asked. One cancelled and
+		// reopened in the meantime asks again for itself.
+		if m.form != nil && m.form == msg.form && msg.err != nil {
+			m.form.keyringUnavailable(msg.err.Error())
+		}
+		return m, nil
+
 	case formSaveMsg:
 		return m, m.applyFormSave(msg)
 
@@ -1843,7 +1901,13 @@ func (m *Model) applyFormSave(msg formSaveMsg) tea.Cmd {
 	if msg.result.StoreWarning != nil {
 		note += " (password not stored: " + msg.result.StoreWarning.Error() + ")"
 	}
-	m.setMessage(note, msg.result.StoreWarning != nil)
+	switch {
+	case msg.result.DropWarning != nil:
+		note += " · " + msg.result.DropWarning.Error()
+	case !msg.result.Dropped.IsZero():
+		note += " · removed its old password from the keyring"
+	}
+	m.setMessage(note, msg.result.StoreWarning != nil || msg.result.DropWarning != nil)
 	return tea.Batch(m.reload(false)...)
 }
 
@@ -2346,6 +2410,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		return m.handleSwitchDetailKey(msg)
 	case modeSwitchPGDetail:
 		return m.handleSwitchPGDetailKey(msg)
+	case modeVLANMap:
+		return m.handleVLANMapKey(msg)
 	case modeDoctor:
 		return m.handleDoctorKey(msg)
 	case modeContexts:
@@ -2683,6 +2749,10 @@ func (m *Model) handleBrowseKey(msg tea.KeyMsg) tea.Cmd {
 		if m.kind == vsphere.KindNetwork {
 			m.preserveCursor(func() { m.netFlat = !m.netFlat })
 		}
+	case key.Matches(msg, m.keys.VLANMap):
+		if m.kind == vsphere.KindNetwork {
+			return m.openVLANMap()
+		}
 	}
 	return nil
 }
@@ -3019,6 +3089,11 @@ func (m *Model) handleDetailKey(msg tea.KeyMsg) tea.Cmd {
 			return cmd
 		}
 	}
+	if r, ok := m.currentRow(); ok && r.kind == vsphere.KindHost && m.hostPagesOffered() {
+		if cmd, handled := m.handleHostKey(msg, r); handled {
+			return cmd
+		}
+	}
 	switch {
 	case key.Matches(msg, m.keys.Back):
 		m.mode = m.detailFrom
@@ -3170,6 +3245,16 @@ func (m *Model) handleDoctorKey(msg tea.KeyMsg) tea.Cmd {
 		m.mode = modeBrowse
 	case key.Matches(msg, m.keys.Reload):
 		return m.diagnoseContext(m.doctor)
+	case key.Matches(msg, m.keys.EditContext):
+		// Fixing what the diagnosis found is often an edit — above all a
+		// password source that is gone — so it is one key away rather than
+		// back out, open the contexts screen, find the row, and press e.
+		// Saving lands on the main screen, which reloads the context.
+		if m.demo || m.doctor == nil {
+			return nil
+		}
+		m.returnTo = modeBrowse
+		return m.enterForm(m.doctor)
 	}
 	return nil
 }

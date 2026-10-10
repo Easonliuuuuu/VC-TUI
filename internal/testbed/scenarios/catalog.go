@@ -48,11 +48,14 @@ var definitions = []Definition{
 	{Name: "stale-result", Profile: "presentation", Purpose: "late asynchronous data cannot replace newer state"},
 	{Name: "history-coverage-gap", Profile: "presentation", Purpose: "partial assessment coverage is visible instead of a false removal"},
 	{Name: "add-context-no-secret", Profile: "connected", Purpose: "context configuration contains references but no password"},
+	{Name: "credential-source-missing", Profile: "connected", Purpose: "a context whose env password is gone names the variable and says how to fix it"},
 	{Name: "datastore-browser", Profile: "presentation", Purpose: "a populated datastore root renders safely at each terminal size"},
 	{Name: "resize", Profile: "presentation", Purpose: "bounded terminal sizes render safely and preserve selection"},
 	{Name: "vm-dashboard", Profile: "presentation", Purpose: "every VM chart page and range stays inside the terminal at each size"},
 	{Name: "network-switches", Profile: "presentation", Purpose: "port groups group under their switch and every switch page stays inside the terminal"},
 	{Name: "cluster-workspace", Profile: "presentation", Purpose: "a cluster's Summary, Hosts & VMs and Storage pages stay inside the terminal and surface its failover and storage gaps"},
+	{Name: "host-network", Profile: "presentation", Purpose: "a host's Network page stays inside the terminal and names the switch it is missing and the NICs no switch claims"},
+	{Name: "vlan-map", Profile: "presentation", Purpose: "the VLAN map and its cluster pair stay inside the terminal and name the VLANs a failover would strand"},
 }
 
 // Definitions returns the catalogue in display order.
@@ -116,8 +119,8 @@ func Run(ctx context.Context, name string, opts RunOptions) (result Result, runE
 	// Credential cancellation is a model-boundary scenario: it uses the
 	// deterministic backend and the focused prompt tests, while the context
 	// addition scenario exercises the connected production path below.
-	connected := name == "add-context-no-secret"
-	backend, service, closeBackend, err := setupBackend(ctx, connected)
+	connected := name == "add-context-no-secret" || name == "credential-source-missing"
+	backend, service, closeBackend, err := setupBackend(ctx, connected, name == "credential-source-missing")
 	if err != nil {
 		return Result{}, err
 	}
@@ -138,7 +141,7 @@ func Run(ctx context.Context, name string, opts RunOptions) (result Result, runE
 	}
 	m := tui.New(ctx, backend, tui.Options{
 		Current:         "prod-vc",
-		AllContexts:     name == "overview" || name == "partial-failure" || name == "duplicate-names",
+		AllContexts:     name == "overview" || name == "partial-failure" || name == "duplicate-names" || name == "vlan-map",
 		Demo:            !connected,
 		Assessment:      service,
 		Credentials:     promptCoord,
@@ -155,7 +158,7 @@ func Run(ctx context.Context, name string, opts RunOptions) (result Result, runE
 	} else if err := drive(m, m.Init()); err != nil {
 		return Result{}, fmt.Errorf("initialize %s: %w", name, err)
 	}
-	if name == "overview" || name == "partial-failure" || name == "duplicate-names" {
+	if name == "overview" || name == "partial-failure" || name == "duplicate-names" || name == "vlan-map" {
 		if err := press(m, "R"); err != nil {
 			return Result{}, fmt.Errorf("load all contexts for %s: %w", name, err)
 		}
@@ -165,6 +168,17 @@ func Run(ctx context.Context, name string, opts RunOptions) (result Result, runE
 	switch name {
 	case "overview", "partial-failure", "add-context-no-secret":
 		// Initial inventory and the visible failed context are the contract.
+	case "credential-source-missing":
+		// The failure line is the screen an operator meets after the
+		// variable is gone; the diagnosis behind it carries the loopback
+		// port, so it is asserted by meaning rather than by golden.
+		if err := checkGoldens(name, m, opts); err != nil {
+			return Result{}, err
+		}
+		goldensChecked = true
+		if err := press(m, "d"); err != nil {
+			return Result{}, fmt.Errorf("diagnose prod-vc: %w", err)
+		}
 	case "credential-cancel":
 		promptBackend.arm()
 		promptDriver.send(keyMsg("r"), true)
@@ -233,6 +247,23 @@ func Run(ctx context.Context, name string, opts RunOptions) (result Result, runE
 		if err := walkClusterWorkspace(m); err != nil {
 			return Result{}, err
 		}
+	case "host-network":
+		if err := press(m, "3"); err != nil {
+			return Result{}, fmt.Errorf("open the Hosts tab: %w", err)
+		}
+		for _, key := range []string{"/", "esxi-db-08", "enter"} {
+			pressWithoutCommand(m, key)
+		}
+		if err := walkHostNetwork(m); err != nil {
+			return Result{}, err
+		}
+	case "vlan-map":
+		if err := press(m, "6"); err != nil {
+			return Result{}, fmt.Errorf("open the Networks tab: %w", err)
+		}
+		if err := walkVLANMap(m); err != nil {
+			return Result{}, err
+		}
 	case "resize":
 		for _, size := range [][2]int{{60, 20}, {100, 30}, {140, 40}} {
 			if err := drive(m, send(m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})); err != nil {
@@ -261,7 +292,8 @@ func Run(ctx context.Context, name string, opts RunOptions) (result Result, runE
 
 func isCriticalScreen(name string) bool {
 	switch name {
-	case "overview", "credential-cancel", "history-coverage-gap", "datastore-browser", "vm-dashboard", "network-switches", "cluster-workspace":
+	case "overview", "credential-cancel", "history-coverage-gap", "datastore-browser", "vm-dashboard", "network-switches", "cluster-workspace",
+		"host-network", "vlan-map":
 		return true
 	default:
 		return false
@@ -437,6 +469,132 @@ func walkClusterWorkspace(m *tui.Model) error {
 	return nil
 }
 
+// walkSizes are the golden sizes and the common 80x24 between them.
+var walkSizes = [][2]int{{60, 20}, {80, 24}, {100, 30}, {140, 40}}
+
+// walkHostNetwork opens esxi-db-08 — in db-cluster but not on DVS-Storage,
+// with the two NICs that switch would use on no switch — and checks its
+// Network page at each size, moving the switch cursor down to the missing
+// switch. It opens that switch's workspace from the page and checks that
+// Esc returns to the host, which is where the goldens are taken.
+func walkHostNetwork(m *tui.Model) error {
+	if err := drive(m, send(m, tea.KeyMsg{Type: tea.KeyEnter})); err != nil {
+		return fmt.Errorf("open esxi-db-08: %w", err)
+	}
+	if err := press(m, "1"); err != nil {
+		return err
+	}
+	for _, size := range walkSizes {
+		if err := drive(m, send(m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})); err != nil {
+			return fmt.Errorf("host-network resize %dx%d: %w", size[0], size[1], err)
+		}
+		where := fmt.Sprintf("at %dx%d", size[0], size[1])
+		for step := 0; step < 4; step++ {
+			view := m.View()
+			if err := boundedFrame(view, size[0], size[1]); err != nil {
+				return fmt.Errorf("host-network step %d %s: %w", step, where, err)
+			}
+			plain := ansi.Strip(view)
+			if size[0] >= 100 && !strings.Contains(plain, "[1 Network]") {
+				return fmt.Errorf("host-network %s does not mark its page tab", where)
+			}
+			if step == 0 && !strings.Contains(plain, "DVS-Storage") {
+				return fmt.Errorf("host-network %s does not show the switch esxi-db-08 is missing", where)
+			}
+			if err := press(m, "j"); err != nil {
+				return err
+			}
+		}
+		if err := press(m, "g"); err != nil {
+			return err
+		}
+	}
+	// The last switch is DVS-Storage, which the host is not on.
+	for _, key := range []string{"G", "enter"} {
+		if err := press(m, key); err != nil {
+			return err
+		}
+	}
+	if observation := m.Observe(); observation.Mode != "switch-detail" {
+		return fmt.Errorf("host-network enter did not open the switch (mode %q)", observation.Mode)
+	}
+	if err := press(m, "esc"); err != nil {
+		return err
+	}
+	return press(m, "g")
+}
+
+// walkVLANMap opens the VLAN map across both healthy demo vCenters, checks
+// it at each size with the where panel open and closed, then pairs prod-vc's
+// compute-a with edge-vc's and checks the comparison the goldens record.
+func walkVLANMap(m *tui.Model) error {
+	if err := press(m, "v"); err != nil {
+		return err
+	}
+	if observation := m.Observe(); observation.Mode != "vlan-map" {
+		return fmt.Errorf("v did not open the VLAN map (mode %q)", observation.Mode)
+	}
+	check := func(what string, size [2]int) error {
+		view := m.View()
+		if err := boundedFrame(view, size[0], size[1]); err != nil {
+			return fmt.Errorf("vlan-map %s at %dx%d: %w", what, size[0], size[1], err)
+		}
+		return nil
+	}
+	for _, size := range walkSizes {
+		if err := drive(m, send(m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})); err != nil {
+			return fmt.Errorf("vlan-map resize %dx%d: %w", size[0], size[1], err)
+		}
+		if err := check("estate", size); err != nil {
+			return err
+		}
+		if !strings.Contains(ansi.Strip(m.View()), "edge-vc") {
+			return fmt.Errorf("vlan-map at %dx%d has no edge-vc column", size[0], size[1])
+		}
+		for _, key := range []string{"enter", "j", "j", "G", "enter", "g"} {
+			if err := press(m, key); err != nil {
+				return err
+			}
+			if err := check("after "+key, size); err != nil {
+				return err
+			}
+		}
+	}
+	// Pick prod-vc/compute-a as the source; the picker then offers the
+	// cluster of the same name at the other site as the target.
+	if err := press(m, "p"); err != nil {
+		return err
+	}
+	for i := 0; i < 20 && !strings.Contains(ansi.Strip(m.View()), glyphCursor+" prod-vc  compute-a"); i++ {
+		if err := press(m, "j"); err != nil {
+			return err
+		}
+	}
+	for _, key := range []string{"enter", "enter"} {
+		if err := press(m, key); err != nil {
+			return err
+		}
+	}
+	for _, size := range walkSizes {
+		if err := drive(m, send(m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})); err != nil {
+			return err
+		}
+		for _, key := range []string{"", "j", "enter", "enter", "g"} {
+			if key != "" {
+				if err := press(m, key); err != nil {
+					return err
+				}
+			}
+			if err := check("pair", size); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+const glyphCursor = "▸"
+
 // boundedFrame reports a rendered frame that would wrap or scroll the
 // terminal it was drawn for.
 func boundedFrame(view string, width, height int) error {
@@ -491,6 +649,16 @@ func assertResult(result Result) error {
 		if !strings.Contains(result.View, "\n ● ") {
 			return fmt.Errorf("scenario %s did not render inventory", result.Name)
 		}
+	case "credential-source-missing":
+		if result.Observation.Mode != "doctor" {
+			return fmt.Errorf("scenario %s did not open the diagnosis (mode %q)", result.Name, result.Observation.Mode)
+		}
+		view := strings.Join(strings.Fields(result.View), " ")
+		for _, want := range []string{"VSFLEET_TESTBED_PASSWORD is not set", "How to fix", "start vsfleet again", "e change password source"} {
+			if !strings.Contains(view, want) {
+				return fmt.Errorf("scenario %s is missing %q from the diagnosis", result.Name, want)
+			}
+		}
 	case "partial-failure":
 		if !strings.Contains(result.View, "dr-site") {
 			return fmt.Errorf("scenario %s lost the failed context", result.Name)
@@ -506,6 +674,24 @@ func assertResult(result Result) error {
 		for _, want := range []string{"DVS-Storage", "[1 Wiring]", "vmotion-vlan-2030"} {
 			if !strings.Contains(result.View, want) {
 				return fmt.Errorf("scenario %s is missing %q from the wiring page", result.Name, want)
+			}
+		}
+	case "host-network":
+		if result.Observation.Mode != "detail" {
+			return fmt.Errorf("scenario %s left the host pane (mode %q)", result.Name, result.Observation.Mode)
+		}
+		for _, want := range []string{"esxi-db-08", "[1 Network]", "not on DVS-Storage", "on no switch", "vmk0"} {
+			if !strings.Contains(result.View, want) {
+				return fmt.Errorf("scenario %s is missing %q from the Network page", result.Name, want)
+			}
+		}
+	case "vlan-map":
+		if result.Observation.Mode != "vlan-map" {
+			return fmt.Errorf("scenario %s left the VLAN map (mode %q)", result.Name, result.Observation.Mode)
+		}
+		for _, want := range []string{"prod-vc/compute-a → edge-vc/compute-a", "blocker", "no network on edge-vc"} {
+			if !strings.Contains(result.View, want) {
+				return fmt.Errorf("scenario %s is missing %q from the cluster pair", result.Name, want)
 			}
 		}
 	case "cluster-workspace":
@@ -571,7 +757,11 @@ func (b *promptDemoBackend) BeginInventory(ctx context.Context, cc *config.Conte
 	return b.Backend.BeginInventory(ctx, cc)
 }
 
-func setupBackend(ctx context.Context, connected bool) (tui.Backend, *assessment.Service, func(), error) {
+// setupBackend builds the backend a scenario runs against. missingSource
+// points prod-vc at an env: reference whose variable is never set — resolved
+// by an Env provider that does not read the process environment, so the
+// scenario cannot be changed by whatever the developer has exported.
+func setupBackend(ctx context.Context, connected, missingSource bool) (tui.Backend, *assessment.Service, func(), error) {
 	if !connected {
 		backend := demo.NewBackend()
 		service, closeHistory, err := backend.AssessmentService()
@@ -608,7 +798,8 @@ func setupBackend(ctx context.Context, connected bool) (tui.Backend, *assessment
 	}
 	keyring := credentials.NewStatic(credentials.SchemeKeyring, map[string]credentials.Credential{})
 	prompt := credentials.NewStatic(credentials.SchemePrompt, map[string]credentials.Credential{})
-	resolver := credentials.NewResolver(keyring, prompt)
+	env := &credentials.Env{LookupEnv: func(string) (string, bool) { return "", false }}
+	resolver := credentials.NewResolver(keyring, prompt, env)
 	for _, cc := range cfg.Contexts {
 		ref := credentials.Ref{Scheme: credentials.SchemeKeyring, Value: "scenario:" + cc.Name}
 		keyring.Store(ctx, ref, credentials.Credential{Username: testbed.FixtureUsername, Password: testbed.FixturePassword})
@@ -617,6 +808,9 @@ func setupBackend(ctx context.Context, connected bool) (tui.Backend, *assessment
 			proxyRef := credentials.Ref{Scheme: credentials.SchemeKeyring, Value: "proxy:" + cc.Name}
 			keyring.Store(ctx, proxyRef, credentials.Credential{Username: testbed.FixtureProxyUser, Password: testbed.FixtureProxyPassword})
 			cc.Transport.Credential = proxyRef
+		}
+		if missingSource && cc.Name == "prod-vc" {
+			cc.Credential = credentials.Ref{Scheme: credentials.SchemeEnv, Value: "VSFLEET_TESTBED_PASSWORD"}
 		}
 	}
 	manager := session.New(resolver)

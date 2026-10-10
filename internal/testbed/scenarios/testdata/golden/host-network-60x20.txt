@@ -1,0 +1,20 @@
+vsfleet  DEMO · SAMPLE DATA  ◆ prod-vc  ·  1 connected
+────────────────────────────────────────────────────────────
+  esxi-db-08   ESXi host · prod-vc     0 Summary [1 Network]
+  ▲ 2 findings                         wiring as of 00:00:00
+
+  PHYSICAL  UPLINK        SWITCH              
+▸ vmnic2 ── dvUplink1 ┬── DVS-Production  9000
+  vmnic3 ── dvUplink2 ┘   distributed switch  
+                          DVS-Storage           ▲ not on it…
+  vmnic0 ─────────────┬── vSwitch0        1500
+  vmnic1 ─────────────┘   standard switch     
+  vmnic4 ▲ on no switch
+  vmnic5 ▲ on no switch
+
+Findings
+  ▲ not on DVS-Storage (7 of 8 hosts in db-cluster are)
+  ▲ vmnic4, vmnic5 have a link but are on no switch
+
+
+enter open switch  0/1 page  r reload  esc back  ? help

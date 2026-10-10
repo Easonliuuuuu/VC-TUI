@@ -41,14 +41,29 @@ func Run(ctx context.Context, b Backend, opts Options) (Snapshot, error) {
 	}
 
 	m := New(ctx, b, opts)
+	var model tea.Model = m
+	if opts.Upgrade != nil {
+		model = newUpgradePrompt(m, *opts.Upgrade, opts.UpgradeChosen)
+	}
+	if opts.Welcome.Kind != WelcomeNone {
+		w := newWelcomeModel(m, opts.Welcome)
+		w.next = model
+		model = w
+	}
 	p := tea.NewProgram(
-		m,
+		model,
 		tea.WithAltScreen(),
 		tea.WithContext(ctx),
 		tea.WithInput(in),
 		tea.WithOutput(out),
 	)
 	final, err := p.Run()
+	// Quitting with ctrl+c while the welcome or the upgrade prompt is still up
+	// leaves it as the program's model; the interface underneath is what has
+	// a position.
+	if w, ok := final.(interface{ base() *Model }); ok {
+		final = w.base()
+	}
 	if fm, ok := final.(*Model); ok {
 		return fm.Snapshot(), err
 	}

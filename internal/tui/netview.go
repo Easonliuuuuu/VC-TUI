@@ -25,6 +25,9 @@ type switchWorkspace struct {
 	cursor int
 	offset int
 	scroll int
+	// from is the screen Esc returns to: the browse table, or the host pane
+	// the switch was opened from.
+	from mode
 }
 
 // switchPages are the workspace's pages, chosen with 0 and 1 the way the VM
@@ -32,7 +35,7 @@ type switchWorkspace struct {
 var switchPages = []string{"Overview", "Wiring"}
 
 func (m *Model) openSwitch(r row) tea.Cmd {
-	m.sw = &switchWorkspace{key: r.tree.switchKey, context: r.context}
+	m.sw = &switchWorkspace{key: r.tree.switchKey, context: r.context, from: modeBrowse}
 	m.swPG = nil
 	m.mode = modeSwitchDetail
 	return m.ensureNetTopology(false)
@@ -41,6 +44,17 @@ func (m *Model) openSwitch(r row) tea.Cmd {
 // clearSwitchWorkspace drops the open switch and port group. Cross-resource
 // jumps leave the workspace entirely, so a later Esc must not reopen it.
 func (m *Model) clearSwitchWorkspace() { m.sw, m.swPG = nil, nil }
+
+// leaveSwitchWorkspace closes the workspace and returns to where it was
+// opened from.
+func (m *Model) leaveSwitchWorkspace() {
+	back := modeBrowse
+	if m.sw != nil && m.sw.from != modeBrowse {
+		back = m.sw.from
+	}
+	m.clearSwitchWorkspace()
+	m.mode = back
+}
 
 func (m *Model) activeSwitch() (*netSwitch, *contextState) {
 	if m.sw == nil {
@@ -53,8 +67,7 @@ func (m *Model) handleSwitchDetailKey(msg tea.KeyMsg) tea.Cmd {
 	sw, _ := m.activeSwitch()
 	if sw == nil || m.sw == nil {
 		if key.Matches(msg, m.keys.Back) {
-			m.clearSwitchWorkspace()
-			m.mode = modeBrowse
+			m.leaveSwitchWorkspace()
 		}
 		return nil
 	}
@@ -64,8 +77,7 @@ func (m *Model) handleSwitchDetailKey(msg tea.KeyMsg) tea.Cmd {
 	wiring := ws.page == 1
 	switch {
 	case key.Matches(msg, m.keys.Back):
-		m.clearSwitchWorkspace()
-		m.mode = modeBrowse
+		m.leaveSwitchWorkspace()
 	case key.Matches(msg, m.keys.SwitchPage):
 		if i, err := strconv.Atoi(msg.String()); err == nil && i >= 0 && i < len(switchPages) {
 			ws.page = i

@@ -1,0 +1,20 @@
+vsfleet  DEMO · SAMPLE DATA  all 3 vCenters  ·  2 connected…
+────────────────────────────────────────────────────────────
+  VLAN map · 2 vCenters · 8 clusters   wiring as of 00:00:00
+  prod-vc/compute-a → edge-vc/compute-a    ✕ 2 blockers ▲ 13
+
+  VLAN   NAME       SOURCE  TARGET  NOTES
+▸ none   VM Network ○       ○       
+  20     Managemen… vmk 16  vmk 6   
+  20     mgmt-vlan… ○       ○       
+  110    web-vlan-… ● 43    ● 19    
+  120    frontend-… ● 104   ● 39    
+  130    app-vlan-… ● 60    ● 21    
+  140    api-vlan-… ● 32    ● 20    named api-v140 there
+  240    backend-v… ● 31    ● 1     
+  250    db-vlan-2… ○       ○       
+  260    cache-vla… ● 14    ✕       14 VMs, no network on e…
+  270    mq-vlan-2… ● 16    ✕       16 VMs, no network on e…
+  300    vdi-vlan-… ○       ✕       unused here, missing th…
+
+enter VMs  p pair clusters  x clear pair  esc back  ? help

@@ -1,0 +1,30 @@
+vsfleet  DEMO · SAMPLE DATA  ◆ prod-vc  ·  1 connected
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  esxi-db-08   ESXi host · prod-vc                                             0 Summary [1 Network]
+  ▲ 2 findings                                                                 wiring as of 00:00:00
+
+  PHYSICAL      UPLINK        SWITCH                ON THIS HOST
+▸ vmnic2 25G ── dvUplink1 ┬── DVS-Production  9000  22 port groups · 23 VMs
+  vmnic3 25G ── dvUplink2 ┘   distributed switch  
+                              DVS-Storage           ▲ not on it · 7 of 8 hosts in db-cluster are
+  vmnic0 25G ─────────────┬── vSwitch0        1500  2 port groups · 0 VMs
+  vmnic1 25G ─────────────┘   standard switch       vmk0
+  vmnic4 25G ▲ on no switch
+  vmnic5 25G ▲ on no switch
+
+Findings
+  ▲ not on DVS-Storage (7 of 8 hosts in db-cluster are)
+  ▲ vmnic4, vmnic5 have a link but are on no switch
+
+VMkernel adapters
+  DEVICE  ADDRESS         MTU  STACK    PORT GROUP
+  vmk0    10.20.250.36   1500  default  Management Network · vSwitch0
+
+
+
+
+
+
+
+
+↑/k up  ↓/j down  enter open switch  0/1 page  r reload  esc back  ? help  q quit
