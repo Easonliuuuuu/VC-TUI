@@ -63,7 +63,7 @@ guest and tools state, task progress) are hidden unless --all is given.`), Examp
 		}
 		t := newTable(a.out(), "TIME", "EVENT", "BY", "RESULT", "DETAIL")
 		for _, e := range listing.Events {
-			t.row(e.Time.Local().Format("2006-01-02 15:04"), e.Label, dash(e.User), eventResult(e.Result), dash(e.Detail))
+			t.row(e.Time.Local().Format("2006-01-02 15:04"), e.Label, dash(e.User), eventResult(e.Result), dash(e.DisplayDetail()))
 		}
 		t.flush()
 		// --limit bounds what vCenter returns, before routine events are
