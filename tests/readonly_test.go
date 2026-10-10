@@ -423,6 +423,8 @@ func TestOnlyPerfAndBrowserShimsDefineFault(t *testing.T) {
 		if !taskRequests[name] {
 			t.Fatalf("task history SOAP shim names requests %v, want only %v", taskRequests, wantTaskRequests)
 		}
+	}
+
 	// The clock shim may name exactly one request type: the read-only
 	// CurrentTime, which returns the server's time. No operation that sets or
 	// synchronizes a clock may be reachable.
