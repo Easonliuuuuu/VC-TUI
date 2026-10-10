@@ -317,11 +317,72 @@ func findMatch(base []storedVM, used []bool, target Observation, targetIdentityC
 
 func identityKey(kind, value string) string { return kind + "\x00" + value }
 
+// moved reports a placement change. An empty host, cluster or datastore list
+// is what an account without read access to those objects stores, so it is
+// unknown rather than a place the VM moved to or from; only two observed
+// values that differ count. The vCenter is always known.
 func moved(a, b vsphere.VM, avc, bvc string) bool {
-	if avc != bvc || a.Host != b.Host || a.Cluster != b.Cluster || a.Folder != b.Folder {
+	if avc != bvc || placementDiffers(a.Host, b.Host) || placementDiffers(a.Cluster, b.Cluster) || placementDiffers(a.Folder, b.Folder) {
 		return true
 	}
-	return !equalStrings(a.Datastores, b.Datastores)
+	return len(a.Datastores) > 0 && len(b.Datastores) > 0 && !equalStrings(a.Datastores, b.Datastores)
+}
+
+// placementDiffers compares two observed placement names, treating an empty
+// one as unknown.
+func placementDiffers(a, b string) bool { return a != "" && b != "" && a != b }
+
+// configUnknown reports whether vm was stored without its configuration, as
+// happens when the account cannot read it. A real VM always has a CPU and
+// memory size, so the zero pair also covers runs that predate the
+// ConfigurationAvailable flag without mistaking their data for unknown.
+func configUnknown(vm vsphere.VM) bool {
+	return !vm.ConfigurationAvailable && vm.CPU == 0 && vm.MemoryMB == 0
+}
+
+// lastKnown remembers, along one VM lineage, the most recent value of each
+// field an observation could not always see (placement and configuration).
+// A restricted account in the middle of a lineage then hides nothing: the run
+// after it is compared with the last run that did see the field.
+type lastKnown struct {
+	host, cluster, guestOS, annotation string
+	datastores                         []string
+	cpu                                int32
+	memoryMB                           int64
+	hasConfig                          bool
+}
+
+func (k *lastKnown) learn(vm vsphere.VM) {
+	if vm.Host != "" {
+		k.host = vm.Host
+	}
+	if vm.Cluster != "" {
+		k.cluster = vm.Cluster
+	}
+	if len(vm.Datastores) > 0 {
+		k.datastores = vm.Datastores
+	}
+	if !configUnknown(vm) {
+		k.cpu, k.memoryMB, k.guestOS, k.annotation, k.hasConfig = vm.CPU, vm.MemoryMB, vm.GuestOS, vm.Annotation, true
+	}
+}
+
+// fill returns vm with every field it could not see replaced by the last
+// known value; fields never seen stay unknown.
+func (k *lastKnown) fill(vm vsphere.VM) vsphere.VM {
+	if vm.Host == "" {
+		vm.Host = k.host
+	}
+	if vm.Cluster == "" {
+		vm.Cluster = k.cluster
+	}
+	if len(vm.Datastores) == 0 {
+		vm.Datastores = k.datastores
+	}
+	if configUnknown(vm) && k.hasConfig {
+		vm.CPU, vm.MemoryMB, vm.GuestOS, vm.Annotation = k.cpu, k.memoryMB, k.guestOS, k.annotation
+	}
+	return vm
 }
 
 func equalStrings(a, b []string) bool {
@@ -345,10 +406,14 @@ func changedFields(a, b vsphere.VM, runtime bool) []FieldChange {
 		}
 	}
 	add("name", a.Name, b.Name)
-	add("cpu", strconv.FormatInt(int64(a.CPU), 10), strconv.FormatInt(int64(b.CPU), 10))
-	add("memory", strconv.FormatInt(a.MemoryMB, 10), strconv.FormatInt(b.MemoryMB, 10))
-	add("guest_os", a.GuestOS, b.GuestOS)
-	add("annotation", a.Annotation, b.Annotation)
+	// A side stored without its configuration did not observe these, so they
+	// are unknown rather than reset to zero.
+	if !configUnknown(a) && !configUnknown(b) {
+		add("cpu", strconv.FormatInt(int64(a.CPU), 10), strconv.FormatInt(int64(b.CPU), 10))
+		add("memory", strconv.FormatInt(a.MemoryMB, 10), strconv.FormatInt(b.MemoryMB, 10))
+		add("guest_os", a.GuestOS, b.GuestOS)
+		add("annotation", a.Annotation, b.Annotation)
+	}
 	out = append(out, migrationFieldChanges(a, b)...)
 	if before, err := json.Marshal(a); err == nil {
 		if after, err := json.Marshal(b); err == nil {
