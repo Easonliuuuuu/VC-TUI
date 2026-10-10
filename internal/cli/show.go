@@ -27,6 +27,12 @@ func filterByName[T any](items []T, query string, nameOf func(T) string) []T {
 	return out
 }
 
+// noMatchError is the error exactlyOne returns when nothing matched, so a
+// caller with another place to look can tell it from an ambiguous match.
+type noMatchError struct{ kind, query string }
+
+func (e *noMatchError) Error() string { return fmt.Sprintf("no %s matched %q", e.kind, e.query) }
+
 // exactlyOne requires matches to contain exactly one item, printing
 // candidates and returning an actionable error otherwise. kind and query
 // name the object being resolved (e.g. "host", "esxi-01") for the error
@@ -36,7 +42,7 @@ func exactlyOne[T any](a *App, kind, query string, matches []T, contextOf, pathO
 	var zero T
 	switch len(matches) {
 	case 0:
-		return zero, fmt.Errorf("no %s matched %q", kind, query)
+		return zero, &noMatchError{kind: kind, query: query}
 	case 1:
 		return matches[0], nil
 	default:
