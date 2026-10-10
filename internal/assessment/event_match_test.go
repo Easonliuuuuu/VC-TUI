@@ -176,12 +176,12 @@ func probeScenario(offset *time.Duration) (history []VMHistoryEvent, events []vs
 		return e
 	}
 	events = []vsphere.VMEvent{
-		vc(1, 41.9, vsphere.VMEvent{Label: "reconfigure", Explains: vsphere.EventModified, Fields: []string{"cpu", "memory"}, Detail: "cpu 2 · memory 256 MB"}),
+		vc(1, 41.9, vsphere.VMEvent{Label: "reconfigure", Explains: vsphere.EventModified, Fields: []string{"cpu", "memory"}, SetCPU: 2, SetMemoryMB: 256}),
 		vc(2, 42.0, vsphere.VMEvent{Label: "snapshot create", Explains: vsphere.EventSnapshotCreated}),
 		vc(3, 43.326, vsphere.VMEvent{Label: "rename", Explains: vsphere.EventRenamed, NewName: "tl-probe-renamed"}),
-		vc(4, 43.329, vsphere.VMEvent{Label: "reconfigure", Explains: vsphere.EventModified, Fields: []string{"name"}, Detail: "name tl-probe-renamed"}),
-		vc(5, 43.634, vsphere.VMEvent{Label: "reconfigure", Explains: vsphere.EventModified, Fields: []string{"memory"}, Detail: "memory 512 MB"}),
-		vc(6, 43.802, vsphere.VMEvent{Label: "reconfigure", Explains: vsphere.EventModified, Fields: []string{"memory"}, Detail: "memory 256 MB"}),
+		vc(4, 43.329, vsphere.VMEvent{Label: "reconfigure", Explains: vsphere.EventModified, Fields: []string{"name"}, SetName: "tl-probe-renamed"}),
+		vc(5, 43.634, vsphere.VMEvent{Label: "reconfigure", Explains: vsphere.EventModified, Fields: []string{"memory"}, SetMemoryMB: 512}),
+		vc(6, 43.802, vsphere.VMEvent{Label: "reconfigure", Explains: vsphere.EventModified, Fields: []string{"memory"}, SetMemoryMB: 256}),
 		vc(7, 45.615, vsphere.VMEvent{Label: "snapshot remove", Explains: vsphere.EventSnapshotRemoved}),
 	}
 	return history, events
@@ -318,31 +318,50 @@ func TestExplainTimelineAppliesNoToleranceWhereTheOffsetWasMeasured(t *testing.T
 }
 
 // A reconfigure that set memory to something else did not cause the recorded
-// value, and of two that did, the first is the cause.
-func TestExplainTimelineChecksReconfiguredValuesAgainstTheRecordedOnes(t *testing.T) {
+// value, and when a gap sets it to the recorded value more than once the last
+// one is the cause: the earlier setting was undone.
+func TestExplainTimelineCreditsTheLastReconfigureThatSetTheRecordedValue(t *testing.T) {
 	r1 := Run{ID: 1, StartedAt: probeAt(0)}
-	r2 := Run{ID: 2, StartedAt: probeAt(100)}
+	r2 := Run{ID: 2, StartedAt: probeAt(100), FinishedAt: probeAt(101)}
 	history := []VMHistoryEvent{
 		{Kind: "observed", Run: r1},
 		{Kind: "modified", Run: r2, Changes: []FieldChange{{Field: "memory", Before: "128", After: "256"}, {Field: "annotation", After: "x"}}},
 	}
-	reconfigure := func(key int32, sec float64, detail string, fields ...string) vsphere.VMEvent {
-		return vsphere.VMEvent{Key: key, Time: probeAt(sec), Explains: vsphere.EventModified, Result: vsphere.ResultOK, Fields: fields, Detail: detail}
+	reconfigure := func(key int32, sec float64, set vsphere.VMEvent, fields ...string) vsphere.VMEvent {
+		set.Key, set.Time, set.Explains, set.Result, set.Fields = key, probeAt(sec), vsphere.EventModified, vsphere.ResultOK, fields
+		return set
 	}
+	memory := func(mb int64) vsphere.VMEvent { return vsphere.VMEvent{SetMemoryMB: mb} }
+
+	// 128 to 256 to 512 to 256 between two runs.
 	events := []vsphere.VMEvent{
-		reconfigure(1, 10, "memory 512 MB", "memory"),
-		reconfigure(2, 20, "memory 256 MB", "memory"),
-		reconfigure(3, 30, "memory 256 MB", "memory"),
-		reconfigure(4, 40, "annotation", "annotation"),
-		reconfigure(5, 50, "annotation", "annotation"),
-		reconfigure(6, 60, "cpu 8", "cpu"),
+		reconfigure(1, 10, memory(256), "memory"),
+		reconfigure(2, 20, memory(512), "memory"),
+		reconfigure(3, 30, memory(256), "memory"),
+		reconfigure(4, 40, vsphere.VMEvent{}, "annotation"),
+		reconfigure(5, 50, vsphere.VMEvent{}, "annotation"),
+		reconfigure(6, 60, vsphere.VMEvent{SetCPU: 8}, "cpu"),
 	}
-	spans := ExplainTimeline(history, events)
-	got := spanTo(t, spans, 2)
-	if !sameKeys(got.Changes[0].Events, 2, 4, 5) {
-		t.Fatalf("modified explained by %v, want the first 256 MB edit and both annotation edits", eventKeys(got.Changes[0].Events))
+	got := spanTo(t, ExplainTimeline(history, events), 2)
+	if !sameKeys(got.Changes[0].Events, 3, 4, 5) {
+		t.Fatalf("modified explained by %v, want the last 256 MB edit and both annotation edits", eventKeys(got.Changes[0].Events))
 	}
-	if !sameKeys(got.Unexplained, 1, 3, 6) {
-		t.Fatalf("unexplained %v, want the 512 MB edit, the repeated 256 MB edit and the unrelated cpu edit", eventKeys(got.Unexplained))
+	if !sameKeys(got.Unexplained, 1, 2, 6) {
+		t.Fatalf("unexplained %v, want the undone 256 MB edit, the 512 MB edit and the unrelated cpu edit", eventKeys(got.Unexplained))
+	}
+
+	// With nothing in the gap, an edit logged while run 2 collected is the
+	// cause; once the gap has one, a later edit to the same value is not.
+	during := reconfigure(7, 100.5, memory(256), "memory")
+	got = spanTo(t, ExplainTimeline(history, []vsphere.VMEvent{during}), 2)
+	if !sameKeys(got.Changes[0].Events, 7) {
+		t.Fatalf("an edit logged while the run collected, and none before it, must explain the change: %+v", got)
+	}
+	got = spanTo(t, ExplainTimeline(history, []vsphere.VMEvent{events[0], during}), 2)
+	if !sameKeys(got.Changes[0].Events, 1) {
+		t.Fatalf("modified explained by %v, want the edit in the gap", eventKeys(got.Changes[0].Events))
+	}
+	if next := spanTo(t, ExplainTimeline(append(history, VMHistoryEvent{Kind: "observed", Run: Run{ID: 3, StartedAt: probeAt(200)}}), []vsphere.VMEvent{events[0], during}), 3); !sameKeys(next.Unexplained, 7) {
+		t.Fatalf("the later edit must carry to the next gap as unexplained: %+v", next)
 	}
 }

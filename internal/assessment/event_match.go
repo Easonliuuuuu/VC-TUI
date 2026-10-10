@@ -2,6 +2,7 @@ package assessment
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -111,7 +112,7 @@ func ExplainTimeline(history []VMHistoryEvent, events []vsphere.VMEvent) []Event
 		if i < len(runs) {
 			offered = append(append([]vsphere.VMEvent(nil), settled...), during[i]...)
 		}
-		used := explainSpan(&spans[i], offered)
+		used := explainSpan(&spans[i], offered, len(settled))
 		for k, e := range offered {
 			switch {
 			case used[k]:
@@ -203,7 +204,7 @@ func repairBoundaries(spans []EventSpan, runs []Run) {
 					return t.After(runEnd(edge)) && !t.After(runEnd(edge).Add(toleranceAt(e, edge)))
 				})
 			}
-			picked := explainers(ch.Change, pool, make([]bool, len(pool)))
+			picked := explainers(ch.Change, pool, make([]bool, len(pool)), len(pool))
 			for _, k := range picked {
 				taken[from[k]] = true
 				ch.Events = append(ch.Events, pool[k])
@@ -260,11 +261,11 @@ func timelineRuns(history []VMHistoryEvent) []Run {
 
 // explainSpan attaches events to the span's changes and reports which of
 // them it used.
-func explainSpan(span *EventSpan, events []vsphere.VMEvent) []bool {
+func explainSpan(span *EventSpan, events []vsphere.VMEvent, gap int) []bool {
 	used := make([]bool, len(events))
 	for c := range span.Changes {
 		ch := &span.Changes[c]
-		for _, i := range explainers(ch.Change, events, used) {
+		for _, i := range explainers(ch.Change, events, used, gap) {
 			used[i] = true
 			ch.Events = append(ch.Events, events[i])
 		}
@@ -274,7 +275,7 @@ func explainSpan(span *EventSpan, events []vsphere.VMEvent) []bool {
 }
 
 // explainers picks the events, by index, that account for one change.
-func explainers(change VMHistoryEvent, events []vsphere.VMEvent, used []bool) []int {
+func explainers(change VMHistoryEvent, events []vsphere.VMEvent, used []bool, gap int) []int {
 	want := ExplainedBy(change.Kind)
 	if want == "" {
 		return nil
@@ -305,7 +306,7 @@ func explainers(change VMHistoryEvent, events []vsphere.VMEvent, used []bool) []
 			e := events[candidates[k]]
 			switch {
 			case isNameReconfiguration(e):
-				if after == "" || e.Detail == "name "+after {
+				if after == "" || e.SetName == after {
 					out = append(out, candidates[k])
 				}
 			case !renamed && (e.NewName == "" || after == "" || e.NewName == after):
@@ -315,7 +316,7 @@ func explainers(change VMHistoryEvent, events []vsphere.VMEvent, used []bool) []
 		}
 		return out
 	case "modified":
-		return pickReconfigurations(change, events, candidates)
+		return pickReconfigurations(change, events, candidates, gap)
 	default:
 		// Lifecycle and snapshot changes: the earliest event of the kind.
 		return candidates[:1]
@@ -325,17 +326,40 @@ func explainers(change VMHistoryEvent, events []vsphere.VMEvent, used []bool) []
 // pickReconfigurations chooses the reconfigurations that produced a stored
 // modification. One must touch a changed field, and for cpu and memory, where
 // the event says what it set, set the value the later run recorded: a
-// reconfigure to 512 MB does not explain memory that ended at 256. A change
-// to a field is credited to the first event that brought it to the recorded
-// value; a later one that set it again changed nothing.
-func pickReconfigurations(change VMHistoryEvent, events []vsphere.VMEvent, candidates []int) []int {
+// reconfigure to 512 MB does not explain memory that ended at 256.
+//
+// Several events can set a field to the recorded value, and only the last of
+// them produced the state a run saw: in a gap that goes 128 to 256 to 512 to
+// 256, the first 256 was undone. So of the events that set a field to the
+// recorded value, the last credited one is the cause and the others explain
+// nothing. Events before index gap were logged in the gap; those from gap on
+// were logged while the later run was collecting, and may have followed what
+// it saw, so they count only for a field no event in the gap already
+// brought to the recorded value.
+func pickReconfigurations(change VMHistoryEvent, events []vsphere.VMEvent, candidates []int, gap int) []int {
 	changed := reconfigurableFields(change)
 	if len(changed) == 0 {
 		return nil
 	}
 	ordered := append([]int(nil), candidates...)
 	sort.SliceStable(ordered, func(a, b int) bool { return events[ordered[a]].Time.Before(events[ordered[b]].Time) })
-	reached := make(map[string]bool)
+	// cause is, per field, the event credited with bringing it to the
+	// recorded value: the last one in the gap, else the last one after.
+	cause := make(map[string]int)
+	inGap := make(map[string]bool)
+	for _, i := range ordered {
+		for _, f := range events[i].Fields {
+			value, ok := setValue(events[i], f)
+			if !ok || !intersects([]string{f}, changed) || value != fieldAfter(change, f) {
+				continue
+			}
+			if i < gap {
+				cause[f], inGap[f] = i, true
+			} else if !inGap[f] {
+				cause[f] = i
+			}
+		}
+	}
 	var out []int
 	for _, i := range ordered {
 		e := events[i]
@@ -343,31 +367,34 @@ func pickReconfigurations(change VMHistoryEvent, events []vsphere.VMEvent, candi
 			out = append(out, i)
 			continue
 		}
-		explains, fresh := false, false
-		var brought []string
+		explains := false
 		for _, f := range e.Fields {
 			if !intersects([]string{f}, changed) {
 				continue
 			}
-			value, ok := e.ReconfiguredValue(f)
-			switch {
-			case !ok:
-				explains, fresh = true, true
-			case value == fieldAfter(change, f):
+			if _, ok := setValue(e, f); !ok {
 				explains = true
-				fresh = fresh || !reached[f]
-				brought = append(brought, f)
+			} else if c, found := cause[f]; found && c == i {
+				explains = true
 			}
 		}
-		if !explains || !fresh {
-			continue
+		if explains {
+			out = append(out, i)
 		}
-		for _, f := range brought {
-			reached[f] = true
-		}
-		out = append(out, i)
 	}
 	return out
+}
+
+// setValue is what a reconfiguration event set a numeric field to, in the
+// form run diffs store it, when it set that field and the event says so.
+func setValue(e vsphere.VMEvent, field string) (string, bool) {
+	switch {
+	case field == "cpu" && e.SetCPU != 0:
+		return strconv.FormatInt(int64(e.SetCPU), 10), true
+	case field == "memory" && e.SetMemoryMB != 0:
+		return strconv.FormatInt(e.SetMemoryMB, 10), true
+	}
+	return "", false
 }
 
 // isNameReconfiguration is a reconfiguration that set only the VM's name:
