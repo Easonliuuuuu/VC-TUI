@@ -670,12 +670,11 @@ func (m *Model) handleVAppVMDetailKey(msg tea.KeyMsg) tea.Cmd {
 		if m.assessment == nil {
 			return nil
 		}
-		m.timelineQuery = m.vappVM.name
-		m.timelineAll, m.timelineCursor, m.timelineOffset = false, 0, 0
-		m.historyErr = nil
-		m.timelineFrom = modeVAppVMDetail
-		m.mode = modeHistoryTimeline
-		return loadHistoryTimelineCmd(m.ctx, m.assessment, m.vappVM.name, false, false)
+		var seed *vmEventsTarget
+		if m.vappVM.vm != nil {
+			seed = &vmEventsTarget{context: m.vappVM.context, vmID: m.vappVM.vm.ID}
+		}
+		return m.openTimeline(m.vappVM.name, modeVAppVMDetail, seed)
 	case key.Matches(msg, m.keys.Open):
 		return m.openFieldActions()
 	case key.Matches(msg, m.keys.Up):

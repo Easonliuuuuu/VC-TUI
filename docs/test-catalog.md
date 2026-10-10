@@ -130,6 +130,7 @@ before updating goldens.
 | `datastore-browser` | presentation | open `nvme-01` browser | root `/`, datastore name, entries, and browser mode at each size | yes |
 | `resize` | presentation | resize through `60x20`, `100x30`, `140x40` | inventory still renders and selection is kept | no |
 | `vm-dashboard` | presentation | pages `0`–`4`, ranges `1h`→`30d`→`1h` at each size | bounded frames, whole page tabs, detail mode retained | yes |
+| `vm-timeline` | presentation | `wiki-05` timeline, tabs `1`–`3` at each size | bounded frames, tab marks, live events labelled with their vCenter, stored tab never labelled live | yes |
 | `network-switches` | presentation | both DVS-Production pages; DVS-Storage Wiring/vMotion | bounded frames, page tabs, switch and port-group names | yes |
 | `host-network` | presentation | esxi-db-08 Network; move switch cursor; open DVS-Storage and return | bounded frames/tabs, missing switch and unattached NICs shown, Esc returns to host | yes |
 | `vlan-map` | presentation | all-context VLAN map/where panel; pair compute-a on prod-vc and edge-vc | bounded frames, both context columns, lost-connectivity VLANs named | yes |

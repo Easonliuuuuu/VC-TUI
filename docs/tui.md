@@ -143,7 +143,6 @@ newest and marks baseline `b` and target `t`:
 | `1`–`4`, `0` | Filter blocks/sizing/growth/churn; clear filter |
 | `Enter` | Open change inspector on narrow terminals |
 | `h` | Open VM timeline from a change |
-| `a` | Include unchanged observations |
 | `n` | Capture current scope |
 | `e` / `N` / `p` in Runs | Edit label / operator note / pin |
 
@@ -161,6 +160,42 @@ Other identical changes may share a counted row such as
 show the inspector beside the stream.
 
 See [assessments](assessments.md) for capture and comparison workflows.
+
+### VM timeline
+
+Press `h` on a VM's detail pane, a vApp member, or a Changes row to open that
+VM's timeline. It has three sources, one tab each:
+
+| Tab | Source | What it answers |
+|---|---|---|
+| `1 Changes` | Stored assessments | What changed between runs. Works offline and goes back as far as your history. |
+| `2 vCenter events` | vCenter's event log, read live | Who did what and when, including failed tasks and changes undone before the next run. Only as far back as vCenter keeps events, usually 30 days. |
+| `3 Combined` | Both | Each stored change beside the event that caused it, grouped by the gap between the two runs that bracket it. |
+
+On Combined, `←` marks an event that caused the stored change on its line or
+above it. `·` marks an event that left no stored change: it failed, it was
+undone before the next run, it is newer than any run, or it is a kind of event
+assessments do not record. An event explains a change only when it falls
+between the same two runs, its kind can produce that change, it did not fail,
+and the details agree. For example, a migration explains `moved` only if it
+ended on the host the run recorded.
+
+vCenter events are read only when you open an events tab or press `r`.
+Opening a tab reads vCenters that are already connected. `r` also connects a
+configured vCenter that is not. The tab header always says `LIVE`, which
+vCenter the events came from, and the oldest event returned. A vCenter that
+is not connected, not configured, or refused the read is named rather than
+left out. A VM that moved between vCenters is read on each one.
+
+| Keys | Action |
+|---|---|
+| `Tab` / `Shift+Tab`, `1`–`3` | Switch source |
+| `a` | Show unchanged runs (Changes) or routine power, guest and task events (events tabs) |
+| `r` | Read vCenter events again |
+| `Enter` | Open the change or event detail |
+
+The same event log is available on the command line as
+`vsfleet vm events <name-or-uuid>`.
 
 ## Refresh and cache behavior
 

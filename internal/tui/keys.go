@@ -71,6 +71,12 @@ type keyMap struct {
 	Swap        key.Binding
 	Timeline    key.Binding
 	TimelineAll key.Binding
+	// TimelineSource moves between the VM timeline's Changes, vCenter
+	// events and Combined tabs: tab cycles, 1-3 jump. TimelineEvents is
+	// TimelineAll's label on the two events tabs, where "a" shows routine
+	// events instead of unchanged runs.
+	TimelineSource key.Binding
+	TimelineEvents key.Binding
 
 	// PrevPane and NextPane move between the history hub's Changes, Trends,
 	// Runs and Health panes. They exist so the history footer stops borrowing
@@ -205,21 +211,23 @@ func defaultKeys() keyMap {
 		Reload:    key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reload")),
 		ReloadAll: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "reload all")),
 
-		ShorterRange: key.NewBinding(key.WithKeys("<", ","), key.WithHelp("<", "shorter range")),
-		LongerRange:  key.NewBinding(key.WithKeys(">", "."), key.WithHelp(">", "longer range")),
-		PerfRange:    key.NewBinding(key.WithHelp("</>", "range")),
-		PerfPage:     key.NewBinding(key.WithKeys("0", "1", "2", "3", "4"), key.WithHelp("0-4", "chart page")),
-		VAppSort:     key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort")),
-		Doctor:       key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "diagnose")),
-		History:      key.NewBinding(key.WithKeys("H"), key.WithHelp("H", "history")),
-		Capture:      key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "capture")),
-		Base:         key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "baseline")),
-		Target:       key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "target")),
-		Swap:         key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "swap")),
-		Timeline:     key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "timeline")),
-		TimelineAll:  key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "all observations")),
-		PrevPane:     key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("⇧tab", "prev pane")),
-		NextPane:     key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next pane")),
+		ShorterRange:   key.NewBinding(key.WithKeys("<", ","), key.WithHelp("<", "shorter range")),
+		LongerRange:    key.NewBinding(key.WithKeys(">", "."), key.WithHelp(">", "longer range")),
+		PerfRange:      key.NewBinding(key.WithHelp("</>", "range")),
+		PerfPage:       key.NewBinding(key.WithKeys("0", "1", "2", "3", "4"), key.WithHelp("0-4", "chart page")),
+		VAppSort:       key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort")),
+		Doctor:         key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "diagnose")),
+		History:        key.NewBinding(key.WithKeys("H"), key.WithHelp("H", "history")),
+		Capture:        key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "capture")),
+		Base:           key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "baseline")),
+		Target:         key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "target")),
+		Swap:           key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "swap")),
+		Timeline:       key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "timeline")),
+		TimelineAll:    key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "unchanged")),
+		TimelineSource: key.NewBinding(key.WithKeys("tab", "1", "2", "3"), key.WithHelp("tab", "source")),
+		TimelineEvents: key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "all events")),
+		PrevPane:       key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("⇧tab", "prev pane")),
+		NextPane:       key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next pane")),
 
 		// Arrows only: "h" and "l" are the timeline and the browse screen's
 		// kind keys, and a scrubber that also fired those would be a trap.
@@ -373,6 +381,25 @@ func (k keyMap) historyHelpSections(pane int, canCapture bool) []helpSection {
 	// the block that crosses the halfway mark, and the long Changes block
 	// has to start the left column for the hub keys to land in the right.
 	return []helpSection{panes, {"History hub", hub}}
+}
+
+// timelineHelpSections is the help panel for the VM timeline and its detail
+// screen. Like the history hub's it replaces the browse sections, none of
+// which do anything here.
+func (k keyMap) timelineHelpSections() []helpSection {
+	return []helpSection{
+		{"VM timeline", []key.Binding{
+			k.Up, k.Down,
+			described(k.Open, "enter", "open detail"),
+			described(k.TimelineSource, "tab", "next source"),
+			described(k.PrevPane, "⇧tab", "previous source"),
+			described(k.TimelineSource, "1-3", "pick a source"),
+			described(k.TimelineAll, "a", "unchanged · all events"),
+			described(k.Reload, "r", "read vCenter events"),
+			described(k.Back, "esc", "back"),
+		}},
+		{"Other", []key.Binding{k.Help, k.Quit}},
+	}
 }
 
 // vlanMapHelpSections is the help panel for the VLAN map. Like the history
@@ -534,7 +561,10 @@ func (k keyMap) footerHints(m *Model) []key.Binding {
 		// neither help nor quit is offered.
 		return []key.Binding{k.SaveRun, k.CancelAction}
 	case modeHistoryTimeline:
-		return []key.Binding{k.Up, k.Down, k.Open, k.TimelineAll, k.Back, k.Help, k.Quit}
+		if m.timelineSource == timelineSourceChanges {
+			return []key.Binding{k.Up, k.Down, k.Open, k.TimelineSource, k.TimelineAll, k.Back, k.Help, k.Quit}
+		}
+		return []key.Binding{k.Up, k.Down, k.Open, k.TimelineSource, k.TimelineEvents, k.Reload, k.Back, k.Help, k.Quit}
 	case modeHistoryTimelineDetail:
 		return []key.Binding{k.Back, k.Help, k.Quit}
 	case modeDatastoreFiles:
@@ -577,6 +607,7 @@ func (k keyMap) footerDropOrder() [][]key.Binding {
 		{k.Doctor},
 		{k.NoteRun},
 		{k.TimelineAll},
+		{k.TimelineEvents},
 		{k.VAppSort},
 		{k.PerfRange},
 		{k.Timeline},

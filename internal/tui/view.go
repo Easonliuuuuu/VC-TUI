@@ -1192,6 +1192,9 @@ func (m *Model) helpLines() []string {
 	if m.helpFrom == modeVLANMap {
 		sections, title = m.keys.vlanMapHelpSections(), "Keys · VLAN map"
 	}
+	if m.helpFrom == modeHistoryTimeline || m.helpFrom == modeHistoryTimelineDetail {
+		sections, title = m.keys.timelineHelpSections(), "Keys · VM timeline"
+	}
 	if m.helpFrom == modeChanges {
 		// Opened from the history hub: show that pane's keys in place of the
 		// browse sections, which describe a screen that is not visible.

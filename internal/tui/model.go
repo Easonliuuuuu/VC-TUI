@@ -744,6 +744,20 @@ type Model struct {
 	helpFrom mode
 	// timelineFrom is the detail view that opened the VM timeline.
 	timelineFrom mode
+	// timelineFull is the stored timeline including unchanged observations;
+	// timeline is what the Changes tab lists from it. timelineSource is the
+	// tab on show, kept across openings so the timeline reopens where the
+	// operator left it. See timeline.go.
+	timelineFull         []assessment.VMHistoryEvent
+	timelineSource       int
+	timelineMinor        bool
+	timelineSeed         *vmEventsTarget
+	tlEvents             *timelineEventsState
+	tlGen                int
+	eventsCursor         int
+	combinedCursor       int
+	timelineDetailEvent  *vsphere.VMEvent
+	timelineDetailChange *assessment.VMHistoryEvent
 	// vapp holds the read-only vAPP workspace while it is open. It is kept
 	// separate from the browse cursor so nested vAPPs and member VMs can have
 	// their own selection without changing the resource tab underneath.
@@ -1806,8 +1820,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setMessage(fmt.Sprintf("assessment %d saved (%s)", msg.run.ID, msg.run.Status), msg.run.Status == assessment.RunPartial)
 		return m, tea.Batch(loadHistoryRunsCmd(m.ctx, m.assessment), loadHistoryTrendsCmd(m.ctx, m.assessment, m.historyScope()), loadHistoryHealthCmd(m.ctx, m.assessment, 0, health.Options{Thresholds: health.DefaultThresholds()}))
 	case historyTimelineMsg:
-		m.timeline, m.historyErr = msg.events, msg.err
-		m.timelineCursor, m.timelineOffset = 0, 0
+		return m, m.applyHistoryTimeline(msg)
+	case vmEventsMsg:
+		m.applyVMEvents(msg)
 		return m, nil
 
 	case formTestMsg:
@@ -2034,6 +2049,9 @@ func (m *Model) busy() bool {
 	// watching too. Leaving it out is how the spinner beside "capturing…"
 	// once froze on its first frame; see TestCaptureKeepsTheSpinnerTurning.
 	if m.ds != nil && (m.ds.loading || m.ds.finding || (m.ds.detail != nil && m.ds.detail.loading)) {
+		return true
+	}
+	if m.tlEvents != nil && m.tlEvents.loading {
 		return true
 	}
 	for _, st := range m.states {
@@ -3102,12 +3120,11 @@ func (m *Model) handleDetailKey(msg tea.KeyMsg) tea.Cmd {
 		if !ok || row.kind != vsphere.KindVM || m.assessment == nil {
 			return nil
 		}
-		m.timelineQuery = row.name
-		m.timelineAll, m.timelineCursor, m.timelineOffset = false, 0, 0
-		m.historyErr = nil
-		m.timelineFrom = modeDetail
-		m.mode = modeHistoryTimeline
-		return loadHistoryTimelineCmd(m.ctx, m.assessment, row.name, false, false)
+		var seed *vmEventsTarget
+		if row.vm != nil {
+			seed = &vmEventsTarget{context: row.context, vmID: row.vm.ID}
+		}
+		return m.openTimeline(row.name, modeDetail, seed)
 	case key.Matches(msg, m.keys.Open):
 		return m.openFieldActions()
 	case key.Matches(msg, m.keys.Up):

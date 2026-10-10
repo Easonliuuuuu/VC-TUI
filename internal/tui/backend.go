@@ -322,6 +322,13 @@ func (b *sessionBackend) VMPerfSeries(ctx context.Context, cc *config.Context, v
 	})
 }
 
+// VMEvents implements vmEventsBackend.
+func (b *sessionBackend) VMEvents(ctx context.Context, cc *config.Context, vmID string, limit int) (vsphere.VMEventListing, error) {
+	return liveQuery(ctx, b, cc, func(client *vsphere.Client, opCtx context.Context) (vsphere.VMEventListing, error) {
+		return client.VMEvents(opCtx, vmID, limit)
+	})
+}
+
 // NetworkTopology implements networkTopologyBackend.
 func (b *sessionBackend) NetworkTopology(ctx context.Context, cc *config.Context) (*vsphere.NetworkTopology, error) {
 	return liveQuery(ctx, b, cc, func(client *vsphere.Client, opCtx context.Context) (*vsphere.NetworkTopology, error) {
