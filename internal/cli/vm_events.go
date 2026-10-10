@@ -86,6 +86,9 @@ That is how to see who deleted a VM, and when.`), Example: `  # What vCenter log
 		if listing.Truncated {
 			fmt.Fprintf(a.errOut(), "\nread only the newest %d events; older ones were not read (raise --limit)\n", listing.Limit)
 		}
+		if listing.TaskHistoryError != "" {
+			fmt.Fprintf(a.errOut(), "\n%s\n", taskHistoryNote(listing))
+		}
 		return nil
 	}}
 	cmd.Flags().BoolVar(&all, "all", false, "include routine power, guest, tools and task events")
@@ -240,6 +243,14 @@ func readStoredTargets(ctx context.Context, a *App, query string, limit int, tar
 		}
 		merged.Limit = listing.Limit
 		merged.Truncated = merged.Truncated || listing.Truncated
+		// Each reason names its context, because a merged listing has none.
+		if listing.TaskHistoryError != "" {
+			reason := listing.Context + ": " + listing.TaskHistoryError
+			if merged.TaskHistoryError != "" {
+				reason = merged.TaskHistoryError + "; " + reason
+			}
+			merged.TaskHistoryError = reason
+		}
 		merged.Events = append(merged.Events, listing.Events...)
 	}
 	reportFailures(a, failures)
@@ -248,6 +259,17 @@ func readStoredTargets(ctx context.Context, a *App, query string, limit int, tar
 	}
 	vsphere.SortVMEvents(merged.Events)
 	return merged, nil
+}
+
+// taskHistoryNote says that a listing's task history could not be read, and
+// what that leaves out: task events carry no result, and a failed task with
+// no event of its own is not listed.
+func taskHistoryNote(listing vsphere.VMEventListing) string {
+	where := ""
+	if listing.Context != "" {
+		where = " on " + listing.Context
+	}
+	return fmt.Sprintf("could not read the task history%s, so task results are unknown and failed tasks may be missing: %s", where, listing.TaskHistoryError)
 }
 
 func eventResult(result string) string {

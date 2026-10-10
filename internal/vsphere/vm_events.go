@@ -269,7 +269,9 @@ func ClassifyEvent(e types.BaseEvent) VMEvent {
 	if strings.Contains(ev.Type, "Failed") {
 		ev.Result, ev.Minor, ev.Explains = ResultFailed, false, ""
 	}
-	if ev.Detail == "" {
+	// A task event's message is "Task: <what the task does>", which its
+	// label already says, so it leaves no summary.
+	if _, task := e.(*types.TaskEvent); ev.Detail == "" && !task {
 		ev.Summary = messageSummary(ev.Message, base)
 	}
 	return ev
@@ -322,14 +324,15 @@ func messageSummary(msg string, base *types.Event) string {
 		return s
 	}
 	vmP, hostP, dcP := [2]string{"", vm}, [2]string{" on ", host}, [2]string{" in ", dc}
-	hostOnP, dcCommaP := [2]string{" on host ", host}, [2]string{", in ", dc}
+	hostOnP, dcCommaP, dcFromP := [2]string{" on host ", host}, [2]string{", in ", dc}, [2]string{" from ", dc}
 	// The messages read "<vm> on <host> in <dc> is powered on" when the event
 	// opens with its scope, and "<what> on <vm> on <host> in <dc>: <why>" when
-	// it ends a clause with it. Longest phrasing first, so a host and a
-	// datacenter are not left behind by a shorter match.
+	// it ends a clause with it; a removal reads "Removed <vm> on <host> from
+	// <dc>". Longest phrasing first, so a host and a datacenter are not left
+	// behind by a shorter match.
 	phrases := []string{
-		scope(vmP, hostP, dcP), scope(vmP, hostP, dcCommaP), scope(vmP, hostOnP, dcP), scope(vmP, hostP), scope(vmP, dcP),
-		scope([2]string{"", host}, dcP), scope([2]string{"", host}, dcCommaP), scope(vmP),
+		scope(vmP, hostP, dcP), scope(vmP, hostP, dcCommaP), scope(vmP, hostP, dcFromP), scope(vmP, hostOnP, dcP), scope(vmP, hostP), scope(vmP, dcP),
+		scope([2]string{"", host}, dcP), scope([2]string{"", host}, dcCommaP), scope([2]string{"", host}, dcFromP), scope(vmP),
 	}
 	for _, s := range phrases {
 		if s != "" && strings.HasPrefix(msg, s+" ") {

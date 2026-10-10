@@ -2,6 +2,7 @@ package cli
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/easonliuuuuu/vsfleet/internal/assessment"
@@ -35,5 +36,18 @@ func TestStoredEventTargetsReadEachVCenterOnce(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("targets = %+v\nwant     %+v", got, want)
+	}
+}
+
+func TestTaskHistoryNoteNamesTheContextAndWhatIsLeftOut(t *testing.T) {
+	note := taskHistoryNote(vsphere.VMEventListing{Context: "lab", TaskHistoryError: "NoPermission: System.View"})
+	for _, want := range []string{"task history on lab", "task results are unknown", "failed tasks may be missing", "NoPermission: System.View"} {
+		if !strings.Contains(note, want) {
+			t.Fatalf("note %q is missing %q", note, want)
+		}
+	}
+	// A merged listing names each context in its reason instead.
+	if note := taskHistoryNote(vsphere.VMEventListing{TaskHistoryError: "a: denied; b: denied"}); strings.Contains(note, " on ") || !strings.HasSuffix(note, "a: denied; b: denied") {
+		t.Fatalf("merged note = %q", note)
 	}
 }
