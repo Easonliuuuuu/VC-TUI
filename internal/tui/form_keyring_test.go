@@ -42,6 +42,17 @@ func newKeyringTestModel(t *testing.T, b *keyringFake) *Model {
 
 var errNoSecretService = errors.New("system keyring unavailable: The name org.freedesktop.secrets was not provided by any .service files")
 
+func TestDemoFormPreviewNeverProbesTheKeyring(t *testing.T) {
+	b := &keyringFake{fakeBackend: twoHealthy()}
+	m := New(context.Background(), b, Options{Current: "prod", Demo: true, RefreshInterval: -1})
+	m.width, m.height = 140, 30
+	press(t, m, "c", "n")
+	settleForm(m)
+	if m.form == nil || b.probes != 0 {
+		t.Fatalf("demo preview form=%v keyring probes=%d", m.form, b.probes)
+	}
+}
+
 func TestFormKeepsTheKeyringWhenItWorks(t *testing.T) {
 	b := &keyringFake{fakeBackend: &fakeBackend{}}
 	m := newKeyringTestModel(t, b)

@@ -2392,7 +2392,24 @@ func TestDemoModeContextsScreenDisablesMutations(t *testing.T) {
 	if m.mode != modeForm || m.form == nil {
 		t.Fatalf("'n' in demo mode did not open the preview: mode=%v form=%v", m.mode, m.form)
 	}
+	fillNewContextBasics(t, m, "sample-vc", "https://vcsa.example.invalid", "reader@vsphere.local")
+	for _, action := range []struct {
+		name string
+		run  func() tea.Cmd
+	}{
+		{"test", m.formTest}, {"save", m.formSave}, {"discover", m.formDiscover},
+	} {
+		if cmd := action.run(); cmd != nil {
+			t.Fatalf("demo %s scheduled a side effect", action.name)
+		}
+	}
+	if m.form.testing || m.form.saving || m.form.discovering || !strings.Contains(m.View(), "Demo preview") {
+		t.Fatal("demo preview started an operation or lost its read-only notice")
+	}
 	press(t, m, "esc")
+	if m.mode != modeContexts || m.form != nil || len(m.states) != 2 {
+		t.Fatal("cancelling demo preview did not discard the form and preserve contexts")
+	}
 
 	press(t, m, "e")
 	if m.mode != modeContexts || m.form != nil {
