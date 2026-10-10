@@ -45,7 +45,7 @@ Managing multiple VMware vCenters traditionally requires juggling browser tabs, 
 - <img src="docs/assets/icons/key.svg" width="16" height="16" alt=""> **Secure Credential Handling**: Zero plaintext passwords in `config.toml`. Resolves credentials via native OS keyrings, interactive prompts, or unattended sources.
 - <img src="docs/assets/icons/graph.svg" width="16" height="16" alt=""> **Historical Drift & RVTools-Compatible Exports**: Capture immutable local SQLite snapshots, track drift over time, and export 25-sheet Excel workbooks for migration sizing ([details](docs/assessments.md#deterministic-exports)).
 - <img src="docs/assets/icons/workflow.svg" width="16" height="16" alt=""> **Distributed-Network Readiness**: Compare cross-cluster VLAN mappings, policy, MTU, host coverage, and affected VMs before migration.
-- <img src="docs/assets/icons/terminal.svg" width="16" height="16" alt=""> **Interactive TUI + Scriptable JSON**: Fast Bubble Tea terminal UI with local workstation handoffs (SSH, web browser, clipboard) alongside stable JSON for automation.
+- <img src="docs/assets/icons/terminal.svg" width="16" height="16" alt=""> **Interactive TUI + Scriptable JSON**: Fast Bubble Tea terminal UI with local workstation handoffs (SSH, web browser, clipboard) alongside structured JSON for automation.
 
 ### Feature comparison
 
@@ -59,6 +59,9 @@ Managing multiple VMware vCenters traditionally requires juggling browser tabs, 
 | Historical drift and snapshot age | **Yes** | Export only | Custom script | Point-in-time |
 
 <sub>`govc` and PowerCLI are full read-write toolkits; vsfleet deliberately is not.</sub>
+
+> [!NOTE]
+> **Status: pre-1.0.** vsfleet is used against real vCenter 8.0.3 labs, and its read-only guarantee holds in every release. Until 1.0, minor releases may change command flags, JSON output fields, export columns, and the snapshot database schema. Breaking changes are called out in the [changelog](CHANGELOG.md); pin a version for automation.
 
 ---
 
