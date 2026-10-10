@@ -25,5 +25,6 @@ Pull requests are squash-merged, so the PR title becomes the one commit on
 `fix`, `perf`, and `revert` appear in the notes. Use `feat` or `fix` only when
 shipped behavior changes; use `test` for test-only changes,
 `ci(workflows)` for workflow and tooling changes, and `build`, `refactor`,
-`docs`, or `chore` otherwise. If one PR mixes a user-facing change with test or
-CI work, split it.
+`docs`, or `chore` otherwise. A PR that mixes a user-facing change with the
+tests, CI or docs that go with it stays one PR, titled by the user-facing
+change.
