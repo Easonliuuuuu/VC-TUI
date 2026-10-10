@@ -93,6 +93,26 @@ wait_for_no_ready_endpoints() {
   return 1
 }
 
+# A ready EndpointSlice still races kube-proxy: until the node programs the
+# Service rules, connections to the Service IP are refused. Gate the first
+# assessment on both vcsim Services answering from inside the cluster.
+wait_for_reachable_vcenters() {
+  local args attempt
+  args="$(kubectl -n "$namespace" get cronjob vsfleet-assessment -o json | jq -c '.spec.jobTemplate.spec.template.spec.containers[] | select(.name == "vsfleet") | .args')"
+  kubectl -n "$namespace" patch cronjob vsfleet-assessment --type strategic -p '{"spec":{"jobTemplate":{"spec":{"template":{"spec":{"containers":[{"name":"vsfleet","args":["--timeout","5s","--all-contexts","-o","json","status"]}]}}}}}}'
+  for attempt in {1..15}; do
+    run_job "vsfleet-reachable-$attempt" >/dev/null
+    if wait_complete "vsfleet-reachable-$attempt" 2>/dev/null &&
+      job_json "vsfleet-reachable-$attempt" | jq -e 'length == 2 and all(.[]; .state == "connected")' >/dev/null; then
+      kubectl -n "$namespace" patch cronjob vsfleet-assessment --type strategic -p "{\"spec\":{\"jobTemplate\":{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"vsfleet\",\"args\":$args}]}}}}}}"
+      return 0
+    fi
+    sleep 2
+  done
+  printf 'vcsim Services were not reachable from the cluster after %s attempts\n' "$attempt" >&2
+  return 1
+}
+
 kubectl create namespace "$namespace" --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -f "$repo_root/tests/kubernetes/storage-pv.yaml"
 kubectl -n "$namespace" apply -f - <<EOF
@@ -139,6 +159,7 @@ kubectl -n "$namespace" get cronjob vsfleet-assessment -o json | jq -e '
 # failure immediately.
 kubectl -n "$namespace" patch cronjob vsfleet-assessment --type merge -p '{"spec":{"jobTemplate":{"spec":{"backoffLimit":0,"template":{"spec":{"restartPolicy":"Never"}}}}}}'
 
+wait_for_reachable_vcenters
 run_job vsfleet-complete
 wait_complete vsfleet-complete
 job_json vsfleet-complete | jq -e '.status == "complete" and .requested_contexts == 2 and .successful_contexts == 2' >/dev/null
