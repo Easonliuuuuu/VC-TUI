@@ -205,6 +205,13 @@ for every other event vCenter's own message on one line, without the VM, host
 and datacenter it is about. `BY` widens with the terminal so a long user such
 as `VSPHERE.LOCAL\Administrator` is shown whole when there is room.
 
+vCenter logs a task when it is queued, not when it ends, so task rows take
+their result from the VM's task history: `✓` for a task that succeeded, `✕`
+with vCenter's error for one that failed. Failed tasks are not hidden as
+routine. A task still running, or one the history no longer holds, shows no
+result. If the account cannot read task history, the events still load and
+task rows show no result.
+
 The same event log is available on the command line as
 `vsfleet vm events <name-or-uuid>`.
 

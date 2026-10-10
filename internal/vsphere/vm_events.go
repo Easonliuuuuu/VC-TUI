@@ -33,8 +33,8 @@ const (
 
 // Event results. An event that records a finished operation is ResultOK; one
 // that records a failure is ResultFailed; one that records only that an
-// operation started (a task event) carries no result, because the event log
-// does not say how it ended.
+// operation started (a task event) carries no result until the task history
+// says how it ended.
 const (
 	ResultOK     = "ok"
 	ResultFailed = "failed"
@@ -80,6 +80,9 @@ type VMEvent struct {
 	NewName       string   `json:"new_name,omitempty"`
 	Task          string   `json:"task,omitempty"`
 	Message       string   `json:"message,omitempty"`
+	// taskKey is the key of the task a task event records, which joins it to
+	// that task's history record.
+	taskKey string
 }
 
 // VMEventListing is one VMEvents read: the events for one VM on one vCenter,
@@ -92,6 +95,10 @@ type VMEventListing struct {
 	// vCenter returned that many, so older ones may exist and were not read.
 	Limit     int  `json:"limit"`
 	Truncated bool `json:"truncated,omitempty"`
+	// TaskHistoryError is why the task history could not be read, when it
+	// could not. The events are still listed, but task events then carry no
+	// result and a failed task may be missing.
+	TaskHistoryError string `json:"task_history_error,omitempty"`
 }
 
 // Oldest is the time of the oldest event read, or zero when there were none.
@@ -104,8 +111,14 @@ func (l VMEventListing) Oldest() time.Time {
 
 // VMEvents reads the vCenter event log of one VM, identified by its managed
 // object reference value (VM.ID). It is read-only: one QueryEvents call that
-// leaves nothing behind on the server. limit bounds the read; zero means
-// DefaultVMEventLimit.
+// leaves nothing behind on the server, and a task history read that creates a
+// collector and destroys it before returning. limit bounds the read; zero
+// means DefaultVMEventLimit.
+//
+// The event log records a task when it is queued, so how tasks ended comes
+// from the task history. A task history that cannot be read, for example for
+// lack of permission, does not fail the read: the events are returned without
+// task outcomes and TaskHistoryError says why.
 func (c *Client) VMEvents(ctx context.Context, vmID string, limit int) (VMEventListing, error) {
 	if limit <= 0 {
 		limit = DefaultVMEventLimit
@@ -146,6 +159,21 @@ func (c *Client) VMEvents(ctx context.Context, vmID string, limit int) (VMEventL
 	}
 	SortVMEvents(out.Events)
 	out.Truncated = len(raw) >= limit
+
+	// A truncated read says nothing about what came before its oldest event,
+	// so older tasks are neither read nor shown.
+	var since time.Time
+	if out.Truncated {
+		since = out.Oldest()
+	}
+	tasks, err := c.VMTasks(ctx, vmID, since)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return out, ctxErr
+	}
+	if err != nil {
+		out.TaskHistoryError = err.Error()
+	}
+	out.Events = ApplyTaskHistory(out.Events, tasks, since)
 	return out, nil
 }
 
@@ -377,10 +405,12 @@ func reconfiguredFields(spec types.VirtualMachineConfigSpec) ([]string, string) 
 // classifyTask names a task event. Snapshot tasks are the ones that explain
 // stored history; every other task is the start of an operation whose own
 // completion event says more, so it is minor. A task event records when the
-// task was queued, not how it ended, so it carries no result unless vCenter
-// already logged it as failed.
+// task was queued, not how it ended, so it carries no result unless the task
+// is already in an error state; ApplyTaskHistory fills in the rest from the
+// task history.
 func classifyTask(ev *VMEvent, info types.TaskInfo) {
 	ev.Task = info.Name
+	ev.taskKey = info.Key
 	ev.Result = ""
 	if info.State == types.TaskInfoStateError {
 		ev.Result = ResultFailed
