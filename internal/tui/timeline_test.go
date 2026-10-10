@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -154,7 +155,8 @@ func TestTimelineEventsWaitForAnUnconnectedVCenter(t *testing.T) {
 		t.Fatalf("the unconnected vCenter is not named:\n%s", got)
 	}
 	press(t, m, "r")
-	if strings.Join(b.reads, ",") != "prod/vm-1,customer-a/vm-9,prod/vm-1" {
+	// The vCenters are read at once, so in either order.
+	if again := append([]string(nil), b.reads[1:]...); len(again) != 2 || !slices.Contains(again, "customer-a/vm-9") || !slices.Contains(again, "prod/vm-1") {
 		t.Fatalf("r read %v, want both vCenters", b.reads)
 	}
 	if got := viewText(m); strings.Contains(got, "customer-a is not connected") || !strings.Contains(got, "LIVE from customer-a, prod") {
@@ -202,5 +204,47 @@ func TestTimelineChangesTabTogglesUnchangedRunsWithoutReloading(t *testing.T) {
 	press(t, m, "a")
 	if len(m.timeline) != before+1 {
 		t.Fatalf("a listed %d rows, want %d", len(m.timeline), before+1)
+	}
+}
+
+// TestTimelineReadsVCentersHistoryNamesWhileTheSeedReadRuns: opening the
+// timeline on an events tab reads the live VM at once, before stored history
+// has said where else the VM was. When history arrives naming another
+// managed object, that one is read too rather than waiting for r.
+func TestTimelineReadsVCentersHistoryNamesWhileTheSeedReadRuns(t *testing.T) {
+	b := &eventsBackend{fakeBackend: twoHealthy(), events: map[string][]vsphere.VMEvent{"prod/vm-1": {billingRemoved()}}}
+	m := timelineModel(t, b)
+	m.timelineSource = timelineSourceCombined
+	drive(t, m, m.openTimeline("billing", modeBrowse, &vmEventsTarget{context: "prod", vmID: "vm-77"}))
+	slices.Sort(b.reads)
+	if strings.Join(b.reads, ",") != "prod/vm-1,prod/vm-77" {
+		t.Fatalf("read %v, want the seed and the stored managed object", b.reads)
+	}
+	if got := viewText(m); !strings.Contains(got, "remove") {
+		t.Fatalf("the stored managed object's events are missing:\n%s", got)
+	}
+}
+
+// TestTimelineIgnoresHistoryForAnEarlierTimeline: stored history that
+// arrives after its timeline was replaced must not replace the open one.
+func TestTimelineIgnoresHistoryForAnEarlierTimeline(t *testing.T) {
+	m := timelineModel(t, twoHealthy())
+	drive(t, m, m.openTimeline("billing", modeBrowse, nil))
+	want := len(m.timelineFull)
+	m.applyHistoryTimeline(historyTimelineMsg{generation: m.tlGen - 1, events: []assessment.VMHistoryEvent{{Kind: "observed"}, {Kind: "observed"}, {Kind: "observed"}, {Kind: "observed"}}})
+	if len(m.timelineFull) != want {
+		t.Fatalf("a load for an earlier timeline replaced the open one (%d rows, want %d)", len(m.timelineFull), want)
+	}
+}
+
+// TestTimelineReloadDoesNothingOnTheChangesTab: r on the stored tab must not
+// connect to or read any vCenter.
+func TestTimelineReloadDoesNothingOnTheChangesTab(t *testing.T) {
+	b := &eventsBackend{fakeBackend: twoHealthy(), events: map[string][]vsphere.VMEvent{}}
+	m := timelineModel(t, b)
+	drive(t, m, m.openTimeline("billing", modeBrowse, &vmEventsTarget{context: "customer-a", vmID: "vm-9"}))
+	press(t, m, "r")
+	if n := b.readCount(); n != 0 {
+		t.Fatalf("r on the Changes tab read vCenter events: %v", b.reads)
 	}
 }

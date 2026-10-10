@@ -102,8 +102,11 @@ type historyCaptureMsg struct {
 }
 
 type historyTimelineMsg struct {
-	events []assessment.VMHistoryEvent
-	err    error
+	// generation is the timeline the load was for, so a slow load for a
+	// timeline that has since been closed cannot replace the open one.
+	generation int
+	events     []assessment.VMHistoryEvent
+	err        error
 }
 
 type historyRunUpdatedMsg struct {
@@ -181,10 +184,12 @@ func captureHistoryCmd(ctx context.Context, service *assessment.Service, context
 	}
 }
 
-func loadHistoryTimelineCmd(ctx context.Context, service *assessment.Service, query string, all, runtime bool) tea.Cmd {
+// loadHistoryTimelineCmd loads a VM's stored timeline with every
+// observation, for the timeline numbered generation.
+func loadHistoryTimelineCmd(ctx context.Context, service *assessment.Service, query string, generation int) tea.Cmd {
 	return func() tea.Msg {
-		events, err := service.Timeline(ctx, query, "", all, runtime)
-		return historyTimelineMsg{events: events, err: err}
+		events, err := service.Timeline(ctx, query, "", true, false)
+		return historyTimelineMsg{generation: generation, events: events, err: err}
 	}
 }
 

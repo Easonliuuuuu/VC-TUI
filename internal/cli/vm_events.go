@@ -40,10 +40,14 @@ guest and tools state, task progress) are hidden unless --all is given.`), Examp
 			reportFailures(a, failures)
 			return err
 		}
+		// A vCenter that could not be listed may hold another VM by this
+		// name, so say so even when the lookup found one.
+		defer reportFailures(a, failures)
 		listing, err := vmEvents(cmd.Context(), a, vm, limit)
 		if err != nil {
 			return err
 		}
+		read, hidden := len(listing.Events), 0
 		if !all {
 			kept := listing.Events[:0]
 			for _, e := range listing.Events {
@@ -51,6 +55,7 @@ guest and tools state, task progress) are hidden unless --all is given.`), Examp
 					kept = append(kept, e)
 				}
 			}
+			hidden = len(listing.Events) - len(kept)
 			listing.Events = kept
 		}
 		if a.json() {
@@ -61,13 +66,18 @@ guest and tools state, task progress) are hidden unless --all is given.`), Examp
 			t.row(e.Time.Local().Format("2006-01-02 15:04"), e.Label, dash(e.User), eventResult(e.Result), dash(e.Detail))
 		}
 		t.flush()
+		// --limit bounds what vCenter returns, before routine events are
+		// hidden, so the notes count what was read, not what is shown.
+		if hidden > 0 {
+			fmt.Fprintf(a.errOut(), "\n%d of %d events read are routine and hidden (--all shows them)\n", hidden, read)
+		}
 		if listing.Truncated {
-			fmt.Fprintf(a.errOut(), "\nshowing the newest %d events; older ones were not read (--limit)\n", listing.Limit)
+			fmt.Fprintf(a.errOut(), "\nread only the newest %d events; older ones were not read (raise --limit)\n", listing.Limit)
 		}
 		return nil
 	}}
 	cmd.Flags().BoolVar(&all, "all", false, "include routine power, guest, tools and task events")
-	cmd.Flags().IntVar(&limit, "limit", vsphere.DefaultVMEventLimit, "most events to read")
+	cmd.Flags().IntVar(&limit, "limit", vsphere.DefaultVMEventLimit, "most events to read from vCenter, routine ones included")
 	return cmd
 }
 

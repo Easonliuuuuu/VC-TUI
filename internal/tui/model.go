@@ -754,6 +754,7 @@ type Model struct {
 	timelineSeed         *vmEventsTarget
 	tlEvents             *timelineEventsState
 	tlGen                int
+	tlDerived            *timelineDerived
 	eventsCursor         int
 	combinedCursor       int
 	timelineDetailEvent  *vsphere.VMEvent

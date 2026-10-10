@@ -113,3 +113,30 @@ func TestExplainTimelineWithoutEventsKeepsEveryChange(t *testing.T) {
 		t.Fatalf("spans = %+v", spans)
 	}
 }
+
+// TestExplainTimelinePlacesEventsLoggedWhileARunCollected: a run reaches each
+// VM some time after it starts, so an event logged during the run may be in
+// that run's observation (and explains its change) or only in the next one.
+func TestExplainTimelinePlacesEventsLoggedWhileARunCollected(t *testing.T) {
+	r1 := Run{ID: 1, StartedAt: eventAt(9, 1, 0)}
+	r2 := Run{ID: 2, StartedAt: eventAt(9, 8, 10), FinishedAt: eventAt(9, 8, 11)}
+	r3 := Run{ID: 3, StartedAt: eventAt(9, 15, 0)}
+	history := []VMHistoryEvent{
+		{Kind: "observed", Run: r1},
+		{Kind: "moved", Run: r2, Changes: []FieldChange{{Field: "host", Before: "esxi-01", After: "esxi-02"}}},
+		{Kind: "snapshot-created", Run: r3},
+	}
+	// Both are logged after run 2 started but before it finished.
+	migrate := vsphere.VMEvent{Key: 1, Time: eventAt(9, 8, 10).Add(3 * time.Minute), Explains: vsphere.EventMoved, Result: vsphere.ResultOK, FromHost: "esxi-01", ToHost: "esxi-02"}
+	snap := vsphere.VMEvent{Key: 2, Time: eventAt(9, 8, 10).Add(40 * time.Minute), Explains: vsphere.EventSnapshotCreated}
+	spans := ExplainTimeline(history, []vsphere.VMEvent{migrate, snap})
+	if len(spans) != 2 {
+		t.Fatalf("spans = %+v", spans)
+	}
+	if got := spans[0].Changes[0].Events; len(got) != 1 || got[0].Key != migrate.Key || len(spans[0].Unexplained) != 0 {
+		t.Fatalf("the migration logged during run 2 must explain run 2's move: %+v", spans[0])
+	}
+	if got := spans[1].Changes[0].Events; len(got) != 1 || got[0].Key != snap.Key {
+		t.Fatalf("the snapshot logged during run 2 must carry to run 3's change: %+v", spans[1])
+	}
+}

@@ -174,7 +174,7 @@ func placementChanges(before, after Observation) []FieldChange {
 		}
 	}
 	if before.VCenterID != after.VCenterID {
-		add("vcenter", nonEmpty(before.Context, before.VCenterID), nonEmpty(after.Context, after.VCenterID))
+		add("vcenter", nonempty(before.Context, before.VCenterID), nonempty(after.Context, after.VCenterID))
 	}
 	add("host", before.VM.Host, after.VM.Host)
 	add("cluster", before.VM.Cluster, after.VM.Cluster)
@@ -182,19 +182,6 @@ func placementChanges(before, after Observation) []FieldChange {
 	if !equalStrings(before.VM.Datastores, after.VM.Datastores) {
 		add("datastores", strings.Join(sortedCopy(before.VM.Datastores), ","), strings.Join(sortedCopy(after.VM.Datastores), ","))
 	}
-	return out
-}
-
-func nonEmpty(a, b string) string {
-	if a != "" {
-		return a
-	}
-	return b
-}
-
-func sortedCopy(in []string) []string {
-	out := append([]string(nil), in...)
-	sort.Strings(out)
 	return out
 }
 

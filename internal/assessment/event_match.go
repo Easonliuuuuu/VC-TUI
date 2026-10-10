@@ -3,6 +3,7 @@ package assessment
 import (
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/easonliuuuuu/vsfleet/internal/vsphere"
 )
@@ -75,21 +76,55 @@ func ExplainTimeline(history []VMHistoryEvent, events []vsphere.VMEvent) []Event
 
 	sorted := append([]vsphere.VMEvent(nil), events...)
 	vsphere.SortVMEvents(sorted)
-	pending := make([][]vsphere.VMEvent, len(spans))
+	// A run collects each VM some time after it starts, so an event logged
+	// while run i was collecting may already be in run i's observation, or
+	// may not be until run i+1. Such an event is offered to span i first and
+	// carried to span i+1 if nothing there needs it.
+	between := make([][]vsphere.VMEvent, len(spans))
+	during := make([][]vsphere.VMEvent, len(runs))
 	for _, e := range sorted {
 		i := sort.Search(len(runs), func(i int) bool { return !runs[i].StartedAt.Before(e.Time) })
-		pending[i] = append(pending[i], e)
+		if i > 0 && !e.Time.After(runEnd(runs[i-1])) {
+			during[i-1] = append(during[i-1], e)
+			continue
+		}
+		between[i] = append(between[i], e)
 	}
 
 	out := make([]EventSpan, 0, len(spans))
+	var carried []vsphere.VMEvent
 	for i := range spans {
-		explainSpan(&spans[i], pending[i])
+		settled := append(carried, between[i]...)
+		carried = nil
+		offered := settled
+		if i < len(runs) {
+			offered = append(append([]vsphere.VMEvent(nil), settled...), during[i]...)
+		}
+		used := explainSpan(&spans[i], offered)
+		for k, e := range offered {
+			switch {
+			case used[k]:
+			case k >= len(settled):
+				carried = append(carried, e)
+			default:
+				spans[i].Unexplained = append(spans[i].Unexplained, e)
+			}
+		}
 		if len(spans[i].Changes) == 0 && len(spans[i].Unexplained) == 0 {
 			continue
 		}
 		out = append(out, spans[i])
 	}
 	return out
+}
+
+// runEnd is when a run stopped collecting: its finish time, or its start for
+// a run that never recorded one.
+func runEnd(r Run) time.Time {
+	if r.FinishedAt.After(r.StartedAt) {
+		return r.FinishedAt
+	}
+	return r.StartedAt
 }
 
 // timelineRuns is every distinct run in a timeline, oldest first.
@@ -107,7 +142,9 @@ func timelineRuns(history []VMHistoryEvent) []Run {
 	return runs
 }
 
-func explainSpan(span *EventSpan, events []vsphere.VMEvent) {
+// explainSpan attaches events to the span's changes and reports which of
+// them it used.
+func explainSpan(span *EventSpan, events []vsphere.VMEvent) []bool {
 	used := make([]bool, len(events))
 	for c := range span.Changes {
 		ch := &span.Changes[c]
@@ -116,11 +153,7 @@ func explainSpan(span *EventSpan, events []vsphere.VMEvent) {
 			ch.Events = append(ch.Events, events[i])
 		}
 	}
-	for i, e := range events {
-		if !used[i] {
-			span.Unexplained = append(span.Unexplained, e)
-		}
-	}
+	return used
 }
 
 // explainers picks the events, by index, that account for one change.
@@ -169,7 +202,7 @@ func explainers(change VMHistoryEvent, events []vsphere.VMEvent, used []bool) []
 	}
 }
 
-// explainedBy maps a stored change kind to the event kind that can produce it.
+// ExplainedBy maps a stored change kind to the event kind that can produce it.
 func ExplainedBy(kind string) string {
 	switch kind {
 	case "first_seen", "appeared":

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -58,11 +59,25 @@ type vmEventsResult struct {
 }
 
 // timelineEventsState is the vCenter events read for the open timeline.
+// Reads can overlap: stored history can name a vCenter the first read did
+// not know about, and it is read as soon as it is named.
 type timelineEventsState struct {
 	loading  bool
 	loaded   bool
-	results  []vmEventsResult
-	loadedAt time.Time
+	inflight int
+	// requested is every target a read has been started for.
+	requested map[vmEventsTarget]bool
+	results   []vmEventsResult
+	loadedAt  time.Time
+}
+
+// timelineDerived is what the timeline computes from its stored history and
+// its events: kept until either changes, because every render and keypress
+// reads it.
+type timelineDerived struct {
+	events   []vsphere.VMEvent
+	spans    []assessment.EventSpan
+	contexts int
 }
 
 type vmEventsMsg struct {
@@ -102,12 +117,12 @@ func (m *Model) openTimeline(query string, from mode, seed *vmEventsTarget) tea.
 	m.eventsCursor, m.combinedCursor = 0, 0
 	m.timeline, m.timelineFull = nil, nil
 	m.timelineSeed = seed
-	m.tlEvents = nil
+	m.tlEvents, m.tlDerived = nil, nil
 	m.tlGen++
 	m.historyErr = nil
 	m.timelineFrom = from
 	m.mode = modeHistoryTimeline
-	cmds := []tea.Cmd{loadHistoryTimelineCmd(m.ctx, m.assessment, query, true, false)}
+	cmds := []tea.Cmd{loadHistoryTimelineCmd(m.ctx, m.assessment, query, m.tlGen)}
 	if m.timelineSource != timelineSourceChanges {
 		cmds = append(cmds, m.loadTimelineEvents(false))
 	}
@@ -119,7 +134,11 @@ func (m *Model) openTimeline(query string, from mode, seed *vmEventsTarget) tea.
 // that saw the VM, and the Changes tab filters the unchanged ones out unless
 // "a" asks for them.
 func (m *Model) applyHistoryTimeline(msg historyTimelineMsg) tea.Cmd {
+	if msg.generation != m.tlGen {
+		return nil
+	}
 	m.timelineFull, m.historyErr = msg.events, msg.err
+	m.tlDerived = nil
 	m.refilterTimeline()
 	m.timelineCursor, m.timelineOffset = 0, 0
 	if m.mode == modeHistoryTimeline && m.timelineSource != timelineSourceChanges {
@@ -139,31 +158,31 @@ func (m *Model) refilterTimeline() {
 	m.timelineCursor = clamp(m.timelineCursor, 0, max(0, len(m.timeline)-1))
 }
 
-// timelineTargets is every VM to read events for: the newest stored
-// observation of the lineage on each vCenter, and the live VM the timeline
-// was opened from, which wins for its own vCenter.
+// timelineTargets is every VM to read events for: each managed object
+// reference the lineage was stored under on each vCenter — a VM that was
+// re-registered or restored keeps its older events under its older one — and
+// the live VM the timeline was opened from.
 func (m *Model) timelineTargets() []vmEventsTarget {
-	latest := map[string]assessment.VMHistoryEvent{}
+	seen := map[vmEventsTarget]bool{}
 	for _, e := range m.timelineFull {
 		if e.Observation == nil || e.Observation.VM.ID == "" {
 			continue
 		}
-		if cur, ok := latest[e.Context]; !ok || !e.Run.StartedAt.Before(cur.Run.StartedAt) {
-			latest[e.Context] = e
-		}
-	}
-	byContext := map[string]vmEventsTarget{}
-	for ctx, e := range latest {
-		byContext[ctx] = vmEventsTarget{context: ctx, vmID: e.Observation.VM.ID}
+		seen[vmEventsTarget{context: e.Context, vmID: e.Observation.VM.ID}] = true
 	}
 	if s := m.timelineSeed; s != nil && s.vmID != "" {
-		byContext[s.context] = *s
+		seen[*s] = true
 	}
-	out := make([]vmEventsTarget, 0, len(byContext))
-	for _, t := range byContext {
+	out := make([]vmEventsTarget, 0, len(seen))
+	for t := range seen {
 		out = append(out, t)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].context < out[j].context })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].context != out[j].context {
+			return out[i].context < out[j].context
+		}
+		return out[i].vmID < out[j].vmID
+	})
 	return out
 }
 
@@ -178,15 +197,18 @@ func (m *Model) targetState(t vmEventsTarget) (cc *config.Context, connected boo
 }
 
 // loadTimelineEvents starts a read of the open timeline's vCenter events.
-// Opening an events tab reads only vCenters that are already connected;
-// explicit (r) also connects the configured ones that are not, because that
-// is the operator asking for it. Nothing reads events in the background.
+// Opening an events tab reads only vCenters that are already connected, and
+// only targets no read has asked for yet, so a target stored history names
+// after the first read began is still read. explicit (r) reads every target
+// again, and also connects the configured vCenters that are not connected,
+// because that is the operator asking for it. Nothing reads events in the
+// background.
 func (m *Model) loadTimelineEvents(explicit bool) tea.Cmd {
 	b, ok := m.backend.(vmEventsBackend)
 	if !ok {
 		return nil
 	}
-	if m.tlEvents != nil && (m.tlEvents.loading || (m.tlEvents.loaded && !explicit)) {
+	if explicit && m.tlEvents != nil && m.tlEvents.inflight > 0 {
 		return nil
 	}
 	type job struct {
@@ -199,6 +221,9 @@ func (m *Model) loadTimelineEvents(explicit bool) tea.Cmd {
 		if cc == nil || (!connected && !explicit) {
 			continue
 		}
+		if !explicit && m.tlEvents != nil && m.tlEvents.requested[t] {
+			continue
+		}
 		jobs = append(jobs, job{target: t, cc: cc})
 	}
 	if len(jobs) == 0 {
@@ -207,14 +232,29 @@ func (m *Model) loadTimelineEvents(explicit bool) tea.Cmd {
 	if m.tlEvents == nil {
 		m.tlEvents = &timelineEventsState{}
 	}
+	if m.tlEvents.requested == nil {
+		m.tlEvents.requested = map[vmEventsTarget]bool{}
+	}
+	for _, j := range jobs {
+		m.tlEvents.requested[j.target] = true
+	}
+	m.tlEvents.inflight++
 	m.tlEvents.loading = true
 	gen, ctx, now := m.tlGen, m.ctx, m.now
 	load := func() tea.Msg {
+		// Each vCenter is read at once, so a slow or unreachable one holds
+		// up only its own result.
 		results := make([]vmEventsResult, len(jobs))
+		var wg sync.WaitGroup
 		for i, j := range jobs {
-			listing, err := b.VMEvents(ctx, j.cc, j.target.vmID, vsphere.DefaultVMEventLimit)
-			results[i] = vmEventsResult{target: j.target, listing: listing, err: err}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				listing, err := b.VMEvents(ctx, j.cc, j.target.vmID, vsphere.DefaultVMEventLimit)
+				results[i] = vmEventsResult{target: j.target, listing: listing, err: err}
+			}()
 		}
+		wg.Wait()
 		return vmEventsMsg{generation: gen, results: results, at: now()}
 	}
 	return tea.Batch(load, m.spin.Tick)
@@ -224,6 +264,7 @@ func (m *Model) applyVMEvents(msg vmEventsMsg) {
 	if msg.generation != m.tlGen || m.tlEvents == nil {
 		return
 	}
+	m.tlDerived = nil
 	// A reload that only reached some vCenters keeps the others' last read.
 	merged := map[vmEventsTarget]vmEventsResult{}
 	for _, r := range m.tlEvents.results {
@@ -239,24 +280,51 @@ func (m *Model) applyVMEvents(msg vmEventsMsg) {
 	sort.Slice(m.tlEvents.results, func(i, j int) bool {
 		return m.tlEvents.results[i].target.context < m.tlEvents.results[j].target.context
 	})
-	m.tlEvents.loading, m.tlEvents.loaded, m.tlEvents.loadedAt = false, true, msg.at
+	m.tlEvents.inflight = max(0, m.tlEvents.inflight-1)
+	m.tlEvents.loading, m.tlEvents.loaded, m.tlEvents.loadedAt = m.tlEvents.inflight > 0, true, msg.at
 	m.eventsCursor = clamp(m.eventsCursor, 0, max(0, len(m.visibleEvents())-1))
 }
 
-// timelineEvents is every event read, from every vCenter, oldest first.
-func (m *Model) timelineEvents() []vsphere.VMEvent {
-	if m.tlEvents == nil {
-		return nil
+// derived computes, once per change to the timeline's history or events,
+// the merged events and the spans that line them up with the stored changes.
+func (m *Model) derived() *timelineDerived {
+	if m.tlDerived != nil {
+		return m.tlDerived
 	}
-	var out []vsphere.VMEvent
-	for _, r := range m.tlEvents.results {
-		if r.err == nil {
-			out = append(out, r.listing.Events...)
+	d := &timelineDerived{}
+	if m.tlEvents != nil {
+		// Two managed object references of one lineage can share an event
+		// (one logged against both); it is listed once.
+		type id struct {
+			context string
+			key     int32
 		}
+		seen := map[id]bool{}
+		contexts := map[string]bool{}
+		for _, r := range m.tlEvents.results {
+			if r.err != nil {
+				continue
+			}
+			for _, e := range r.listing.Events {
+				k := id{e.Context, e.Key}
+				if e.Key != 0 && seen[k] {
+					continue
+				}
+				seen[k] = true
+				d.events = append(d.events, e)
+				contexts[e.Context] = true
+			}
+		}
+		vsphere.SortVMEvents(d.events)
+		d.contexts = len(contexts)
 	}
-	vsphere.SortVMEvents(out)
-	return out
+	d.spans = assessment.ExplainTimeline(m.timelineFull, d.events)
+	m.tlDerived = d
+	return d
 }
+
+// timelineEvents is every event read, from every vCenter, oldest first.
+func (m *Model) timelineEvents() []vsphere.VMEvent { return m.derived().events }
 
 // visibleEvents is what the events tab lists: routine events only when "a"
 // asked for them.
@@ -274,13 +342,7 @@ func (m *Model) visibleEvents() []vsphere.VMEvent {
 	return out
 }
 
-func (m *Model) eventContexts() int {
-	seen := map[string]bool{}
-	for _, e := range m.timelineEvents() {
-		seen[e.Context] = true
-	}
-	return len(seen)
-}
+func (m *Model) eventContexts() int { return m.derived().contexts }
 
 func (m *Model) handleHistoryTimelineKey(msg tea.KeyMsg) tea.Cmd {
 	switch {
@@ -295,6 +357,11 @@ func (m *Model) handleHistoryTimelineKey(msg tea.KeyMsg) tea.Cmd {
 	case key.Matches(msg, m.keys.PrevPane):
 		return m.switchTimelineSource((m.timelineSource + timelineSourceCount - 1) % timelineSourceCount)
 	case key.Matches(msg, m.keys.Reload):
+		// The Changes tab never talks to a vCenter, so r reads only from
+		// the tabs that show what it read.
+		if m.timelineSource == timelineSourceChanges {
+			return nil
+		}
 		return m.loadTimelineEvents(true)
 	case key.Matches(msg, m.keys.TimelineAll):
 		if m.timelineSource == timelineSourceChanges {
@@ -647,9 +714,7 @@ func (m *Model) styleResult(result, cell string) string {
 
 // ---- combined ----
 
-func (m *Model) timelineSpans() []assessment.EventSpan {
-	return assessment.ExplainTimeline(m.timelineFull, m.timelineEvents())
-}
+func (m *Model) timelineSpans() []assessment.EventSpan { return m.derived().spans }
 
 // combinedSide reports whether the terminal is wide enough to show each
 // stored change with the event that caused it on the same line.

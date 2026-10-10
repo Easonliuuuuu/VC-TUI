@@ -177,21 +177,25 @@ above it. `·` marks an event that left no stored change: it failed, it was
 undone before the next run, it is newer than any run, or it is a kind of event
 assessments do not record. An event explains a change only when it falls
 between the same two runs, its kind can produce that change, it did not fail,
-and the details agree. For example, a migration explains `moved` only if it
+and the details agree. An event logged while a run was collecting counts
+toward that run's changes if it explains one, and toward the next run's
+otherwise. For example, a migration explains `moved` only if it
 ended on the host the run recorded.
 
-vCenter events are read only when you open an events tab or press `r`.
-Opening a tab reads vCenters that are already connected. `r` also connects a
-configured vCenter that is not. The tab header always says `LIVE`, which
+vCenter events are read only when you open an events tab or press `r` on
+one. Opening a tab reads vCenters that are already connected. `r` also
+connects a configured vCenter that is not. The tab header always says `LIVE`, which
 vCenter the events came from, and the oldest event returned. A vCenter that
 is not connected, not configured, or refused the read is named rather than
-left out. A VM that moved between vCenters is read on each one.
+left out. A VM that moved between vCenters is read on each one, and a VM
+stored under more than one managed object ID, for example after it was
+re-registered, is read under each ID.
 
 | Keys | Action |
 |---|---|
 | `Tab` / `Shift+Tab`, `1`–`3` | Switch source |
 | `a` | Show unchanged runs (Changes) or routine power, guest and task events (events tabs) |
-| `r` | Read vCenter events again |
+| `r` | Read vCenter events again (events tabs) |
 | `Enter` | Open the change or event detail |
 
 The same event log is available on the command line as
