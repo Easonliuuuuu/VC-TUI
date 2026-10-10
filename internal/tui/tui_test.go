@@ -2370,7 +2370,7 @@ func TestDemoModeContextsScreenDisablesMutations(t *testing.T) {
 	// Footer hints must not advertise runnable mutation keybinds in demo mode.
 	for _, hint := range m.keys.footerHints(m) {
 		switch hint.Help().Key {
-		case "n", "e", "x":
+		case "e", "x":
 			t.Errorf("footer hints advertised mutation key %q in demo mode", hint.Help().Key)
 		}
 	}
@@ -2380,18 +2380,19 @@ func TestDemoModeContextsScreenDisablesMutations(t *testing.T) {
 		if sec.title == "Contexts screen (c)" {
 			for _, b := range sec.bindings {
 				switch b.Help().Key {
-				case "n", "e", "x":
+				case "e", "x":
 					t.Errorf("help section advertised mutation key %q in demo mode", b.Help().Key)
 				}
 			}
 		}
 	}
 
-	// Direct keypresses cannot enter context add/edit/delete in demo mode.
+	// New contexts are a preview; cancelling discards every field.
 	press(t, m, "n")
-	if m.mode != modeContexts || m.form != nil {
-		t.Fatalf("'n' in demo mode entered form or changed mode: mode=%v form=%v", m.mode, m.form)
+	if m.mode != modeForm || m.form == nil {
+		t.Fatalf("'n' in demo mode did not open the preview: mode=%v form=%v", m.mode, m.form)
 	}
+	press(t, m, "esc")
 
 	press(t, m, "e")
 	if m.mode != modeContexts || m.form != nil {
@@ -2404,8 +2405,8 @@ func TestDemoModeContextsScreenDisablesMutations(t *testing.T) {
 	}
 
 	// Defensive model methods also refuse mutation entry in demo mode.
-	if cmd := m.enterForm(nil); cmd != nil || m.mode != modeContexts || m.form != nil {
-		t.Errorf("enterForm(nil) should be a no-op in demo mode, got mode=%v form=%v", m.mode, m.form)
+	if cmd := m.enterForm(m.states[0]); cmd != nil || m.mode != modeContexts || m.form != nil {
+		t.Errorf("enterForm(edit) should be a no-op in demo mode, got mode=%v form=%v", m.mode, m.form)
 	}
 	if cmd := m.enterFormSeeded(contextSeed{}); cmd != nil || m.mode != modeContexts || m.form != nil {
 		t.Errorf("enterFormSeeded should be a no-op in demo mode, got mode=%v form=%v", m.mode, m.form)

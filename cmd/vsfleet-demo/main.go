@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/easonliuuuuu/vsfleet/internal/demo"
@@ -49,5 +50,8 @@ func setupDemo() (*demo.Backend, tui.Options, func(), error) {
 		return nil, tui.Options{}, nil, err
 	}
 	opts := tui.Options{Current: "prod-vc", Demo: true, Assessment: service}
+	if strings.TrimSpace(os.Getenv("VSFLEET_NO_WELCOME")) == "" && strings.TrimSpace(os.Getenv("CI")) == "" {
+		opts.Welcome = tui.Welcome{Kind: tui.WelcomeDemo}
+	}
 	return backend, opts, closeHistory, nil
 }

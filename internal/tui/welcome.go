@@ -19,6 +19,8 @@ const (
 	WelcomeFirstRun
 	// WelcomeUpdated marks the first run after an upgrade.
 	WelcomeUpdated
+	// WelcomeDemo introduces the offline sample estate without implying an upgrade.
+	WelcomeDemo
 )
 
 // Welcome is the once-per-version greeting played before the interface. The
@@ -139,6 +141,8 @@ func (w *welcomeModel) headline() []welcomeSpan {
 	th := w.inner.theme
 	bright := th.text.Bold(true)
 	switch {
+	case w.w.Kind == WelcomeDemo:
+		return []welcomeSpan{{"Explore the sample fleet.", bright}}
 	case w.w.Kind == WelcomeFirstRun:
 		return []welcomeSpan{{"Welcome aboard.", bright}}
 	case !w.released():
@@ -155,6 +159,8 @@ func (w *welcomeModel) headline() []welcomeSpan {
 
 func (w *welcomeModel) subline() string {
 	switch {
+	case w.w.Kind == WelcomeDemo:
+		return "Synthetic inventory · offline · read-only"
 	case w.w.Kind == WelcomeFirstRun:
 		return "Let's commission your first vCenter."
 	case w.released():
@@ -171,6 +177,9 @@ func (w *welcomeModel) releaseURL() string {
 // note is the welcome as a single line, for the message line of a terminal
 // too small to draw the scene in.
 func (w *welcomeModel) note() string {
+	if w.w.Kind == WelcomeDemo {
+		return "Explore the sample fleet. " + w.subline()
+	}
 	if w.w.Kind == WelcomeFirstRun {
 		return "Welcome aboard. Let's commission your first vCenter."
 	}
@@ -318,6 +327,9 @@ func (w *welcomeModel) scene(t int) string {
 	th := w.inner.theme
 	bright := th.text.Bold(true)
 	var c welcomeCanvas
+	if w.w.Kind == WelcomeDemo {
+		c.centre(0, demoBadge, &th.warn)
+	}
 
 	const logoX, logoY = 8, 1
 	for r, row := range welcomeLogo {

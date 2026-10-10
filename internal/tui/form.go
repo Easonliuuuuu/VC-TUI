@@ -482,7 +482,13 @@ func (f *contextForm) validate() string {
 // cursor setup here means ordinary and VM-seeded forms behave identically.
 func (m *Model) showForm(f *contextForm) tea.Cmd {
 	if m.demo {
-		return nil
+		if f.editing {
+			return nil
+		}
+		f.note = "Demo preview — connection tests and saving are disabled. Esc cancels."
+		m.form, m.mode = f, modeForm
+		m.form.syncFocus()
+		return textinput.Blink
 	}
 	m.form = f
 	m.mode = modeForm
@@ -495,7 +501,7 @@ func (m *Model) showForm(f *contextForm) tea.Cmd {
 
 // enterForm opens the add/edit form. edit is nil for a new context.
 func (m *Model) enterForm(edit *contextState) tea.Cmd {
-	if m.demo {
+	if m.demo && (edit != nil || len(m.states) == 0) {
 		return nil
 	}
 	return m.showForm(newContextForm(edit))
@@ -509,6 +515,9 @@ func (m *Model) enterFormSeeded(seed contextSeed) tea.Cmd {
 }
 
 func (m *Model) formTest() tea.Cmd {
+	if m.demo {
+		return nil
+	}
 	f := m.form
 	if f == nil || f.testing {
 		return nil
@@ -522,6 +531,9 @@ func (m *Model) formTest() tea.Cmd {
 }
 
 func (m *Model) formSave() tea.Cmd {
+	if m.demo {
+		return nil
+	}
 	f := m.form
 	if f == nil || f.saving {
 		return nil
@@ -537,6 +549,9 @@ func (m *Model) formSave() tea.Cmd {
 }
 
 func (m *Model) formDiscover() tea.Cmd {
+	if m.demo {
+		return nil
+	}
 	f := m.form
 	if f == nil || f.discovering {
 		return nil

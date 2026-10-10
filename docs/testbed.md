@@ -57,6 +57,20 @@ Review the change before regenerating goldens:
 scripts/testbed test --update-goldens
 ```
 
+## README recording
+
+The README tour uses the same offline fixtures through `vsfleet demo`.
+With VHS, ttyd, and FFmpeg installed, regenerate its GIF and reduced-motion
+poster from the repository root:
+
+```sh
+vhs docs/readme-demo.tape
+```
+
+The recording includes a connection-form preview that is cancelled without
+testing or saving, VM details and timeline, networks, vApps, and estate search.
+It leaves out the History workspace.
+
 ## Real-terminal PTY validation
 
 On Linux, run the connected testbed process in a pseudo-terminal:
