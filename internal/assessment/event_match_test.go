@@ -140,3 +140,209 @@ func TestExplainTimelinePlacesEventsLoggedWhileARunCollected(t *testing.T) {
 		t.Fatalf("the snapshot logged during run 2 must carry to run 3's change: %+v", spans[1])
 	}
 }
+
+// probeAt is a time in the second-resolution lab session the clock-skew tests
+// replay: seconds after 13:34:00 UTC.
+func probeAt(sec float64) time.Time {
+	return time.Date(2026, 10, 10, 13, 34, 0, 0, time.UTC).Add(time.Duration(sec * float64(time.Second)))
+}
+
+// probeScenario is the ground-truth session behind the clock-skew bug: a
+// throwaway VM changed in steps, one assessment after each, every step
+// strictly after the previous run finished by the local clock. The vCenter's
+// clock was about 0.8 s behind, so every event carries a time ~0.8 s earlier
+// than the run that follows it, and the rename and the snapshot removal even
+// read as logged before the run that preceded them started. offset, when
+// non-nil, is stored with every run as the clock offset it measured.
+func probeScenario(offset *time.Duration) (history []VMHistoryEvent, events []vsphere.VMEvent) {
+	run := func(id int64, start, end float64) Run {
+		r := Run{ID: id, StartedAt: probeAt(start), FinishedAt: probeAt(end)}
+		if offset != nil {
+			r.ClockOffsetsMS = map[string]int64{"lab": offset.Milliseconds()}
+		}
+		return r
+	}
+	r11, r12, r13, r14, r15 := run(11, 41.0, 41.4), run(12, 43.458, 44.038), run(13, 44.8, 45.3), run(14, 45.654, 46.23), run(15, 46.7, 47.2)
+	history = []VMHistoryEvent{
+		{Kind: "observed", Run: r11},
+		{Kind: "modified", Run: r12, Changes: []FieldChange{{Field: "cpu", Before: "1", After: "2"}, {Field: "memory", Before: "128", After: "256"}}},
+		{Kind: "snapshot-created", Run: r12},
+		{Kind: "renamed", Run: r13, Changes: []FieldChange{{Field: "name", Before: "tl-probe", After: "tl-probe-renamed"}}},
+		{Kind: "observed", Run: r14},
+		{Kind: "snapshot-removed", Run: r15},
+	}
+	vc := func(key int32, sec float64, e vsphere.VMEvent) vsphere.VMEvent {
+		e.Context, e.Key, e.Time, e.Result = "lab", key, probeAt(sec), vsphere.ResultOK
+		return e
+	}
+	events = []vsphere.VMEvent{
+		vc(1, 41.9, vsphere.VMEvent{Label: "reconfigure", Explains: vsphere.EventModified, Fields: []string{"cpu", "memory"}, Detail: "cpu 2 · memory 256 MB"}),
+		vc(2, 42.0, vsphere.VMEvent{Label: "snapshot create", Explains: vsphere.EventSnapshotCreated}),
+		vc(3, 43.326, vsphere.VMEvent{Label: "rename", Explains: vsphere.EventRenamed, NewName: "tl-probe-renamed"}),
+		vc(4, 43.329, vsphere.VMEvent{Label: "reconfigure", Explains: vsphere.EventModified, Fields: []string{"name"}, Detail: "name tl-probe-renamed"}),
+		vc(5, 43.634, vsphere.VMEvent{Label: "reconfigure", Explains: vsphere.EventModified, Fields: []string{"memory"}, Detail: "memory 512 MB"}),
+		vc(6, 43.802, vsphere.VMEvent{Label: "reconfigure", Explains: vsphere.EventModified, Fields: []string{"memory"}, Detail: "memory 256 MB"}),
+		vc(7, 45.615, vsphere.VMEvent{Label: "snapshot remove", Explains: vsphere.EventSnapshotRemoved}),
+	}
+	return history, events
+}
+
+func eventKeys(events []vsphere.VMEvent) []int32 {
+	keys := make([]int32, len(events))
+	for i, e := range events {
+		keys[i] = e.Key
+	}
+	return keys
+}
+
+func sameKeys(got []vsphere.VMEvent, want ...int32) bool {
+	keys := eventKeys(got)
+	if len(keys) != len(want) {
+		return false
+	}
+	for i := range keys {
+		if keys[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func spanTo(t *testing.T, spans []EventSpan, run int64) EventSpan {
+	t.Helper()
+	for _, s := range spans {
+		if s.To != nil && s.To.ID == run {
+			return s
+		}
+	}
+	t.Fatalf("no span ends at run #%d: %+v", run, spans)
+	return EventSpan{}
+}
+
+// checkProbeAttribution holds the ground truth of the probe session: each
+// event in the gap of the change it caused, and the undone memory edits left
+// as unexplained events in the gap after the run that did not see them.
+func checkProbeAttribution(t *testing.T, spans []EventSpan) {
+	t.Helper()
+	s1 := spanTo(t, spans, 12)
+	if len(s1.Changes) != 2 || !sameKeys(s1.Changes[0].Events, 1) || !sameKeys(s1.Changes[1].Events, 2) {
+		t.Fatalf("#11→#12: the setup reconfigure and snapshot must explain their changes, and the memory edits made after #12 must not: %+v", s1)
+	}
+	if len(s1.Unexplained) != 0 {
+		t.Fatalf("#11→#12 unexplained = %+v, want none", s1.Unexplained)
+	}
+	rename := spanTo(t, spans, 13)
+	if len(rename.Changes) != 1 || !sameKeys(rename.Changes[0].Events, 3, 4) {
+		t.Fatalf("#12→#13: renamed must be explained by the rename and its name reconfigure: %+v", rename)
+	}
+	if !sameKeys(rename.Unexplained, 5, 6) {
+		t.Fatalf("#12→#13 unexplained = %+v, want the 512 MB and 256 MB edits that were undone", rename.Unexplained)
+	}
+	removal := spanTo(t, spans, 15)
+	if len(removal.Changes) != 1 || !sameKeys(removal.Changes[0].Events, 7) {
+		t.Fatalf("#14→#15: snapshot-removed must be explained by the snapshot removal: %+v", removal)
+	}
+	for _, s := range spans {
+		if s.To != nil && s.To.ID == 14 {
+			t.Fatalf("#13→#14 has neither changes nor events and must be left out: %+v", s)
+		}
+	}
+}
+
+// TestExplainTimelineShiftsEventsByTheOffsetTheRunsMeasured is the issue's
+// table with the offsets stored: events are moved onto the local clock before
+// they are placed, so no tolerance is needed.
+func TestExplainTimelineShiftsEventsByTheOffsetTheRunsMeasured(t *testing.T) {
+	offset := -779 * time.Millisecond
+	history, events := probeScenario(&offset)
+	checkProbeAttribution(t, ExplainTimeline(history, events))
+}
+
+// TestExplainTimelineToleratesSkewForRunsWithoutAnOffset is the same session
+// as stored before offsets were recorded: the events sit up to 0.7 s on the
+// wrong side of run edges, and attribution has to come from the tolerance.
+func TestExplainTimelineToleratesSkewForRunsWithoutAnOffset(t *testing.T) {
+	history, events := probeScenario(nil)
+	checkProbeAttribution(t, ExplainTimeline(history, events))
+}
+
+func TestExplainTimelineToleranceReachesBothWaysAcrossARunEdge(t *testing.T) {
+	r1 := Run{ID: 1, StartedAt: probeAt(0), FinishedAt: probeAt(1)}
+	r2 := Run{ID: 2, StartedAt: probeAt(100), FinishedAt: probeAt(101)}
+	r3 := Run{ID: 3, StartedAt: probeAt(200), FinishedAt: probeAt(201)}
+	event := func(key int32, sec float64, kind string) vsphere.VMEvent {
+		return vsphere.VMEvent{Key: key, Time: probeAt(sec), Explains: kind, Result: vsphere.ResultOK}
+	}
+	snapshot := func(r Run) []VMHistoryEvent {
+		return []VMHistoryEvent{{Kind: "observed", Run: r1}, {Kind: "snapshot-created", Run: r}, {Kind: "observed", Run: r3}}
+	}
+
+	// A vCenter ahead of the machine: the snapshot taken before run 2 was
+	// logged 1.4 s after run 2 finished. Run 2 saw it, so run 2 owns it.
+	spans := ExplainTimeline(snapshot(r2), []vsphere.VMEvent{event(1, 102.4, vsphere.EventSnapshotCreated)})
+	if got := spanTo(t, spans, 2); !sameKeys(got.Changes[0].Events, 1) {
+		t.Fatalf("an event just after a run, for a change that run recorded: %+v", spans)
+	}
+
+	// A vCenter behind the machine: the snapshot taken after run 1 was
+	// logged 1.4 s before run 1 started.
+	spans = ExplainTimeline([]VMHistoryEvent{{Kind: "observed", Run: r1}, {Kind: "snapshot-created", Run: r2}}, []vsphere.VMEvent{event(1, -1.4, vsphere.EventSnapshotCreated)})
+	if len(spans) == 0 || !sameKeys(spanTo(t, spans, 2).Changes[0].Events, 1) {
+		t.Fatalf("an event just before the earlier run, for the change after it: %+v", spans)
+	}
+
+	// Outside the tolerance the event stays where the clock put it, and the
+	// change stays unexplained.
+	spans = ExplainTimeline([]VMHistoryEvent{{Kind: "observed", Run: r1}, {Kind: "snapshot-created", Run: r2}}, []vsphere.VMEvent{event(1, -(boundaryTolerance.Seconds() + 1), vsphere.EventSnapshotCreated)})
+	if got := spanTo(t, spans, 2); len(got.Changes[0].Events) != 0 {
+		t.Fatalf("an event %v before the run edge explained a change: %+v", boundaryTolerance+time.Second, got)
+	}
+	if spans[0].To == nil || spans[0].To.ID != 1 || len(spans[0].Unexplained) != 1 {
+		t.Fatalf("the distant event must stay unexplained in its own gap: %+v", spans)
+	}
+}
+
+// With a measured offset there is nothing left to forgive: an event 2 s before
+// a run is before it, and does not explain the change after.
+func TestExplainTimelineAppliesNoToleranceWhereTheOffsetWasMeasured(t *testing.T) {
+	offset := time.Duration(0)
+	measured := func(id int64, start float64) Run {
+		return Run{ID: id, StartedAt: probeAt(start), FinishedAt: probeAt(start + 1), ClockOffsetsMS: map[string]int64{"lab": offset.Milliseconds()}}
+	}
+	r1, r2 := measured(1, 100), measured(2, 200)
+	history := []VMHistoryEvent{{Kind: "observed", Run: r1}, {Kind: "snapshot-created", Run: r2}}
+	spans := ExplainTimeline(history, []vsphere.VMEvent{{Context: "lab", Key: 1, Time: probeAt(98), Explains: vsphere.EventSnapshotCreated, Result: vsphere.ResultOK}})
+	if got := spanTo(t, spans, 2); len(got.Changes[0].Events) != 0 {
+		t.Fatalf("a measured clock still tolerated skew: %+v", got)
+	}
+}
+
+// A reconfigure that set memory to something else did not cause the recorded
+// value, and of two that did, the first is the cause.
+func TestExplainTimelineChecksReconfiguredValuesAgainstTheRecordedOnes(t *testing.T) {
+	r1 := Run{ID: 1, StartedAt: probeAt(0)}
+	r2 := Run{ID: 2, StartedAt: probeAt(100)}
+	history := []VMHistoryEvent{
+		{Kind: "observed", Run: r1},
+		{Kind: "modified", Run: r2, Changes: []FieldChange{{Field: "memory", Before: "128", After: "256"}, {Field: "annotation", After: "x"}}},
+	}
+	reconfigure := func(key int32, sec float64, detail string, fields ...string) vsphere.VMEvent {
+		return vsphere.VMEvent{Key: key, Time: probeAt(sec), Explains: vsphere.EventModified, Result: vsphere.ResultOK, Fields: fields, Detail: detail}
+	}
+	events := []vsphere.VMEvent{
+		reconfigure(1, 10, "memory 512 MB", "memory"),
+		reconfigure(2, 20, "memory 256 MB", "memory"),
+		reconfigure(3, 30, "memory 256 MB", "memory"),
+		reconfigure(4, 40, "annotation", "annotation"),
+		reconfigure(5, 50, "annotation", "annotation"),
+		reconfigure(6, 60, "cpu 8", "cpu"),
+	}
+	spans := ExplainTimeline(history, events)
+	got := spanTo(t, spans, 2)
+	if !sameKeys(got.Changes[0].Events, 2, 4, 5) {
+		t.Fatalf("modified explained by %v, want the first 256 MB edit and both annotation edits", eventKeys(got.Changes[0].Events))
+	}
+	if !sameKeys(got.Unexplained, 1, 3, 6) {
+		t.Fatalf("unexplained %v, want the 512 MB edit, the repeated 256 MB edit and the unrelated cpu edit", eventKeys(got.Unexplained))
+	}
+}

@@ -233,6 +233,13 @@ func (c *Collector) captureContext(parent context.Context, cc *config.Context, b
 	}
 	r.VCenterID = client.About.InstanceID
 	r.Source = SourceInfoFromAbout(client.About)
+	// Event times come from the vCenter's clock and run times from this one.
+	// Without the offset a change made near a run boundary lands in the wrong
+	// run gap, so it is stored with the run. A vCenter that will not say its
+	// time leaves the run without one; that is not a capture failure.
+	if offset, err := client.ClockOffset(opCtx); err == nil {
+		r.ClockOffset = &offset
+	}
 	// Real vCenters expose About.InstanceUuid. Keep the ledger comparable for
 	// compatible endpoints (and deterministic test backends) that omit it by
 	// falling back to the configured endpoint rather than an empty identity.

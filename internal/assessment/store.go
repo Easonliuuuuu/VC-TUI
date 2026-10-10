@@ -160,7 +160,7 @@ func openDB(path string) (*sql.DB, error) {
 }
 
 // currentSchemaVersion is the ledger schema this build writes.
-const currentSchemaVersion = 7
+const currentSchemaVersion = 8
 
 func (s *Store) migrate(ctx context.Context) error {
 	var version int
@@ -181,7 +181,42 @@ func (s *Store) migrate(ctx context.Context) error {
 			return err
 		}
 	}
-	return s.migrateV7(ctx)
+	if version < 7 {
+		if err := s.migrateV7(ctx); err != nil {
+			return err
+		}
+	}
+	return s.migrateV8(ctx)
+}
+
+// migrateV8 adds the vCenter clock offset measured when a context was
+// captured. It is additive and nullable: runs written before it, and contexts
+// whose clock could not be read, have no value, which readers treat as not
+// measured rather than as zero. Like the other steps it is safe to repeat on a
+// database whose version was reset.
+func (s *Store) migrateV8(ctx context.Context) error {
+	var present int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('context_runs') WHERE name='clock_offset_ms'`).Scan(&present); err != nil {
+		return fmt.Errorf("inspect history database for v8: %w", err)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin history v8 migration: %w", err)
+	}
+	stmts := []string{`PRAGMA user_version = 8`}
+	if present == 0 {
+		stmts = append([]string{`ALTER TABLE context_runs ADD COLUMN clock_offset_ms INTEGER`}, stmts...)
+	}
+	for _, stmt := range stmts {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migrate history database to v8: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit history v8 migration: %w", err)
+	}
+	return nil
 }
 
 // migrateV7 adds per-context source identity (the ServiceInstance About
@@ -862,7 +897,11 @@ func (s *Store) saveContext(ctx context.Context, runID int64, result ContextResu
 	if status == "" {
 		status = "success"
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE context_runs SET vcenter_id=?,finished_at=?,vm_status=?,error=? WHERE run_id=? AND name=?`, result.VCenterID, now.UnixMilli(), status, result.Error, runID, result.Name)
+	var clockOffset sql.NullInt64
+	if result.ClockOffset != nil {
+		clockOffset = sql.NullInt64{Int64: result.ClockOffset.Milliseconds(), Valid: true}
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE context_runs SET vcenter_id=?,finished_at=?,vm_status=?,error=?,clock_offset_ms=? WHERE run_id=? AND name=?`, result.VCenterID, now.UnixMilli(), status, result.Error, clockOffset, runID, result.Name)
 	if err != nil {
 		_ = tx.Rollback()
 		return err
@@ -994,7 +1033,10 @@ type ContextResult struct {
 	Error     string
 	// Source is the ServiceInstance About record observed on connect. Leave
 	// it nil when the context never connected.
-	Source      *SourceInfo
+	Source *SourceInfo
+	// ClockOffset is how far the vCenter's clock was ahead of the local one
+	// when the context was captured. Leave it nil when it could not be read.
+	ClockOffset *time.Duration
 	VMs         []Observation
 	Collections []CollectionResult
 }
@@ -1089,6 +1131,11 @@ func (s *Store) GetRun(ctx context.Context, id int64) (Run, error) {
 	}
 	r.StartedAt, r.FinishedAt = fromMillis(start), fromMillis(finish)
 	r.Pinned = pinned != 0
+	offsets, err := s.clockOffsets(ctx, id)
+	if err != nil {
+		return Run{}, err
+	}
+	r.ClockOffsetsMS = offsets[id]
 	return r, nil
 }
 
@@ -1109,6 +1156,40 @@ func (s *Store) Runs(ctx context.Context) ([]Run, error) {
 		r.StartedAt, r.FinishedAt = fromMillis(start), fromMillis(finish)
 		r.Pinned = pinned != 0
 		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	offsets, err := s.clockOffsets(ctx, 0)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].ClockOffsetsMS = offsets[out[i].ID]
+	}
+	return out, nil
+}
+
+// clockOffsets reads the vCenter clock offsets captured with runs, by run and
+// context name: every run's when runID is zero, else that run's.
+func (s *Store) clockOffsets(ctx context.Context, runID int64) (map[int64]map[string]int64, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT run_id,name,clock_offset_ms FROM context_runs WHERE clock_offset_ms IS NOT NULL AND (?=0 OR run_id=?)`, runID, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[int64]map[string]int64)
+	for rows.Next() {
+		var id, ms int64
+		var name string
+		if err := rows.Scan(&id, &name, &ms); err != nil {
+			return nil, err
+		}
+		if out[id] == nil {
+			out[id] = make(map[string]int64)
+		}
+		out[id][name] = ms
 	}
 	return out, rows.Err()
 }
