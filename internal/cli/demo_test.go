@@ -11,8 +11,22 @@ import (
 	"github.com/zalando/go-keyring"
 
 	"github.com/easonliuuuuu/vsfleet/internal/config"
+	"github.com/easonliuuuuu/vsfleet/internal/tui"
 	"github.com/easonliuuuuu/vsfleet/internal/uistate"
 )
+
+func TestDemoWelcomeHonorsOptOutWithoutRememberedState(t *testing.T) {
+	for _, env := range []map[string]string{nil, {EnvNoWelcome: "1"}, {"CI": "true"}} {
+		got := demoWelcome(func(key string) string { return env[key] })
+		want := tui.WelcomeDemo
+		if len(env) != 0 {
+			want = tui.WelcomeNone
+		}
+		if got.Kind != want {
+			t.Errorf("env %v: welcome=%v, want %v", env, got.Kind, want)
+		}
+	}
+}
 
 // runDemoCommand executes "vsfleet demo" with buffers standing in for the
 // terminal. Run refuses to start Bubble Tea without a TTY, so every one of

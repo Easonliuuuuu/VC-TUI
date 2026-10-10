@@ -3,7 +3,31 @@ package main
 import (
 	"context"
 	"testing"
+
+	"github.com/easonliuuuuu/vsfleet/internal/tui"
 )
+
+func TestSetupDemoWelcomeHonorsOptOut(t *testing.T) {
+	for _, disabledBy := range []string{"", "CI", "VSFLEET_NO_WELCOME"} {
+		t.Run(disabledBy, func(t *testing.T) {
+			t.Setenv("CI", "")
+			t.Setenv("VSFLEET_NO_WELCOME", "")
+			want := tui.WelcomeDemo
+			if disabledBy != "" {
+				t.Setenv(disabledBy, "1")
+				want = tui.WelcomeNone
+			}
+			_, opts, cleanup, err := setupDemo()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer cleanup()
+			if opts.Welcome.Kind != want {
+				t.Errorf("welcome=%v, want %v", opts.Welcome.Kind, want)
+			}
+		})
+	}
+}
 
 // setupDemo must wire the same seeded in-memory assessment service as
 // "vsfleet demo" so History works in the standalone presentation binary.

@@ -96,6 +96,7 @@ func TestWelcomeLastFrameShowsTheFleet(t *testing.T) {
 		{"update from before the welcome", Welcome{Kind: WelcomeUpdated, Version: "0.10.0"}, []string{"Updated to v0.10.0"}},
 		{"development build", Welcome{Kind: WelcomeUpdated, Version: "dev", Previous: "0.9.0"}, []string{"Running a development build"}},
 		{"first run", Welcome{Kind: WelcomeFirstRun, Version: "0.10.0"}, []string{"Welcome aboard.", "Let's commission your first vCenter.", "your first vCenter"}},
+		{"demo", Welcome{Kind: WelcomeDemo}, []string{"Explore the sample fleet.", demoBadge, "offline", "read-only", "prod", "dr"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -128,6 +129,15 @@ func TestWelcomeSceneIsDeterministicAndFitsItsGrid(t *testing.T) {
 			if n := ansi.StringWidth(l); n != welcomeCols {
 				t.Fatalf("frame %d line %d is %d cells wide, want %d", f, i, n, welcomeCols)
 			}
+		}
+	}
+}
+
+func TestDemoWelcomeLabelsEveryAnimationFrame(t *testing.T) {
+	w := newWelcomeFixture(t, Welcome{Kind: WelcomeDemo})
+	for frame := 0; frame < welcomeFrames; frame++ {
+		if !strings.Contains(ansi.Strip(w.scene(frame)), demoBadge) {
+			t.Fatalf("demo animation frame %d is not labelled synthetic", frame)
 		}
 	}
 }
