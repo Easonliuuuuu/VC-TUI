@@ -19,7 +19,7 @@ collection status, item count, and error.
 ## Source provenance (`vSource`)
 
 `vSource` has one row per context with a captured vCenter/ESXi
-`ServiceInstance` About record. Its RVTools 4.8.2 columns are:
+`ServiceInstance` About record. Its RVTools columns are:
 
 `Name`, `OS type`, `API type`, `API version`, `Version`, `Patch level`,
 `Build`, `Fullname`, `Product name`, `Product version`, `Product line`,
@@ -33,8 +33,8 @@ RVTools uses the host alone.
 (connection error), or `not recorded` (pre-schema-17 capture/imported
 workbook). Unconnected contexts have no row; versions are never inferred.
 
-Comparing these names, types and values against a real RVTools 4.8.2 `vSource`
-export from the same lab is still outstanding.
+A [same-vCenter comparison](#rvtools-file-interoperability) matched every
+RVTools column name, column order and value except `VI SDK Server`.
 
 Runs captured before VMware Tools version collection still populate the running
 status column in `vTools`; version columns remain blank and the gap is recorded
@@ -102,7 +102,7 @@ RVTools follows browse order. Compare by keys, not row position.
 
 ### Columns and compatibility
 
-The first eight columns follow RVTools 4.8 `-GetFileInfo`:
+The first eight columns follow RVTools `-GetFileInfo`:
 
 | Column | Value |
 | --- | --- |
@@ -123,7 +123,7 @@ vsfleet appends `Datastore`, `Datastore ID`, `Datacenter`, and
 
 Verified conventions:
 
-- Compared on 2026-09-29 against an RVTools 4.8 `-GetFileInfo` export of a
+- Compared on 2026-09-29 against an RVTools `-GetFileInfo` export of a
   vCenter 8.0.3 lab with three datastores (VMFS and NFS): the same 97 files, with
   identical `Friendly Path Name`, `File Name`, `File Type`, `Path`,
   `Internal Sort Column` and cell types. Sizes differed only for disks of a
@@ -135,6 +135,9 @@ Verified conventions:
 - Files at the datastore root use the folder `[datastore]` with no trailing
   space, so their `Internal Sort Column` is `[datastore]name`, as RVTools writes
   it.
+- The later [same-vCenter comparison](#rvtools-file-interoperability) listed
+  the same files, including those at the datastore root, with matching names,
+  types and paths; only `VI SDK Server` differed.
 - Not yet compared: vSAN, vVols and datastores with very large file counts.
 
 ### Size and privacy
@@ -186,11 +189,27 @@ vsfleet compatibility report --sheet vPartition
 vsfleet compatibility report -o json | jq
 ```
 
-A same-vCenter comparison about a minute apart found these differences from
-RVTools 4.8.1.4 ([comparison](https://github.com/Easonliuuuuu/vsfleet/issues/207)).
-Other versions and collector settings may differ:
+Same-vCenter comparisons used RVTools 4.8.1.4
+([#207](https://github.com/Easonliuuuuu/vsfleet/issues/207), captures about a
+minute apart) and RVTools 4.8.2.1
+([#221](https://github.com/Easonliuuuuu/vsfleet/issues/221), captures 15 seconds
+apart on 2026-10-10). The later audit used vsfleet `a844cc9` and a read-only
+account on a nested vCenter/ESXi 8.0.3 lab. Both RVTools versions had the same
+sheet names and order, headers and order, and cell types. The later comparison
+found no regressions against the earlier findings.
 
-| Sheet / column | vsfleet value | RVTools 4.8.1.4 value |
+`vSource` matched every RVTools column name, column order and value except
+`VI SDK Server`. `vFileInfo` listed the same files, including those at the
+datastore root, with matching names, types and paths; only `VI SDK Server`
+differed. pandas `read_excel` and openpyxl `read_only` read both workbooks
+cleanly. Tags, custom attributes and license values were not validated: the
+lab had no tags or custom attributes, and the account lacked `Global.Licenses`.
+These comparisons cover the lab's shared columns, not every RVTools field or
+downstream workflow. Other versions, estates and collector settings may differ.
+
+Observed value differences:
+
+| Sheet / column | vsfleet value | RVTools value |
 | --- | --- | --- |
 | VM sheets, `Folder` | Path relative to the datacenter's `vm` folder: `/` or `/Discovered virtual machine` | Includes the datacenter: `/DC-Lab` or `/DC-Lab/Discovered virtual machine` |
 | RVTools-named sheets, `VI SDK Server` | Configured endpoint URL, for example `https://192.168.150.10` | Host without URL scheme, for example `192.168.150.10` |
@@ -198,6 +217,7 @@ Other versions and collector settings may differ:
 | `vHost`, `# VMs total` | Counts host VM references, including templates | Excludes templates; the comparison found 4 versus vsfleet's 5 |
 | `vTools`, `Tools` | VMware Tools running status (`GuestInfo.toolsRunningStatus`), for example `guestToolsNotRunning` | Tools installation status, for example `toolsNotInstalled` |
 | `vHBA`, `Type` | vSphere adapter type, for example `HostBlockHba` | Human-readable label, for example `Block SCSI` |
+| `dvPort`, `VLAN` on a switch's uplink port group | Reported trunk range, for example `trunk 0-4094` | Empty |
 | `vSnapshot`, `Date / time` | UTC; XLSX displays a date without a zone and CSV uses RFC3339 with `Z` | Collector-local time without a zone |
 | `vInfo` `In Use MiB`; `vPartition` capacity, consumed, free MiB and `Free %`; `vDatastore` capacity, in-use, free MiB and `Free %`; `vHost` CPU and memory usage `%` | Decimal values are retained (vPartition `Free %` is rounded to two decimals) | Integer values |
 

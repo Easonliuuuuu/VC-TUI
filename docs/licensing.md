@@ -73,7 +73,7 @@ version before relying on it.
 
 ## The export
 
-`vLicense` follows RVTools 4.8 header order, after `vMultiPath`:
+`vLicense` follows RVTools header order, after `vMultiPath`:
 
 `Name` · `Key` · `Labels` · `Cost Unit` · `Total` · `Used` · `Expiration Date` · `Features` · `VI SDK Server` · `VI SDK UUID` · `vsfleet Context`
 

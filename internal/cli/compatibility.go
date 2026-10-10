@@ -42,7 +42,7 @@ Report every worksheet the rvtools export profile writes, with each column's
 type, unit, and when it is left empty.
 
 It describes what vsfleet emits and what those values mean, including observed
-differences from RVTools 4.8.1.4 in shared columns. It does not describe the
+differences from RVTools in shared columns. It does not describe the
 complete RVTools schema. Reads no configuration, opens no keyring, and contacts
 no vCenter.`),
 		Args: cobra.NoArgs,
