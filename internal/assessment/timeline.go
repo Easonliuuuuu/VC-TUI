@@ -128,7 +128,7 @@ func (s *Store) TimelineForContexts(ctx context.Context, query string, selectors
 			fields = removeField(fields, "name")
 		}
 		if moved(before.Observation.VM, after.Observation.VM, before.Observation.VCenterID, after.Observation.VCenterID) {
-			events = append(events, VMHistoryEvent{Kind: "moved", Run: after.Run, Context: after.Observation.Context, Name: after.Observation.VM.Name, Observation: &after.Observation})
+			events = append(events, VMHistoryEvent{Kind: "moved", Run: after.Run, Context: after.Observation.Context, Name: after.Observation.VM.Name, Changes: placementChanges(before.Observation, after.Observation), Observation: &after.Observation})
 		}
 		if len(fields) > 0 {
 			events = append(events, VMHistoryEvent{Kind: "modified", Run: after.Run, Context: after.Observation.Context, Name: after.Observation.VM.Name, Changes: fields, Observation: &after.Observation})
@@ -161,6 +161,28 @@ func (s *Store) TimelineForContexts(ctx context.Context, query string, selectors
 	}
 	sort.SliceStable(events, func(i, j int) bool { return events[i].Run.StartedAt.Before(events[j].Run.StartedAt) })
 	return events, nil
+}
+
+// placementChanges says what a "moved" event moved: the vCenter, host,
+// cluster, folder or datastores, each as its own field, so a move reads as
+// "host esxi-01 → esxi-02" rather than as a bare kind.
+func placementChanges(before, after Observation) []FieldChange {
+	var out []FieldChange
+	add := func(name, b, a string) {
+		if b != a {
+			out = append(out, FieldChange{Field: name, Before: b, After: a})
+		}
+	}
+	if before.VCenterID != after.VCenterID {
+		add("vcenter", nonempty(before.Context, before.VCenterID), nonempty(after.Context, after.VCenterID))
+	}
+	add("host", before.VM.Host, after.VM.Host)
+	add("cluster", before.VM.Cluster, after.VM.Cluster)
+	add("folder", before.VM.Folder, after.VM.Folder)
+	if !equalStrings(before.VM.Datastores, after.VM.Datastores) {
+		add("datastores", strings.Join(sortedCopy(before.VM.Datastores), ","), strings.Join(sortedCopy(after.VM.Datastores), ","))
+	}
+	return out
 }
 
 func removeField(in []FieldChange, name string) []FieldChange {

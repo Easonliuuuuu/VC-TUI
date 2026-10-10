@@ -1,0 +1,40 @@
+vsfleet  DEMO · SAMPLE DATA  history  ·  Timeline  ·  wiki-05
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   1 Changes   2 vCenter events  [3 Combined]
+  stored changes by run gap   ← caused it   · left no stored change
+
+  STORED CHANGE                                       VCENTER EVENT
+  #1  Sun 10 May
+▸   first_seen        4 vCPU · 16G · esxi-b-07        · no events · before the oldest event vCenter returned
+
+  #1 → #2  Sun 10 May → Sun 14 Jun
+    modified          cpu:4→8 memory:16384→32768 mig… · no events · before the oldest event vCenter returned
+
+  #4 → #5  Sun 09 Aug → Sun 06 Sep
+    snapshot-created  snapshot:—→2026-08-13T13:59:09Z ← 08-13 13:59  snapshot create  backup@corp.example  ·  
+                                                      · 08-10 19:21  migrate          ops@corp.example     ✓  esxi-b-07 → esxi-b-05
+                                                      · 08-10 20:52  drs migrate      DRS                  ✓  esxi-b-05 → esxi-b-07
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+↑/k up  ↓/j down  enter open  tab source  a all events  r reload  esc back  ? help  q quit

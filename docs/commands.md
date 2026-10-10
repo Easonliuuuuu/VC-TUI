@@ -43,6 +43,7 @@ history, and output.
 | `vsfleet datastore files list <datastore> [path]` | List one datastore directory |
 | `vsfleet datastore files find <datastore> <pattern>` | Recursively search a datastore for a name or pattern |
 | `vsfleet vm history <name-or-uuid>` | Show a VM's stored assessment timeline |
+| `vsfleet vm events <name-or-uuid> [--all]` | Show a VM's live vCenter event log: migrations, reconfigurations, snapshots and failures, with who and when |
 | `vsfleet vm decommission-check <name-or-uuid> [run]` | Review stored evidence before decommissioning a VM |
 | `vsfleet assessment ...` | Capture and compare historical observations |
 | `vsfleet assessment export --profile <name> [--pseudonymize --pseudonymize-key-file <file>] [--preview]` | Export a scoped `sizing-summary` or `full-inventory` workbook, optionally pseudonymized; see [scoped sharing profiles](sharing.md) |

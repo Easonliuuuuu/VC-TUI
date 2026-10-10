@@ -94,6 +94,7 @@ var readOnlyMethods = map[string]string{
 	"SearchDatastore_Task":           "read: the same bargain for one directory rather than a whole tree — the interactive datastore file browser; returns file metadata and cannot modify inventory",
 	"QueryAssignedLicenses":          "read: lists which entities hold which licenses for opt-in license collection (assessment run --include-licenses); returns license metadata and cannot assign, remove or alter a license. The license list itself is the LicenseManager.licenses property, read through the property collector",
 	"QueryPerf":                      "read: returns performance statistics for the entities it is given; changes nothing on the server. Counters and intervals come from the property collector, not a second operation",
+	"QueryEvents":                    "read: returns the event log entries matching a filter (vm events, the TUI timeline's vCenter events); unlike CreateCollectorForEvents it leaves no collector behind, and it changes nothing on the server",
 }
 
 // soapRecorder collects the operation name of every SOAP request that
@@ -229,6 +230,7 @@ func TestEveryCommandIsReadOnly(t *testing.T) {
 		{"network", "list"},
 		{"vm", "list", "--all-contexts"},
 		{"vm", "show", "DC0_C0_APP0_VM0"},
+		{"vm", "events", "DC0_C0_APP0_VM0", "--all"},
 		{"host", "show", "DC0_C0_H0"},
 		{"cluster", "show", "DC0_C0"},
 		{"vapp", "show", "DC0_C0_APP0"},
@@ -327,6 +329,7 @@ func TestOnlyPerfAndBrowserShimsDefineFault(t *testing.T) {
 		filepath.Join("internal", "vsphere", "datastore_browse.go"),
 		filepath.Join("internal", "vsphere", "perf_query.go"),
 		filepath.Join("internal", "vsphere", "license_query.go"),
+		filepath.Join("internal", "vsphere", "event_query.go"),
 	}
 	for _, path := range faultMethods {
 		reviewed := false
@@ -351,6 +354,21 @@ func TestOnlyPerfAndBrowserShimsDefineFault(t *testing.T) {
 	}
 	if len(requests) != 1 || !requests["QueryAssignedLicenses"] {
 		t.Fatalf("license SOAP shim names requests %v, want only QueryAssignedLicenses", requests)
+	}
+
+	// The event shim may name exactly one request type: the read-only
+	// QueryEvents. CreateCollectorForEvents would leave a collector on the
+	// server, and PostEvent writes to the event log; neither may be reachable.
+	eventSrc, err := os.ReadFile(filepath.Join(root, "internal", "vsphere", "event_query.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	eventRequests := map[string]bool{}
+	for _, m := range regexp.MustCompile(`Req\s+\*types\.([A-Za-z]+)`).FindAllStringSubmatch(string(eventSrc), -1) {
+		eventRequests[m[1]] = true
+	}
+	if len(eventRequests) != 1 || !eventRequests["QueryEvents"] {
+		t.Fatalf("event SOAP shim names requests %v, want only QueryEvents", eventRequests)
 	}
 
 	path := filepath.Join(root, "internal", "vsphere", "datastore_browse.go")

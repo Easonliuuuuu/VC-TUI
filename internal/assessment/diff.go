@@ -195,6 +195,12 @@ func nonempty(a, b string) string {
 	return b
 }
 
+func sortedCopy(in []string) []string {
+	out := append([]string(nil), in...)
+	sort.Strings(out)
+	return out
+}
+
 func countChanges(vms []VMChange, snaps []SnapshotChange) DiffCounts {
 	var c DiffCounts
 	for _, v := range vms {
@@ -319,10 +325,7 @@ func moved(a, b vsphere.VM, avc, bvc string) bool {
 }
 
 func equalStrings(a, b []string) bool {
-	aa := append([]string(nil), a...)
-	bb := append([]string(nil), b...)
-	sort.Strings(aa)
-	sort.Strings(bb)
+	aa, bb := sortedCopy(a), sortedCopy(b)
 	if len(aa) != len(bb) {
 		return false
 	}

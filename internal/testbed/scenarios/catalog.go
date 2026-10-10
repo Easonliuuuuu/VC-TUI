@@ -52,6 +52,7 @@ var definitions = []Definition{
 	{Name: "datastore-browser", Profile: "presentation", Purpose: "a populated datastore root renders safely at each terminal size"},
 	{Name: "resize", Profile: "presentation", Purpose: "bounded terminal sizes render safely and preserve selection"},
 	{Name: "vm-dashboard", Profile: "presentation", Purpose: "every VM chart page and range stays inside the terminal at each size"},
+	{Name: "vm-timeline", Profile: "presentation", Purpose: "a VM's stored changes, live vCenter events and the combined view stay inside the terminal and keep their sources apart"},
 	{Name: "network-switches", Profile: "presentation", Purpose: "port groups group under their switch and every switch page stays inside the terminal"},
 	{Name: "cluster-workspace", Profile: "presentation", Purpose: "a cluster's Summary, Hosts & VMs and Storage pages stay inside the terminal and surface its failover and storage gaps"},
 	{Name: "host-network", Profile: "presentation", Purpose: "a host's Network page stays inside the terminal and names the switch it is missing and the NICs no switch claims"},
@@ -233,6 +234,19 @@ func Run(ctx context.Context, name string, opts RunOptions) (result Result, runE
 		if err := walkVMDashboard(m); err != nil {
 			return Result{}, err
 		}
+	case "vm-timeline":
+		for _, key := range []string{"/", "wiki-05", "enter"} {
+			pressWithoutCommand(m, key)
+		}
+		if err := drive(m, send(m, tea.KeyMsg{Type: tea.KeyEnter})); err != nil {
+			return Result{}, fmt.Errorf("open VM detail: %w", err)
+		}
+		if err := press(m, "h"); err != nil {
+			return Result{}, fmt.Errorf("open the VM timeline: %w", err)
+		}
+		if err := walkVMTimeline(m); err != nil {
+			return Result{}, err
+		}
 	case "network-switches":
 		if err := press(m, "6"); err != nil {
 			return Result{}, fmt.Errorf("open the Networks tab: %w", err)
@@ -292,7 +306,7 @@ func Run(ctx context.Context, name string, opts RunOptions) (result Result, runE
 
 func isCriticalScreen(name string) bool {
 	switch name {
-	case "overview", "credential-cancel", "history-coverage-gap", "datastore-browser", "vm-dashboard", "network-switches", "cluster-workspace",
+	case "overview", "credential-cancel", "history-coverage-gap", "datastore-browser", "vm-dashboard", "vm-timeline", "network-switches", "cluster-workspace",
 		"host-network", "vlan-map":
 		return true
 	default:
@@ -351,6 +365,47 @@ func walkVMDashboard(m *tui.Model) error {
 	}
 	if observation := m.Observe(); observation.Mode != "detail" {
 		return fmt.Errorf("vm-dashboard walk left the detail pane (mode %q)", observation.Mode)
+	}
+	return nil
+}
+
+// walkVMTimeline visits the timeline's three sources at each golden size and
+// fails on the first frame wider or taller than the terminal, or on a tab
+// that loses its provenance: the events tab must say it is live and from
+// which vCenter, and the stored tab must never claim to be. It leaves the
+// Combined tab open, the state the goldens record.
+func walkVMTimeline(m *tui.Model) error {
+	for _, size := range [][2]int{{60, 20}, {100, 30}, {140, 40}} {
+		if err := drive(m, send(m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})); err != nil {
+			return fmt.Errorf("vm-timeline resize %dx%d: %w", size[0], size[1], err)
+		}
+		for _, tab := range []struct{ key, mark, must, mustNot string }{
+			{"1", "[1 Changes]", "stored assessments", "LIVE"},
+			{"2", "[2 vCenter events]", "LIVE from prod-vc", "stored assessments"},
+			{"3", "[3 Combined]", "snapshot-created", ""},
+		} {
+			if err := press(m, tab.key); err != nil {
+				return fmt.Errorf("vm-timeline tab %s: %w", tab.key, err)
+			}
+			view := m.View()
+			where := fmt.Sprintf("tab %s at %dx%d", tab.key, size[0], size[1])
+			if err := boundedFrame(view, size[0], size[1]); err != nil {
+				return fmt.Errorf("vm-timeline %s: %w", where, err)
+			}
+			plain := ansi.Strip(view)
+			if size[0] >= 100 && !strings.Contains(plain, tab.mark) {
+				return fmt.Errorf("vm-timeline %s does not mark its tab", where)
+			}
+			if size[0] >= 100 && !strings.Contains(plain, tab.must) {
+				return fmt.Errorf("vm-timeline %s is missing %q", where, tab.must)
+			}
+			if tab.mustNot != "" && strings.Contains(plain, tab.mustNot) {
+				return fmt.Errorf("vm-timeline %s shows %q, which belongs to the other source", where, tab.mustNot)
+			}
+		}
+	}
+	if observation := m.Observe(); observation.Mode != "history-timeline" {
+		return fmt.Errorf("vm-timeline walk left the timeline (mode %q)", observation.Mode)
 	}
 	return nil
 }
@@ -701,6 +756,15 @@ func assertResult(result Result) error {
 		for _, want := range []string{"compute-b", "[0 Summary]", "HA failover", "below the reserve"} {
 			if !strings.Contains(result.View, want) {
 				return fmt.Errorf("scenario %s is missing %q from compute-b's Summary", result.Name, want)
+			}
+		}
+	case "vm-timeline":
+		if result.Observation.Mode != "history-timeline" {
+			return fmt.Errorf("scenario %s left the VM timeline (mode %q)", result.Name, result.Observation.Mode)
+		}
+		for _, want := range []string{"Timeline", "[3 Combined]", "wiki-05", "snapshot-created", "snapshot create"} {
+			if !strings.Contains(result.View, want) {
+				return fmt.Errorf("scenario %s is missing %q from the combined view", result.Name, want)
 			}
 		}
 	case "vm-dashboard":

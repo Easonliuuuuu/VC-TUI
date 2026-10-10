@@ -229,6 +229,7 @@ func newInventoryCommands(a *App) []*cobra.Command {
 	vm := group("vm", []string{"vms", "virtualmachine"}, "Virtual machines", newVMListCommand(a))
 	vm.AddCommand(newVMShowCommand(a))
 	vm.AddCommand(newVMHistoryCommand(a))
+	vm.AddCommand(newVMEventsCommand(a))
 	vm.AddCommand(newVMDecommissionCheckCommand(a))
 	tmpl := group("template", []string{"templates", "tpl"}, "VM templates", newTemplateListCommand(a))
 	tmpl.AddCommand(newTemplateShowCommand(a))
