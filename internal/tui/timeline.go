@@ -44,11 +44,29 @@ type vmEventsBackend interface {
 }
 
 // vmEventsTarget is one VM to read events for: the lineage's managed object
-// reference on one vCenter. A VM that moved between vCenters has one target
-// per vCenter it was seen on.
+// reference on one vCenter, read through one context. A VM that moved between
+// vCenters has one target per vCenter it was seen on. Several contexts can
+// reach the same vCenter; only one of them is read.
 type vmEventsTarget struct {
 	context string
 	vmID    string
+	// vcenter is the vCenter's identity, as assessments record it. It is
+	// empty when unknown, which keeps the target apart from every other.
+	vcenter string
+}
+
+// vmEventsKey is what one read answers for: a managed object on a vCenter,
+// whichever context read it.
+type vmEventsKey struct {
+	vcenter string
+	vmID    string
+}
+
+func (t vmEventsTarget) key() vmEventsKey {
+	if t.vcenter == "" {
+		return vmEventsKey{vcenter: "context:" + t.context, vmID: t.vmID}
+	}
+	return vmEventsKey{vcenter: t.vcenter, vmID: t.vmID}
 }
 
 // vmEventsResult is one target's read: its listing, or why there is none.
@@ -65,8 +83,8 @@ type timelineEventsState struct {
 	loading  bool
 	loaded   bool
 	inflight int
-	// requested is every target a read has been started for.
-	requested map[vmEventsTarget]bool
+	// requested is every managed object a read has been started for.
+	requested map[vmEventsKey]bool
 	results   []vmEventsResult
 	loadedAt  time.Time
 }
@@ -161,21 +179,30 @@ func (m *Model) refilterTimeline() {
 // timelineTargets is every VM to read events for: each managed object
 // reference the lineage was stored under on each vCenter — a VM that was
 // re-registered or restored keeps its older events under its older one — and
-// the live VM the timeline was opened from.
+// the live VM the timeline was opened from. Contexts that reach the same
+// vCenter share its event log, so each managed object is read through one of
+// them: a connected one when there is one.
 func (m *Model) timelineTargets() []vmEventsTarget {
-	seen := map[vmEventsTarget]bool{}
+	groups := map[vmEventsKey][]vmEventsTarget{}
+	add := func(t vmEventsTarget) {
+		groups[t.key()] = append(groups[t.key()], t)
+	}
 	for _, e := range m.timelineFull {
 		if e.Observation == nil || e.Observation.VM.ID == "" {
 			continue
 		}
-		seen[vmEventsTarget{context: e.Context, vmID: e.Observation.VM.ID}] = true
+		add(vmEventsTarget{context: e.Context, vmID: e.Observation.VM.ID, vcenter: e.Observation.VCenterID})
 	}
+	var seed *vmEventsTarget
 	if s := m.timelineSeed; s != nil && s.vmID != "" {
-		seen[*s] = true
+		t := *s
+		t.vcenter = m.seedVCenterID(t, groups)
+		seed = &t
+		add(t)
 	}
-	out := make([]vmEventsTarget, 0, len(seen))
-	for t := range seen {
-		out = append(out, t)
+	out := make([]vmEventsTarget, 0, len(groups))
+	for _, group := range groups {
+		out = append(out, m.preferredTarget(group, seed))
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].context != out[j].context {
@@ -184,6 +211,52 @@ func (m *Model) timelineTargets() []vmEventsTarget {
 		return out[i].vmID < out[j].vmID
 	})
 	return out
+}
+
+// seedVCenterID is the identity of the vCenter the live VM was opened from:
+// the one stored history already recorded for that context and managed
+// object, else the one assessments would record for the context now — the
+// connected vCenter's instance id, or its endpoint when it reports none.
+func (m *Model) seedVCenterID(seed vmEventsTarget, stored map[vmEventsKey][]vmEventsTarget) string {
+	for _, group := range stored {
+		for _, t := range group {
+			if t.context == seed.context && t.vmID == seed.vmID {
+				return t.vcenter
+			}
+		}
+	}
+	if st, _ := m.backend.Status(seed.context); st.InstanceID != "" {
+		return st.InstanceID
+	}
+	if s := m.byName[seed.context]; s != nil && s.cc != nil {
+		return s.cc.Endpoint
+	}
+	return ""
+}
+
+// preferredTarget picks which context reads a managed object that several
+// contexts reach: a connected one, else a configured one, else the live VM's
+// own, and then the first by name.
+func (m *Model) preferredTarget(group []vmEventsTarget, seed *vmEventsTarget) vmEventsTarget {
+	score := func(t vmEventsTarget) (rank int, isSeed bool) {
+		cc, connected := m.targetState(t)
+		switch {
+		case connected:
+			rank = 2
+		case cc != nil:
+			rank = 1
+		}
+		return rank, seed != nil && t.context == seed.context
+	}
+	best := group[0]
+	bestRank, bestSeed := score(best)
+	for _, t := range group[1:] {
+		rank, isSeed := score(t)
+		if rank > bestRank || rank == bestRank && (isSeed && !bestSeed || isSeed == bestSeed && t.context < best.context) {
+			best, bestRank, bestSeed = t, rank, isSeed
+		}
+	}
+	return best
 }
 
 // targetState reports whether a target's vCenter is configured here and
@@ -221,7 +294,7 @@ func (m *Model) loadTimelineEvents(explicit bool) tea.Cmd {
 		if cc == nil || (!connected && !explicit) {
 			continue
 		}
-		if !explicit && m.tlEvents != nil && m.tlEvents.requested[t] {
+		if !explicit && m.tlEvents != nil && m.tlEvents.requested[t.key()] {
 			continue
 		}
 		jobs = append(jobs, job{target: t, cc: cc})
@@ -233,10 +306,10 @@ func (m *Model) loadTimelineEvents(explicit bool) tea.Cmd {
 		m.tlEvents = &timelineEventsState{}
 	}
 	if m.tlEvents.requested == nil {
-		m.tlEvents.requested = map[vmEventsTarget]bool{}
+		m.tlEvents.requested = map[vmEventsKey]bool{}
 	}
 	for _, j := range jobs {
-		m.tlEvents.requested[j.target] = true
+		m.tlEvents.requested[j.target.key()] = true
 	}
 	m.tlEvents.inflight++
 	m.tlEvents.loading = true
@@ -266,12 +339,13 @@ func (m *Model) applyVMEvents(msg vmEventsMsg) {
 	}
 	m.tlDerived = nil
 	// A reload that only reached some vCenters keeps the others' last read.
-	merged := map[vmEventsTarget]vmEventsResult{}
+	// A managed object is listed once, from whichever context read it last.
+	merged := map[vmEventsKey]vmEventsResult{}
 	for _, r := range m.tlEvents.results {
-		merged[r.target] = r
+		merged[r.target.key()] = r
 	}
 	for _, r := range msg.results {
-		merged[r.target] = r
+		merged[r.target.key()] = r
 	}
 	m.tlEvents.results = m.tlEvents.results[:0]
 	for _, r := range merged {
@@ -566,17 +640,17 @@ func (m *Model) eventsProblems() []string {
 	if _, ok := m.backend.(vmEventsBackend); !ok {
 		return nil
 	}
-	read := map[string]vmEventsResult{}
+	read := map[vmEventsKey]vmEventsResult{}
 	if m.tlEvents != nil {
 		for _, r := range m.tlEvents.results {
-			read[r.target.context] = r
+			read[r.target.key()] = r
 		}
 	}
 	var out []string
 	for _, target := range m.timelineTargets() {
-		if r, ok := read[target.context]; ok {
+		if r, ok := read[target.key()]; ok {
 			if r.err != nil {
-				out = append(out, t.bad.Render("  "+target.context+": ")+t.dim.Render(firstLine(r.err.Error())))
+				out = append(out, t.bad.Render("  "+r.target.context+": ")+t.dim.Render(firstLine(r.err.Error())))
 			}
 			continue
 		}

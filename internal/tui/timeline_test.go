@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -285,5 +286,136 @@ func TestTimelineHintIsVMOnly(t *testing.T) {
 	m.mode = modeDetail
 	if offers(m) {
 		t.Error("VM detail offers timeline without a history store")
+	}
+}
+
+// storedVM is one run's observation of the "billing" VM: which context
+// captured it, which vCenter that context reached, and under which managed
+// object ID.
+type storedVM struct{ context, vcenter, vmID string }
+
+// billingStore has one run per entry, an hour apart, each captured by one
+// context.
+func billingStore(t *testing.T, runs ...storedVM) *assessment.Store {
+	t.Helper()
+	store, err := assessment.Open(filepath.Join(t.TempDir(), "history.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	ctx := context.Background()
+	at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i, r := range runs {
+		cc := &config.Context{Name: r.context, Endpoint: "https://" + r.vcenter, Username: "user"}
+		run, err := store.StartRun(ctx, "test", []*config.Context{cc}, at.Add(time.Duration(i)*time.Hour))
+		if err != nil {
+			t.Fatal(err)
+		}
+		vm := vsphere.VM{ID: r.vmID, Name: "billing", PowerState: "poweredOn", Host: "esx-01", CPU: int32(4 + i), MemoryMB: 8192, InstanceUUID: "uuid-1"}
+		result := assessment.ContextResult{Name: r.context, VCenterID: r.vcenter, Status: "success",
+			VMs: []assessment.Observation{{VCenterID: r.vcenter, Context: r.context, VM: vm}}}
+		if err := store.SaveContext(ctx, run.ID, result, run.StartedAt); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.FinishRun(ctx, run.ID, run.StartedAt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return store
+}
+
+func billingTimeline(t *testing.T, b Backend, store *assessment.Store, seed *vmEventsTarget) *Model {
+	t.Helper()
+	m := New(context.Background(), b, Options{Current: "prod", Assessment: &assessment.Service{Store: store}, RefreshInterval: -1, Handoff: &fakeHandoff{}})
+	m.width, m.height = 140, 40
+	drive(t, m, m.Init())
+	drive(t, m, m.openTimeline("billing", modeBrowse, seed))
+	return m
+}
+
+// TestTimelineReadsOneVCenterOnceHoweverManyContextsReachIt: two contexts
+// stored the same managed object on the same vCenter. The connected one
+// reads its log, once; the other is neither read nor listed as missing.
+func TestTimelineReadsOneVCenterOnceHoweverManyContextsReachIt(t *testing.T) {
+	b := &eventsBackend{fakeBackend: twoHealthy(), events: map[string][]vsphere.VMEvent{"prod/vm-1": {billingRemoved()}}}
+	// customer-a sorts first and is not connected; prod is.
+	store := billingStore(t, storedVM{"customer-a", "vc-1", "vm-1"}, storedVM{"prod", "vc-1", "vm-1"})
+	m := billingTimeline(t, b, store, nil)
+	press(t, m, "2")
+	if strings.Join(b.reads, ",") != "prod/vm-1" {
+		t.Fatalf("opening the tab read %v, want only the connected prod", b.reads)
+	}
+	got := viewText(m)
+	if strings.Contains(got, "customer-a") || strings.Contains(got, "not connected") {
+		t.Fatalf("a context reaching an already-read vCenter is listed as missing:\n%s", got)
+	}
+	if !strings.Contains(got, "LIVE from prod") {
+		t.Fatalf("the events header does not name the context that was read:\n%s", got)
+	}
+	press(t, m, "r")
+	if strings.Join(b.reads, ",") != "prod/vm-1,prod/vm-1" {
+		t.Fatalf("r read %v, want prod again and nothing else", b.reads)
+	}
+	if n := len(m.timelineEvents()); n != 1 {
+		t.Fatalf("the event log was merged %d times, want once", n)
+	}
+}
+
+// TestTimelineReadsAVMOnEachVCenterItMovedBetween: the same managed object ID
+// on two different vCenters is two logs, however alike the contexts look.
+func TestTimelineReadsAVMOnEachVCenterItMovedBetween(t *testing.T) {
+	b := &eventsBackend{fakeBackend: twoHealthy(), events: map[string][]vsphere.VMEvent{}}
+	store := billingStore(t, storedVM{"customer-a", "vc-2", "vm-1"}, storedVM{"prod", "vc-1", "vm-1"})
+	m := billingTimeline(t, b, store, nil)
+	press(t, m, "3")
+	if got := viewText(m); !strings.Contains(got, "customer-a is not connected") {
+		t.Fatalf("the other vCenter is not named:\n%s", got)
+	}
+	press(t, m, "r")
+	if again := b.reads[1:]; len(again) != 2 || !slices.Contains(again, "customer-a/vm-1") || !slices.Contains(again, "prod/vm-1") {
+		t.Fatalf("r read %v, want both vCenters", b.reads)
+	}
+}
+
+// TestTimelineSeedJoinsTheVCenterItsContextReaches: the live VM opened from
+// an unconnected context joins the vCenter stored history recorded for the
+// same managed object, whether the history names the seed's context or only
+// another one that reaches the same vCenter.
+func TestTimelineSeedJoinsTheVCenterItsContextReaches(t *testing.T) {
+	for name, tc := range map[string]struct {
+		store       []storedVM
+		instanceIDs map[string]string
+	}{
+		"history names the seed's context": {[]storedVM{{"customer-a", "vc-1", "vm-1"}, {"prod", "vc-1", "vm-1"}}, nil},
+		"history names another context":    {[]storedVM{{"prod", "vc-1", "vm-1"}}, map[string]string{"customer-a": "vc-1"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := twoHealthy()
+			fake.instanceIDs = tc.instanceIDs
+			b := &eventsBackend{fakeBackend: fake, events: map[string][]vsphere.VMEvent{}}
+			m := billingTimeline(t, b, billingStore(t, tc.store...), &vmEventsTarget{context: "customer-a", vmID: "vm-1"})
+			press(t, m, "3", "r")
+			if strings.Join(b.reads, ",") != "prod/vm-1,prod/vm-1" {
+				t.Fatalf("read %v, want only the connected prod, on opening the tab and on r", b.reads)
+			}
+			if got := viewText(m); strings.Contains(got, "not connected") {
+				t.Fatalf("the seed's context is listed as missing:\n%s", got)
+			}
+		})
+	}
+}
+
+// TestTimelinePrefersAConfiguredContext: a vCenter several contexts reach is
+// one target, read through a context configured here when none is connected.
+func TestTimelinePrefersAConfiguredContext(t *testing.T) {
+	m := timelineModel(t, twoHealthy())
+	seen := func(context string) assessment.VMHistoryEvent {
+		return assessment.VMHistoryEvent{Context: context, Observation: &assessment.Observation{VCenterID: "vc-9", Context: context, VM: vsphere.VM{ID: "vm-1"}}}
+	}
+	m.timelineFull = []assessment.VMHistoryEvent{seen("prod"), seen("customer-a")}
+	delete(m.byName, "prod")
+	targets := m.timelineTargets()
+	if len(targets) != 1 || targets[0].context != "customer-a" {
+		t.Fatalf("targets = %+v, want the one shared vCenter through customer-a", targets)
 	}
 }
