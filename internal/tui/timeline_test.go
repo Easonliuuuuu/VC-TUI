@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -452,5 +453,75 @@ func TestTimelinePrefersAConfiguredContext(t *testing.T) {
 	targets := m.timelineTargets()
 	if len(targets) != 1 || targets[0].context != "customer-a" {
 		t.Fatalf("targets = %+v, want the one shared vCenter through customer-a", targets)
+	}
+}
+
+// TestTimelineCombinedMarksEventsBeforeTheFirstRun: an event from before the
+// first run that saw the VM is part of that run's first observation, not an
+// event that left no stored change. The create still shows as the cause of
+// first_seen, and a failed event, which did nothing, keeps the plain dot.
+func TestTimelineCombinedMarksEventsBeforeTheFirstRun(t *testing.T) {
+	before := time.Date(2025, 12, 31, 23, 50, 0, 0, time.UTC)
+	events := []vsphere.VMEvent{
+		{Context: "prod", Key: 1, Time: before, Type: "VmCreatedEvent", Label: "create", Explains: vsphere.EventCreated, Result: vsphere.ResultOK},
+		{Context: "prod", Key: 2, Time: before.Add(time.Minute), Type: "VmSnapshotCreate", Label: "snapshot create", Explains: vsphere.EventSnapshotCreated, Result: vsphere.ResultOK},
+		{Context: "prod", Key: 3, Time: before.Add(2 * time.Minute), Type: "VmSnapshotCreate", Label: "snapshot failed", Explains: vsphere.EventSnapshotCreated, Result: vsphere.ResultFailed},
+		billingRemoved(),
+	}
+	b := &eventsBackend{fakeBackend: twoHealthy(), events: map[string][]vsphere.VMEvent{"prod/vm-1": events}}
+	m := timelineModel(t, b)
+	drive(t, m, m.openTimeline("billing", modeBrowse, nil))
+	press(t, m, "3")
+
+	marks := map[string]string{}
+	markRow := regexp.MustCompile(`(\S) +\d\d-\d\d \d\d:\d\d +(create|snapshot create|snapshot failed|remove) `)
+	for _, l := range strings.Split(viewText(m), "\n") {
+		if g := markRow.FindStringSubmatch(l); g != nil {
+			marks[g[2]] = g[1]
+		}
+	}
+	for label, want := range map[string]string{"create": "←", "snapshot create": "‹", "snapshot failed": "·", "remove": "←"} {
+		if marks[label] != want {
+			t.Errorf("%s is marked %q, want %q\n%s", label, marks[label], want, viewText(m))
+		}
+	}
+	if got := viewText(m); !strings.Contains(got, "‹ before the first run") {
+		t.Errorf("the legend does not explain the mark:\n%s", got)
+	}
+
+	// Narrow, the event gets its own row, and its detail says why nothing
+	// was recorded for it.
+	m.width = 80
+	n, found := 0, false
+	for _, row := range m.combinedRows() {
+		if row.event != nil && row.event.Label == "snapshot create" {
+			m.combinedCursor, found = n, true
+			break
+		}
+		if row.selectable() {
+			n++
+		}
+	}
+	if !found {
+		t.Fatal("the pre-first-run snapshot has no row of its own")
+	}
+	press(t, m, "enter")
+	got := viewText(m)
+	for _, want := range []string{"before run #1, the first to see the VM", "before the first run, so part of the first observation"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("event detail missing %q:\n%s", want, got)
+		}
+	}
+}
+
+// TestTimelineCombinedLegendOmitsTheFirstRunMarkWhenUnused: the extra legend
+// entry appears only when an event carries the mark.
+func TestTimelineCombinedLegendOmitsTheFirstRunMarkWhenUnused(t *testing.T) {
+	b := &eventsBackend{fakeBackend: twoHealthy(), events: map[string][]vsphere.VMEvent{"prod/vm-1": {billingRemoved()}}}
+	m := timelineModel(t, b)
+	drive(t, m, m.openTimeline("billing", modeBrowse, nil))
+	press(t, m, "3")
+	if got := viewText(m); !strings.Contains(got, "left no stored change") || strings.Contains(got, "before the first run") {
+		t.Fatalf("legend wrong:\n%s", got)
 	}
 }

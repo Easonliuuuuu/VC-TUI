@@ -104,6 +104,24 @@ type vmEventsMsg struct {
 	at         time.Time
 }
 
+// eventMark is how the Combined tab marks an event: the stored change it
+// caused, no stored change, or a time before any run saw the VM.
+type eventMark int
+
+const (
+	markNone eventMark = iota
+	markCaused
+	markPredates
+)
+
+// predatesFirstRun reports whether an event in span s happened before the
+// first run that saw the VM. Whatever it did was already part of that run's
+// first observation, so no stored change could record it. A failed event did
+// nothing, and is not counted.
+func predatesFirstRun(s assessment.EventSpan, e vsphere.VMEvent) bool {
+	return s.From == nil && s.To != nil && e.Result != vsphere.ResultFailed
+}
+
 // timelineRow is one line of the Combined tab. Header and note rows are not
 // selectable; change and event rows are, and enter opens their detail.
 type timelineRow struct {
@@ -111,8 +129,8 @@ type timelineRow struct {
 	note   string
 	change *assessment.VMHistoryEvent
 	event  *vsphere.VMEvent
-	// explains marks an event row that accounts for the change above it.
-	explains bool
+	// mark says what the event did to the stored history.
+	mark eventMark
 	// inline is the event that caused a change row's change, drawn beside
 	// it on a wide terminal; inlineNote says why there is none.
 	inline     *vsphere.VMEvent
@@ -581,8 +599,23 @@ func (m *Model) timelineSubtitle() string {
 		if m.tlEvents == nil || !m.tlEvents.loaded {
 			return "  " + truncate(t.dim.Render("stored changes, grouped by the runs that recorded them, beside the vCenter events in each gap"), w)
 		}
-		return "  " + truncate(t.dim.Render("stored changes by run gap   ")+t.accent.Render("←")+t.dim.Render(" caused it   ")+t.faint.Render("·")+t.dim.Render(" left no stored change"), w)
+		legend := t.dim.Render("stored changes by run gap   ") + t.accent.Render("←") + t.dim.Render(" caused it   ") + t.faint.Render("·") + t.dim.Render(" left no stored change")
+		if m.showsPreFirstRunEvents() {
+			legend += t.dim.Render("   ‹ before the first run")
+		}
+		return "  " + truncate(legend, w)
 	}
+}
+
+// showsPreFirstRunEvents reports whether the Combined tab lists an event
+// marked as predating the first run, which is when its legend explains the mark.
+func (m *Model) showsPreFirstRunEvents() bool {
+	for _, r := range m.combinedRows() {
+		if r.mark == markPredates {
+			return true
+		}
+	}
+	return false
 }
 
 // eventsSourceLine is the events tab's provenance: always "live", always
@@ -818,7 +851,11 @@ func (m *Model) combinedRows() []timelineRow {
 			if e.Minor && !m.timelineMinor {
 				continue
 			}
-			events = append(events, timelineRow{event: &e})
+			row := timelineRow{event: &e}
+			if predatesFirstRun(s, e) {
+				row.mark = markPredates
+			}
+			events = append(events, row)
 		}
 		if len(s.Changes) == 0 && len(events) == 0 {
 			continue
@@ -843,7 +880,7 @@ func (m *Model) combinedRows() []timelineRow {
 			rows = append(rows, row)
 			for ei := range explaining {
 				e := explaining[ei]
-				rows = append(rows, timelineRow{event: &e, explains: true})
+				rows = append(rows, timelineRow{event: &e, mark: markCaused})
 			}
 			if !side && len(c.Events) == 0 && loaded && !oldest.IsZero() && s.To != nil && s.To.StartedAt.Before(oldest) {
 				rows = append(rows, timelineRow{note: "no events · before the oldest event vCenter returned"})
@@ -952,7 +989,7 @@ func (m *Model) viewTimelineCombined() ([]string, int) {
 			line := pad(left, combinedLeftWidth-1, false) + " "
 			switch {
 			case r.inline != nil:
-				line += m.combinedEvent(*r.inline, true, multi)
+				line += m.combinedEvent(*r.inline, markCaused, multi)
 			case r.inlineNote != "":
 				line += t.faint.Render("· " + r.inlineNote)
 			}
@@ -962,7 +999,7 @@ func (m *Model) viewTimelineCombined() ([]string, int) {
 			if side {
 				indent = strings.Repeat(" ", combinedLeftWidth-1)
 			}
-			lines = append(lines, m.timelineLine(listCursor(selected)+indent+m.combinedEvent(*r.event, r.explains, multi), selected))
+			lines = append(lines, m.timelineLine(listCursor(selected)+indent+m.combinedEvent(*r.event, r.mark, multi), selected))
 		default:
 			lines = append(lines, "")
 		}
@@ -970,12 +1007,15 @@ func (m *Model) viewTimelineCombined() ([]string, int) {
 	return lines, cursorLine
 }
 
-func (m *Model) combinedEvent(e vsphere.VMEvent, explains, multi bool) string {
+func (m *Model) combinedEvent(e vsphere.VMEvent, em eventMark, multi bool) string {
 	by := m.eventUserWidth(21, m.combinedEventFixed())
 	t := m.theme
 	mark := t.faint.Render("·")
-	if explains {
+	switch em {
+	case markCaused:
 		mark = t.accent.Render("←")
+	case markPredates:
+		mark = t.dim.Render("‹")
 	}
 	glyph := t.faint.Render("·")
 	switch e.Result {
@@ -1058,7 +1098,7 @@ func (m *Model) viewHistoryTimelineDetail() []string {
 			}
 		}
 		for _, ev := range explained {
-			lines = append(lines, "  "+m.combinedEvent(ev, true, m.eventContexts() > 1))
+			lines = append(lines, "  "+m.combinedEvent(ev, markCaused, m.eventContexts() > 1))
 		}
 	}
 	return scrollLines(lines, 0, m.bodyHeight())
@@ -1142,6 +1182,8 @@ func (m *Model) eventPlacement(e vsphere.VMEvent) (string, string) {
 			if same(x) {
 				why := "no stored change matches it"
 				switch {
+				case predatesFirstRun(s, e):
+					return where, m.theme.dim.Render("— · before the first run, so part of the first observation")
 				case e.Result == vsphere.ResultFailed:
 					why = "it failed, so there was nothing to record"
 				case s.To == nil:
