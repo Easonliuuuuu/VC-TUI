@@ -173,9 +173,11 @@ VM's timeline. It has three sources, one tab each:
 | `3 Combined` | Both | Each stored change beside the event that caused it, grouped by the gap between the two runs that bracket it. |
 
 On Combined, `←` marks an event that caused the stored change on its line or
-above it. `·` marks an event that left no stored change: it failed, it was
-undone before the next run, it is newer than any run, or it is a kind of event
-assessments do not record. An event explains a change only when it falls
+above it. `‹` marks an event from before the first run that saw the VM:
+whatever it did is already part of that run's first observation, so no
+stored change records it. `·` marks an event that left no stored change: it
+failed, it was undone before the next run, it is newer than any run, or it is
+a kind of event assessments do not record. An event explains a change only when it falls
 between the same two runs, its kind can produce that change, it did not fail,
 and the details agree. An event logged while a run was collecting counts
 toward that run's changes if it explains one, and toward the next run's
