@@ -187,7 +187,9 @@ one. Opening a tab reads vCenters that are already connected. `r` also
 connects a configured vCenter that is not. The tab header always says `LIVE`, which
 vCenter the events came from, and the oldest event returned. A vCenter that
 is not connected, not configured, or refused the read is named rather than
-left out. A VM that moved between vCenters is read on each one, and a VM
+left out. Contexts that reach the same vCenter share one event log, so it is
+read once, through a connected context when there is one, and the others are
+not listed. A VM that moved between vCenters is read on each one, and a VM
 stored under more than one managed object ID, for example after it was
 re-registered, is read under each ID.
 
