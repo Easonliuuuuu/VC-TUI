@@ -5,6 +5,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/easonliuuuuu/vsfleet/internal/vsphere"
 )
 
 // keyMap is the whole keyboard surface. It is one struct rather than a switch
@@ -383,6 +385,16 @@ func (k keyMap) historyHelpSections(pane int, canCapture bool) []helpSection {
 	return []helpSection{panes, {"History hub", hub}}
 }
 
+// timelineHint is the "h timeline" footer hint for a detail screen. The
+// timeline is per VM and read from the history store, so the hint is offered
+// only where "h" opens one: a VM detail with a store attached.
+func (k keyMap) timelineHint(m *Model) []key.Binding {
+	if r, ok := m.detailRow(); !ok || r.kind != vsphere.KindVM || m.assessment == nil {
+		return nil
+	}
+	return []key.Binding{k.Timeline}
+}
+
 // timelineHelpSections is the help panel for the VM timeline and its detail
 // screen. Like the history hub's it replaces the browse sections, none of
 // which do anything here.
@@ -471,12 +483,12 @@ func (k keyMap) footerHints(m *Model) []key.Binding {
 			if m.hostState(r).page == 1 {
 				return []key.Binding{k.Up, k.Down, described(k.Open, "enter", "open switch"), k.HostPage, k.Reload, k.Back, k.Help, k.Quit}
 			}
-			return []key.Binding{k.Up, k.Down, k.Open, k.HostPage, k.Timeline, k.Back, k.Help, k.Quit}
+			return []key.Binding{k.Up, k.Down, k.Open, k.HostPage, k.Back, k.Help, k.Quit}
 		}
 		if m.vmChartsDrawn() {
-			return []key.Binding{k.Up, k.Down, k.Open, k.PerfRange, k.Timeline, k.Back, k.Help, k.Quit}
+			return append(append([]key.Binding{k.Up, k.Down, k.Open, k.PerfRange}, k.timelineHint(m)...), k.Back, k.Help, k.Quit)
 		}
-		return []key.Binding{k.Up, k.Down, k.Open, k.Timeline, k.Back, k.Help, k.Quit}
+		return append(append([]key.Binding{k.Up, k.Down, k.Open}, k.timelineHint(m)...), k.Back, k.Help, k.Quit)
 	case modeVAppDetail:
 		if _, ok := m.backend.(vmsPerfBackend); ok {
 			return []key.Binding{k.Up, k.Down, k.Open, k.PerfRange, k.VAppSort, k.Back, k.Help, k.Quit}
@@ -487,9 +499,9 @@ func (k keyMap) footerHints(m *Model) []key.Binding {
 			return []key.Binding{k.Up, k.Down, k.RunAction, k.CancelAction}
 		}
 		if m.vmChartsDrawn() {
-			return []key.Binding{k.Up, k.Down, k.Open, k.PerfRange, k.Timeline, k.Back, k.Help, k.Quit}
+			return append(append([]key.Binding{k.Up, k.Down, k.Open, k.PerfRange}, k.timelineHint(m)...), k.Back, k.Help, k.Quit)
 		}
-		return []key.Binding{k.Up, k.Down, k.Open, k.Timeline, k.Back, k.Help, k.Quit}
+		return append(append([]key.Binding{k.Up, k.Down, k.Open}, k.timelineHint(m)...), k.Back, k.Help, k.Quit)
 	case modeSwitchDetail:
 		if m.sw != nil && m.sw.page == 1 {
 			return []key.Binding{k.Up, k.Down, k.Open, k.SwitchPage, k.Reload, k.Back, k.Help, k.Quit}
