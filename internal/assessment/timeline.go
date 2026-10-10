@@ -114,9 +114,15 @@ func (s *Store) TimelineForContexts(ctx context.Context, query string, selectors
 	}
 	var events []VMHistoryEvent
 	first := entries[0]
+	var known lastKnown
+	known.learn(first.Observation.VM)
 	events = append(events, VMHistoryEvent{Kind: "first_seen", Run: first.Run, Context: first.Observation.Context, Name: first.Observation.VM.Name, Observation: &first.Observation, Snapshots: first.Snapshots})
 	for i := 1; i < len(entries); i++ {
 		before, after := entries[i-1], entries[i]
+		// An account that cannot see a field stores it empty. Compare with the
+		// last run that did see it, whichever context captured that run.
+		before.Observation.VM = known.fill(before.Observation.VM)
+		known.learn(after.Observation.VM)
 		if bi, bok := runIndex[before.Run.ID]; bok {
 			if ai, aok := runIndex[after.Run.ID]; aok && ai < bi-1 {
 				events = append(events, VMHistoryEvent{Kind: "appeared", Run: after.Run, Context: after.Observation.Context, Name: after.Observation.VM.Name, Observation: &after.Observation})
@@ -169,17 +175,19 @@ func (s *Store) TimelineForContexts(ctx context.Context, query string, selectors
 func placementChanges(before, after Observation) []FieldChange {
 	var out []FieldChange
 	add := func(name, b, a string) {
-		if b != a {
+		if placementDiffers(b, a) {
 			out = append(out, FieldChange{Field: name, Before: b, After: a})
 		}
 	}
 	if before.VCenterID != after.VCenterID {
 		add("vcenter", nonempty(before.Context, before.VCenterID), nonempty(after.Context, after.VCenterID))
 	}
+	// An empty value is one the account could not see, not a place the VM
+	// moved to or from (see moved).
 	add("host", before.VM.Host, after.VM.Host)
 	add("cluster", before.VM.Cluster, after.VM.Cluster)
 	add("folder", before.VM.Folder, after.VM.Folder)
-	if !equalStrings(before.VM.Datastores, after.VM.Datastores) {
+	if len(before.VM.Datastores) > 0 && len(after.VM.Datastores) > 0 && !equalStrings(before.VM.Datastores, after.VM.Datastores) {
 		add("datastores", strings.Join(sortedCopy(before.VM.Datastores), ","), strings.Join(sortedCopy(after.VM.Datastores), ","))
 	}
 	return out
