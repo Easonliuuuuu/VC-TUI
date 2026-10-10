@@ -64,6 +64,11 @@ type VMEvent struct {
 	// Detail is a one-line summary of what the event changed, for example
 	// "esxi-01 → esxi-02".
 	Detail string `json:"detail,omitempty"`
+	// Summary is vCenter's own message on one line, with the VM, host and
+	// datacenter it is about removed. It is set only when Detail is empty, for
+	// events with no structured summary of their own: alarms, guest messages,
+	// permission changes.
+	Summary string `json:"summary,omitempty"`
 	// Fields names the stored fields a reconfiguration touched, in the
 	// vocabulary assessment diffs use (cpu, memory, annotation, guest_os,
 	// name, devices), when vCenter says.
@@ -229,7 +234,84 @@ func ClassifyEvent(e types.BaseEvent) VMEvent {
 	if strings.Contains(ev.Type, "Failed") {
 		ev.Result, ev.Minor, ev.Explains = ResultFailed, false, ""
 	}
+	if ev.Detail == "" {
+		ev.Summary = messageSummary(ev.Message, base)
+	}
 	return ev
+}
+
+// DisplayDetail is the one-line text a list shows for the event: the
+// structured Detail when there is one, otherwise the Summary of vCenter's
+// message.
+func (e VMEvent) DisplayDetail() string {
+	if e.Detail != "" {
+		return e.Detail
+	}
+	return e.Summary
+}
+
+// maxSummaryRunes bounds a Summary. A reconfiguration message can run to
+// hundreds of characters; the full text stays in Message.
+const maxSummaryRunes = 160
+
+// messageSummary reduces vCenter's formatted message to one line that adds to
+// the event's label. The VM, host and datacenter the event was logged against
+// are already the question the reader asked, so the phrasing that names them
+// ("on vapp-web on esxi-01 in DC-Lab") is dropped, and line breaks collapse
+// to single spaces.
+func messageSummary(msg string, base *types.Event) string {
+	msg = strings.Join(strings.Fields(msg), " ")
+	if msg == "" {
+		return ""
+	}
+	var vm, host, dc string
+	if base.Vm != nil {
+		vm = base.Vm.Name
+	}
+	if base.Host != nil {
+		host = base.Host.Name
+	}
+	if base.Datacenter != nil {
+		dc = base.Datacenter.Name
+	}
+	// scope joins the places an event can be about into "vm on host in dc",
+	// or is empty when any of them is unnamed.
+	scope := func(places ...[2]string) string {
+		var s string
+		for _, p := range places {
+			if p[1] == "" {
+				return ""
+			}
+			s += p[0] + p[1]
+		}
+		return s
+	}
+	vmP, hostP, dcP := [2]string{"", vm}, [2]string{" on ", host}, [2]string{" in ", dc}
+	hostOnP, dcCommaP := [2]string{" on host ", host}, [2]string{", in ", dc}
+	// The messages read "<vm> on <host> in <dc> is powered on" when the event
+	// opens with its scope, and "<what> on <vm> on <host> in <dc>: <why>" when
+	// it ends a clause with it. Longest phrasing first, so a host and a
+	// datacenter are not left behind by a shorter match.
+	phrases := []string{
+		scope(vmP, hostP, dcP), scope(vmP, hostP, dcCommaP), scope(vmP, hostOnP, dcP), scope(vmP, hostP), scope(vmP, dcP),
+		scope([2]string{"", host}, dcP), scope([2]string{"", host}, dcCommaP), scope(vmP),
+	}
+	for _, s := range phrases {
+		if s != "" && strings.HasPrefix(msg, s+" ") {
+			msg = strings.TrimPrefix(msg, s)
+			break
+		}
+	}
+	for _, s := range phrases {
+		if s != "" {
+			msg = strings.ReplaceAll(msg, " on "+s, "")
+		}
+	}
+	msg = strings.TrimSpace(msg)
+	if r := []rune(msg); len(r) > maxSummaryRunes {
+		msg = strings.TrimSpace(string(r[:maxSummaryRunes-1])) + "…"
+	}
+	return msg
 }
 
 // migration fills a migration's endpoints. The destination is the event's

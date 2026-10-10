@@ -82,6 +82,99 @@ func TestClassifyEventMapsEventClassesToStoredChanges(t *testing.T) {
 	}
 }
 
+func TestClassifyEventFallsBackToTheMessageForDetail(t *testing.T) {
+	arg := func(name string) types.EntityEventArgument { return types.EntityEventArgument{Name: name} }
+	event := func(message string) types.VmEvent {
+		return types.VmEvent{Event: types.Event{
+			Key: 3, UserName: "VSPHERE.LOCAL\\Administrator", FullFormattedMessage: message,
+			Vm:         &types.VmEventArgument{EntityEventArgument: arg("vapp-web")},
+			Host:       &types.HostEventArgument{EntityEventArgument: arg("192.168.150.12")},
+			Datacenter: &types.DatacenterEventArgument{EntityEventArgument: arg("DC-Lab")},
+		}}
+	}
+	for _, tc := range []struct {
+		name    string
+		event   types.BaseEvent
+		detail  string
+		summary string
+		display string
+	}{
+		{
+			name:    "message warning drops the scope before the colon",
+			event:   &types.VmMessageWarningEvent{VmEvent: event("Warning message on vapp-web on 192.168.150.12 in DC-Lab: No operating system was found.")},
+			summary: "Warning message: No operating system was found.",
+		},
+		{
+			name:    "alarm drops the VM",
+			event:   &types.AlarmStatusChangedEvent{AlarmEvent: types.AlarmEvent{Event: event("Alarm 'Virtual machine CPU usage' on vapp-web changed from Gray to Green").Event}},
+			summary: "Alarm 'Virtual machine CPU usage' changed from Gray to Green",
+		},
+		{
+			name:    "permission keeps the principal and role",
+			event:   &types.PermissionAddedEvent{PermissionEvent: types.PermissionEvent{AuthorizationEvent: types.AuthorizationEvent{Event: event(`Permission created for VSPHERE.LOCAL\lab-mutator on vapp-web, role is Lab-Mutator, propagation is Disabled`).Event}}},
+			summary: `Permission created for VSPHERE.LOCAL\lab-mutator, role is Lab-Mutator, propagation is Disabled`,
+		},
+		{
+			name:    "a leading scope is removed",
+			event:   &types.VmPoweredOnEvent{VmEvent: event("vapp-web on 192.168.150.12 in DC-Lab is powered on")},
+			summary: "is powered on",
+		},
+		{
+			name:    "a host named with host and a comma before the datacenter",
+			event:   &types.VmCreatedEvent{VmEvent: event("Created virtual machine vapp-web on 192.168.150.12,  in DC-Lab")},
+			summary: "Created virtual machine vapp-web",
+		},
+		{
+			name:    "a leading scope that says host",
+			event:   &types.VmDisconnectedEvent{VmEvent: event("vapp-web on host 192.168.150.12 in DC-Lab is disconnected")},
+			summary: "is disconnected",
+		},
+		{
+			name:    "a message that names none of the scope is kept whole",
+			event:   &types.VmPoweredOnEvent{VmEvent: event("Virtual machine vapp-web-2 is connected")},
+			summary: "Virtual machine vapp-web-2 is connected",
+		},
+		{
+			name:    "a reconfiguration with no recognizable fields collapses its line breaks",
+			event:   &types.VmReconfiguredEvent{VmEvent: event("Reconfigured vapp-web on 192.168.150.12 in DC-Lab. \n \nModified: \n \nconfig.flags.x: 1 -> 2; \n \n")},
+			summary: "Reconfigured vapp-web. Modified: config.flags.x: 1 -> 2;",
+		},
+		{
+			name:    "a long message is cut to one short line",
+			event:   &types.VmMessageWarningEvent{VmEvent: event("Warning message on vapp-web: " + strings.Repeat("word ", 80))},
+			summary: string([]rune("Warning message: " + strings.TrimSpace(strings.Repeat("word ", 80)))[:159]) + "…",
+		},
+		{
+			name:    "no message leaves no detail",
+			event:   &types.VmPoweredOnEvent{VmEvent: event("")},
+			display: "",
+		},
+		{
+			name:    "a structured detail wins and no summary is kept",
+			event:   &types.VmRenamedEvent{VmEvent: event("Renamed vapp-web from old to new in DC-Lab"), OldName: "old", NewName: "new"},
+			detail:  "old → new",
+			display: "old → new",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ev := vsphere.ClassifyEvent(tc.event)
+			if ev.Detail != tc.detail || ev.Summary != tc.summary {
+				t.Fatalf("detail=%q summary=%q, want %q %q", ev.Detail, ev.Summary, tc.detail, tc.summary)
+			}
+			want := tc.display
+			if want == "" {
+				want = tc.summary
+			}
+			if got := ev.DisplayDetail(); got != want {
+				t.Fatalf("DisplayDetail() = %q, want %q", got, want)
+			}
+			if strings.ContainsAny(ev.Summary, "\n\r") {
+				t.Fatalf("summary %q spans lines", ev.Summary)
+			}
+		})
+	}
+}
+
 // TestVMEventsReadsOneVMsLogFromTheSimulator exercises the hand-rolled
 // QueryEvents shim end to end: the simulator logs lifecycle events for every
 // VM it creates and powers on, and the read must return only the asked-for

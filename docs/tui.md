@@ -200,6 +200,11 @@ re-registered, is read under each ID.
 | `r` | Read vCenter events again (events tabs) |
 | `Enter` | Open the change or event detail |
 
+DETAIL shows what a migration, rename, reconfiguration or clone changed, and
+for every other event vCenter's own message on one line, without the VM, host
+and datacenter it is about. `BY` widens with the terminal so a long user such
+as `VSPHERE.LOCAL\Administrator` is shown whole when there is room.
+
 The same event log is available on the command line as
 `vsfleet vm events <name-or-uuid>`.
 

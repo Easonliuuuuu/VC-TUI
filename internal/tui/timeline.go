@@ -729,7 +729,13 @@ func (m *Model) viewTimelineEvents() ([]string, int) {
 	}
 	events := m.visibleEvents()
 	multi := m.eventContexts() > 1
-	header := "  " + pad("WHEN", 18, false) + pad("EVENT", 18, false) + pad("BY", 22, false) + pad("RESULT", 8, false)
+	// WHEN, EVENT, RESULT and the cursor take 46 columns, VCENTER 12 more.
+	fixed := 46
+	if multi {
+		fixed += 12
+	}
+	by := m.eventUserWidth(22, fixed)
+	header := "  " + pad("WHEN", 18, false) + pad("EVENT", 18, false) + pad("BY", by, false) + pad("RESULT", 8, false)
 	if multi {
 		header += pad("VCENTER", 12, false)
 	}
@@ -744,12 +750,12 @@ func (m *Model) viewTimelineEvents() ([]string, int) {
 	}
 	for i, e := range events {
 		sel := i == m.eventsCursor
-		line := listCursor(sel) + " " + pad(e.Time.Local().Format("2006-01-02 15:04"), 18, false) + pad(e.Label, 18, false) + pad(humanize.Dash(e.User), 22, false)
+		line := listCursor(sel) + " " + pad(e.Time.Local().Format("2006-01-02 15:04"), 18, false) + pad(truncate(e.Label, 17), 18, false) + pad(humanize.Dash(e.User), by, false)
 		res := eventResultCell(e.Result)
 		if multi {
 			res += pad(e.Context, 12, false)
 		}
-		detail := e.Detail
+		detail := e.DisplayDetail()
 		if sel {
 			line = t.focused.Render(truncate(line+res+detail, max(1, m.width)))
 		} else {
@@ -965,6 +971,7 @@ func (m *Model) viewTimelineCombined() ([]string, int) {
 }
 
 func (m *Model) combinedEvent(e vsphere.VMEvent, explains, multi bool) string {
+	by := m.eventUserWidth(21, m.combinedEventFixed())
 	t := m.theme
 	mark := t.faint.Render("·")
 	if explains {
@@ -977,12 +984,38 @@ func (m *Model) combinedEvent(e vsphere.VMEvent, explains, multi bool) string {
 	case vsphere.ResultFailed:
 		glyph = t.bad.Render("✕")
 	}
-	detail := e.Detail
+	detail := e.DisplayDetail()
 	if multi {
 		detail = strings.TrimSpace(e.Context + "  " + detail)
 	}
-	return mark + " " + t.text.Render(pad(e.Time.Local().Format("01-02 15:04"), 13, false)+pad(e.Label, 17, false)+pad(humanize.Dash(e.User), 21, false)) + glyph + "  " + t.dim.Render(detail)
+	return mark + " " + t.text.Render(pad(e.Time.Local().Format("01-02 15:04"), 13, false)+pad(truncate(e.Label, 16), 17, false)+pad(humanize.Dash(e.User), by, false)) + glyph + "  " + t.dim.Render(detail)
 }
+
+// combinedEventFixed is the width an event takes on a Combined row besides
+// its BY column: the stored-change column when it sits beside the event or
+// the indent when not, the mark, time, label and result.
+func (m *Model) combinedEventFixed() int {
+	fixed := 2 + 13 + 17 + 3
+	if m.combinedSide() {
+		return fixed + combinedLeftWidth
+	}
+	return fixed + 6
+}
+
+// eventUserWidth is the width of the BY column. It never drops below base, so
+// narrow terminals keep their layout, and grows toward the longest user name
+// (VSPHERE.LOCAL\Administrator is 27) while at least minEventDetail columns
+// remain for the detail after the other fixed columns.
+func (m *Model) eventUserWidth(base, fixed int) int {
+	need := 0
+	for _, e := range m.timelineEvents() {
+		need = max(need, ansi.StringWidth(humanize.Dash(e.User))+1)
+	}
+	return max(base, min(need, m.width-fixed-minEventDetail))
+}
+
+// minEventDetail is the room a wider BY column leaves for the detail.
+const minEventDetail = 30
 
 func (m *Model) timelineLine(s string, selected bool) string {
 	s = truncate(s, max(1, m.width))

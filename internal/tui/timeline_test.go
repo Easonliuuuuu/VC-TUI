@@ -141,6 +141,41 @@ func TestTimelineCombinedExplainsTheStoredChange(t *testing.T) {
 	}
 }
 
+// TestTimelineByColumnGrowsWithTheTerminal: a vSphere SSO user is 27 columns,
+// wider than the BY column a narrow terminal affords, so the column widens
+// where the room exists and still truncates where it does not. Combined
+// keeps less room for it beside the stored change, and more below 110
+// columns, where the event gets a row of its own.
+func TestTimelineByColumnGrowsWithTheTerminal(t *testing.T) {
+	const user = `VSPHERE.LOCAL\Administrator`
+	e := billingRemoved()
+	e.User, e.Summary = user, "Alarm 'CPU usage' changed from Gray to Green"
+	b := &eventsBackend{fakeBackend: twoHealthy(), events: map[string][]vsphere.VMEvent{"prod/vm-1": {e}}}
+	m := timelineModel(t, b)
+	drive(t, m, m.openTimeline("billing", modeBrowse, nil))
+	for _, tab := range []string{"2", "3"} {
+		press(t, m, tab)
+		for _, tc := range []struct {
+			width int
+			whole bool
+		}{{160, true}, {140, tab == "2"}, {100, tab == "3"}, {80, false}} {
+			m.width = tc.width
+			got := viewText(m)
+			if has := strings.Contains(got, user); has != tc.whole {
+				t.Fatalf("tab %s at %d columns: full user shown = %v, want %v:\n%s", tab, tc.width, has, tc.whole, got)
+			}
+			for _, l := range strings.Split(got, "\n") {
+				if ansi.StringWidth(l) > tc.width {
+					t.Fatalf("tab %s at %d columns: line is %d wide: %q", tab, tc.width, ansi.StringWidth(l), l)
+				}
+			}
+			if tc.width >= 140 && !strings.Contains(got, "Alarm 'CPU") {
+				t.Fatalf("tab %s at %d columns lost the detail:\n%s", tab, tc.width, got)
+			}
+		}
+	}
+}
+
 // TestTimelineEventsWaitForAnUnconnectedVCenter: a VM seen on a vCenter that
 // is configured but not connected is named, not silently skipped, and is only
 // read when r asks — which is what connects it.
